@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  repo <command> [--path <path>] [--remote <name>]
+
+Commands:
+  root
+  current-branch
+  head-sha
+  published-head-sha <branch>
+  remote-url
+  base-branch
+  working-branch <identifier> [--work-prefix <prefix>]
+  status
+  preflight [--remote-url <url>]
+  diff [--merge] [--cached|--staged] [<ref-or-path> ...]
+  diff-check [<ref-or-path> ...]
+  clone <remote-url> <target-path> [--branch <branch>] [--depth <n>]
+  fetch
+  merge <ref> [--ff-only]
+  sync-base [--base <branch>] [--ff-only]
+  enable-rerere
+  push <branch> [--set-upstream] [--force-with-lease]
+  delete-remote-branch <branch>
+  create-branch <branch> [--base <ref>]
+  create-working-branch <identifier> [--base <ref>] [--work-prefix <prefix>]
+  switch-branch <branch>
+  stage-all
+  commit-all --message <message>
+  commit-staged --message <message>
+
+Environment:
+  SYMPHONY_REPO_PATH    Optional target repository path. Defaults to repo when
+                        workspace-root repo/ exists, otherwise current directory.
+  SYMPHONY_REPO_REMOTE  Optional Git remote name. Defaults to origin.
+  SYMPHONY_REPO_REMOTE_URL
+                        Optional canonical Git remote URL for preflight.
+  SYMPHONY_REPO_BRANCH_WORK_PREFIX
+                        Optional generated working branch prefix.
+  SYMPHONY_CLI          Optional absolute path to the Symphony CLI executable.
+
+Requirements:
+  symphony repo runtime symphony in PATH, or executable SYMPHONY_CLI
+EOF
+}
+
+default_repo_path() {
+  if [ -n "${SYMPHONY_REPO_PATH:-}" ]; then
+    printf '%s\n' "$SYMPHONY_REPO_PATH"
+  elif [ -d repo ]; then
+    printf '%s\n' "repo"
+  else
+    printf '%s\n' "."
+  fi
+}
+
+if [ $# -lt 1 ]; then
+  usage >&2
+  exit 64
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  help|--help|-h)
+    usage
+    exit 0
+    ;;
+esac
+
+case "$command" in
+  root|current-branch|head-sha|published-head-sha|remote-url|base-branch|working-branch|status|preflight|diff|diff-check|clone|fetch|merge|sync-base|enable-rerere|push|delete-remote-branch|create-branch|create-working-branch|switch-branch|stage-all|commit-all|commit-staged)
+    ;;
+  *)
+    echo "Unsupported repo command: $command" >&2
+    usage >&2
+    exit 64
+    ;;
+esac
+
+resolve_symphony_cli() {
+  if [ -n "${SYMPHONY_CLI:-}" ] && [ -x "$SYMPHONY_CLI" ]; then
+    printf '%s\n' "$SYMPHONY_CLI"
+    return 0
+  fi
+
+  if command -v symphony >/dev/null 2>&1; then
+    command -v symphony
+    return 0
+  fi
+
+  return 1
+}
+
+symphony_cli="$(resolve_symphony_cli)" || {
+  echo "repo helper requires executable SYMPHONY_CLI or symphony in PATH" >&2
+  exit 64
+}
+
+if [ -z "${SYMPHONY_REPO_REMOTE_URL:-}" ] && [ -n "${SOURCE_REPO_URL:-}" ]; then
+  export SYMPHONY_REPO_REMOTE_URL="$SOURCE_REPO_URL"
+fi
+
+if [ -z "${SYMPHONY_REPO_BASE_BRANCH:-}" ] && [ -n "${SOURCE_REPO_BASE_BRANCH:-}" ]; then
+  export SYMPHONY_REPO_BASE_BRANCH="$SOURCE_REPO_BASE_BRANCH"
+fi
+
+has_path=0
+has_remote=0
+has_remote_url=0
+has_work_prefix=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --path|--path=*)
+      has_path=1
+      ;;
+    --remote|--remote=*)
+      has_remote=1
+      ;;
+    --remote-url|--remote-url=*)
+      has_remote_url=1
+      ;;
+    --work-prefix|--work-prefix=*)
+      has_work_prefix=1
+      ;;
+  esac
+done
+
+args=("$command" "$@")
+
+case "$command" in
+  clone)
+    uses_path=0
+    uses_remote=0
+    ;;
+  published-head-sha|remote-url|base-branch|preflight|fetch|sync-base|push|delete-remote-branch|create-working-branch)
+    uses_path=1
+    uses_remote=1
+    ;;
+  working-branch)
+    uses_path=0
+    uses_remote=0
+    ;;
+  diff|diff-check|enable-rerere|stage-all|commit-staged)
+    uses_path=1
+    uses_remote=0
+    ;;
+  *)
+    uses_path=1
+    uses_remote=0
+    ;;
+esac
+
+if [ "$uses_path" -eq 1 ] && [ "$has_path" -eq 0 ]; then
+  args+=("--path" "$(default_repo_path)")
+fi
+
+if [ "$uses_remote" -eq 1 ] && [ "$has_remote" -eq 0 ] && [ -n "${SYMPHONY_REPO_REMOTE:-}" ]; then
+  args+=("--remote" "$SYMPHONY_REPO_REMOTE")
+fi
+
+if [ "$command" = "preflight" ] && [ "$has_remote_url" -eq 0 ] && [ -n "${SYMPHONY_REPO_REMOTE_URL:-}" ]; then
+  args+=("--remote-url" "$SYMPHONY_REPO_REMOTE_URL")
+fi
+
+case "$command" in
+  working-branch|create-working-branch)
+    if [ "$has_work_prefix" -eq 0 ] && [ -n "${SYMPHONY_REPO_BRANCH_WORK_PREFIX:-}" ]; then
+      args+=("--work-prefix" "$SYMPHONY_REPO_BRANCH_WORK_PREFIX")
+    fi
+    ;;
+esac
+
+exec "$symphony_cli" repo "${args[@]}"

@@ -1,0 +1,13 @@
+Run 1001: success
+Title: CI for Repo provider refactor
+Branch: feature/cnb-provider
+SHA: abc123
+URL: https://cnb.cool/acme/widgets/-/build/logs/1001
+
+== Pipeline ci (success) ==
+-- Stage checkout (success) --
+cloning repo
+checkout complete
+-- Stage test (success) --
+mix test
+80 tests, 0 failures

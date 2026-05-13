@@ -1,0 +1,6 @@
+title = "Symphony gitleaks configuration"
+
+[allowlist]
+paths = [
+  '''^\.secrets\.baseline$''',
+]

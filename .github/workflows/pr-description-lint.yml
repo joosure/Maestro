@@ -1,0 +1,33 @@
+name: pr-description-lint
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+jobs:
+  validate-pr-description:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: elixir
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          install: true
+          cache: true
+          working_directory: elixir
+
+      - name: Validate PR description format
+        env:
+          PR_BODY_JSON: ${{ toJson(github.event.pull_request.body) }}
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          printf '%s' "$PR_BODY_JSON" | jq -r '.' > /tmp/pr_body.md
+          mix pr_body.check --file /tmp/pr_body.md

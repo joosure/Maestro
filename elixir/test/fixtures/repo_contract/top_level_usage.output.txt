@@ -1,0 +1,41 @@
+Usage:
+  repo <command> [--path <path>] [--remote <name>]
+
+Commands:
+  root
+  current-branch
+  head-sha
+  published-head-sha <branch>
+  remote-url
+  base-branch
+  working-branch <identifier> [--work-prefix <prefix>]
+  status
+  preflight [--remote-url <url>]
+  diff [--merge] [--cached|--staged] [<ref-or-path> ...]
+  diff-check [<ref-or-path> ...]
+  clone <remote-url> <target-path> [--branch <branch>] [--depth <n>]
+  fetch
+  merge <ref> [--ff-only]
+  sync-base [--base <branch>] [--ff-only]
+  enable-rerere
+  push <branch> [--set-upstream] [--force-with-lease]
+  delete-remote-branch <branch>
+  create-branch <branch> [--base <ref>]
+  create-working-branch <identifier> [--base <ref>] [--work-prefix <prefix>]
+  switch-branch <branch>
+  stage-all
+  commit-all --message <message>
+  commit-staged --message <message>
+
+Environment:
+  SYMPHONY_REPO_PATH    Optional target repository path. Defaults to repo when
+                        workspace-root repo/ exists, otherwise current directory.
+  SYMPHONY_REPO_REMOTE  Optional Git remote name. Defaults to origin.
+  SYMPHONY_REPO_REMOTE_URL
+                        Optional canonical Git remote URL for preflight.
+  SYMPHONY_REPO_BRANCH_WORK_PREFIX
+                        Optional generated working branch prefix.
+  SYMPHONY_CLI          Optional absolute path to the Symphony CLI executable.
+
+Requirements:
+  symphony repo runtime symphony in PATH, or executable SYMPHONY_CLI

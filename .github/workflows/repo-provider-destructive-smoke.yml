@@ -1,0 +1,170 @@
+name: repo-provider-destructive-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Repo provider to validate"
+        required: true
+        type: choice
+        options:
+          - github
+          - cnb
+      repository:
+        description: "Canonical repository slug, for example owner/repo or group/repo"
+        required: true
+        type: string
+      head_branch:
+        description: "Existing remote source branch used to create the smoke PR; omit when auto-provisioning a temporary CNB pipeline branch"
+        required: false
+        type: string
+      base_branch:
+        description: "Optional target branch override"
+        required: false
+        type: string
+      auto_provision_cnb_pipeline:
+        description: "CNB-only destructive mode that creates a temporary branch with a minimal .cnb.yml and validates run-list/run-view --log before cleanup"
+        required: false
+        default: false
+        type: boolean
+      title:
+        description: "Optional destructive smoke PR title override"
+        required: false
+        type: string
+      body:
+        description: "Optional destructive smoke PR body override"
+        required: false
+        type: string
+      api_base_url:
+        description: "Optional repo-provider API base URL override"
+        required: false
+        type: string
+      web_base_url:
+        description: "Optional repo-provider web base URL override"
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  repo-provider-destructive-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: elixir
+
+    env:
+      SMOKE_PROVIDER: ${{ inputs.provider }}
+      SMOKE_REPOSITORY: ${{ inputs.repository }}
+      SMOKE_HEAD_BRANCH: ${{ inputs.head_branch }}
+      SMOKE_BASE_BRANCH: ${{ inputs.base_branch }}
+      SMOKE_AUTO_PROVISION_CNB_PIPELINE: ${{ inputs.auto_provision_cnb_pipeline }}
+      SMOKE_TITLE: ${{ inputs.title }}
+      SMOKE_BODY: ${{ inputs.body }}
+      SYMPHONY_REPO_PROVIDER_KIND: ${{ inputs.provider }}
+      SYMPHONY_REPO_PROVIDER_REPOSITORY: ${{ inputs.repository }}
+      SYMPHONY_REPO_PROVIDER_API_BASE_URL: ${{ inputs.api_base_url }}
+      SYMPHONY_REPO_PROVIDER_WEB_BASE_URL: ${{ inputs.web_base_url }}
+      GH_TOKEN: ${{ secrets.REPO_PROVIDER_GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.REPO_PROVIDER_GITHUB_TOKEN }}
+      CNB_TOKEN: ${{ secrets.REPO_PROVIDER_CNB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          install: true
+          cache: true
+          working_directory: elixir
+
+      - name: Cache deps and build
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            elixir/deps
+            elixir/_build
+          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - name: Build symphony escript
+        run: |
+          mix setup
+          mix build
+
+      - name: Run repo-provider destructive smoke
+        run: |
+          set -uo pipefail
+
+          if [ "$SMOKE_PROVIDER" = "github" ] && [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::GitHub destructive smoke requires the REPO_PROVIDER_GITHUB_TOKEN repository secret"
+            exit 64
+          fi
+
+          if [ "$SMOKE_PROVIDER" = "cnb" ] && [ -z "${CNB_TOKEN:-}" ]; then
+            echo "::error::CNB destructive smoke requires the REPO_PROVIDER_CNB_TOKEN repository secret"
+            exit 64
+          fi
+
+          if [ "$SMOKE_AUTO_PROVISION_CNB_PIPELINE" = "true" ] && [ "$SMOKE_PROVIDER" != "cnb" ]; then
+            echo "::error::auto_provision_cnb_pipeline is only supported for provider=cnb"
+            exit 64
+          fi
+
+          if [ "$SMOKE_AUTO_PROVISION_CNB_PIPELINE" != "true" ] && [ -z "${SMOKE_HEAD_BRANCH:-}" ]; then
+            echo "::error::head_branch is required unless auto_provision_cnb_pipeline=true"
+            exit 64
+          fi
+
+          mkdir -p repo-provider-smoke-output
+
+          args=(
+            --provider "$SMOKE_PROVIDER"
+            --repo "$SMOKE_REPOSITORY"
+            --destructive
+            --json
+          )
+
+          if [ "$SMOKE_AUTO_PROVISION_CNB_PIPELINE" = "true" ]; then
+            args+=(--auto-provision-cnb-pipeline)
+          else
+            args+=(--head "$SMOKE_HEAD_BRANCH")
+          fi
+
+          if [ -n "${SMOKE_BASE_BRANCH:-}" ]; then
+            args+=(--base "$SMOKE_BASE_BRANCH")
+          fi
+
+          if [ -n "${SMOKE_TITLE:-}" ]; then
+            args+=(--title "$SMOKE_TITLE")
+          fi
+
+          if [ -n "${SMOKE_BODY:-}" ]; then
+            args+=(--body "$SMOKE_BODY")
+          fi
+
+          ./bin/symphony repo-provider smoke "${args[@]}" | tee repo-provider-smoke-output/report.json
+          status=${PIPESTATUS[0]}
+
+          {
+            echo "### Repo-provider destructive smoke"
+            echo
+            jq -r '"- provider: \(.provider_kind)\n- repository: \(.repository)\n- runtime: symphony\n- mode: \(.smoke_mode)\n- ok: \(.ok)\n- probes: \(.probe_count)\n- passed: \(.passed_count)\n- failed: \(.failed_count)"' repo-provider-smoke-output/report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"
+
+      - name: Upload destructive smoke report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: repo-provider-destructive-smoke-${{ inputs.provider }}-${{ github.run_id }}
+          path: elixir/repo-provider-smoke-output/report.json
+          if-no-files-found: warn

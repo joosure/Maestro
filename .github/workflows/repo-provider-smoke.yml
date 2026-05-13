@@ -1,0 +1,134 @@
+name: repo-provider-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Repo provider to validate"
+        required: true
+        type: choice
+        options:
+          - github
+          - cnb
+      repository:
+        description: "Canonical repository slug, for example owner/repo or group/repo"
+        required: true
+        type: string
+      pr_number:
+        description: "Existing PR number to probe with pr-view and pr-checks"
+        required: true
+        type: string
+      api_endpoint:
+        description: "Optional read-only api endpoint probe, mainly for CNB translation validation"
+        required: false
+        type: string
+      api_jq:
+        description: "Optional query for the api endpoint probe"
+        required: false
+        type: string
+      api_base_url:
+        description: "Optional repo-provider API base URL override"
+        required: false
+        type: string
+      web_base_url:
+        description: "Optional repo-provider web base URL override"
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  repo-provider-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: elixir
+
+    env:
+      SMOKE_PROVIDER: ${{ inputs.provider }}
+      SMOKE_REPOSITORY: ${{ inputs.repository }}
+      SMOKE_PR_NUMBER: ${{ inputs.pr_number }}
+      SMOKE_API_ENDPOINT: ${{ inputs.api_endpoint }}
+      SMOKE_API_JQ: ${{ inputs.api_jq }}
+      SYMPHONY_REPO_PROVIDER_KIND: ${{ inputs.provider }}
+      SYMPHONY_REPO_PROVIDER_REPOSITORY: ${{ inputs.repository }}
+      SYMPHONY_REPO_PROVIDER_API_BASE_URL: ${{ inputs.api_base_url }}
+      SYMPHONY_REPO_PROVIDER_WEB_BASE_URL: ${{ inputs.web_base_url }}
+      GH_TOKEN: ${{ secrets.REPO_PROVIDER_GITHUB_TOKEN != '' && secrets.REPO_PROVIDER_GITHUB_TOKEN || github.token }}
+      GITHUB_TOKEN: ${{ secrets.REPO_PROVIDER_GITHUB_TOKEN != '' && secrets.REPO_PROVIDER_GITHUB_TOKEN || github.token }}
+      CNB_TOKEN: ${{ secrets.REPO_PROVIDER_CNB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          install: true
+          cache: true
+          working_directory: elixir
+
+      - name: Cache deps and build
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            elixir/deps
+            elixir/_build
+          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - name: Build symphony escript
+        run: |
+          mix setup
+          mix build
+
+      - name: Run repo-provider smoke
+        run: |
+          set -uo pipefail
+
+          if [ "$SMOKE_PROVIDER" = "cnb" ] && [ -z "${CNB_TOKEN:-}" ]; then
+            echo "::error::CNB smoke requires the REPO_PROVIDER_CNB_TOKEN repository secret"
+            exit 64
+          fi
+
+          mkdir -p repo-provider-smoke-output
+
+          args=(
+            --provider "$SMOKE_PROVIDER"
+            --repo "$SMOKE_REPOSITORY"
+            --pr "$SMOKE_PR_NUMBER"
+            --json
+          )
+
+          if [ -n "${SMOKE_API_ENDPOINT:-}" ]; then
+            args+=(--api-endpoint "$SMOKE_API_ENDPOINT")
+          fi
+
+          if [ -n "${SMOKE_API_JQ:-}" ]; then
+            args+=(--api-jq "$SMOKE_API_JQ")
+          fi
+
+          ./bin/symphony repo-provider smoke "${args[@]}" | tee repo-provider-smoke-output/report.json
+          status=${PIPESTATUS[0]}
+
+          {
+            echo "### Repo-provider smoke"
+            echo
+            jq -r '"- provider: \(.provider_kind)\n- repository: \(.repository)\n- runtime: symphony\n- ok: \(.ok)\n- probes: \(.probe_count)\n- passed: \(.passed_count)\n- failed: \(.failed_count)"' repo-provider-smoke-output/report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"
+
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: repo-provider-smoke-${{ inputs.provider }}-pr-${{ inputs.pr_number }}-${{ github.run_id }}
+          path: elixir/repo-provider-smoke-output/report.json
+          if-no-files-found: warn

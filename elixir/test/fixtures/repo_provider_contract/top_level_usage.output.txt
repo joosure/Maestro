@@ -1,0 +1,63 @@
+Usage:
+  repo-provider [--provider <kind>] <command> [args...]
+
+Commands:
+  current-kind
+  auth-status
+  pr-view
+  pr-create
+  pr-edit
+  pr-add-label
+  pr-issue-comments
+  pr-add-issue-comment
+  pr-reviews
+  pr-review-comments
+  pr-reply-review-comment
+  pr-checks
+  pr-land-watch [<pr-number>] [--poll-ms <ms>] [--checks-appear-timeout-ms <ms>]
+  pr-merge
+  pr-close
+  api
+  run-list
+  run-view
+
+Environment:
+  SYMPHONY_REPO_PROVIDER_KIND         Default provider kind when --provider is omitted.
+  SYMPHONY_REPO_PATH                  Optional target repository path for local
+                                      Git fact lookups.
+  SYMPHONY_REPO_REMOTE                Optional Git remote name for repository
+                                      slug and base branch discovery.
+  SYMPHONY_REPO_REMOTE_URL            Optional canonical Git remote URL.
+  SYMPHONY_REPO_BASE_BRANCH           Optional default base branch for PR creation.
+  SYMPHONY_REPO_BRANCH_WORK_PREFIX    Optional repo-core generated branch prefix.
+  SYMPHONY_REPO_PROVIDER_REPOSITORY   Optional canonical repository slug consumed by
+                                      symphony repo-provider.
+  SYMPHONY_REPO_PROVIDER_API_BASE_URL Optional repo-provider API base URL override.
+  SYMPHONY_REPO_PROVIDER_WEB_BASE_URL Optional repo-provider web base URL override.
+  SYMPHONY_REPO_PROVIDER_HTTP_TIMEOUT_SECONDS
+                                      CNB HTTP timeout in seconds (default: 10).
+  SYMPHONY_REPO_PROVIDER_MAX_HTTP_RETRIES
+                                      CNB retry attempts for retryable GET requests (default: 3).
+  SYMPHONY_REPO_PROVIDER_RETRY_BACKOFF_SECONDS
+                                      Base backoff for retryable CNB GET requests (default: 1).
+  SYMPHONY_AGENT_REVIEW_BOTS          Optional comma-separated bot logins whose
+                                      review comments block land-watch.
+  SYMPHONY_AGENT_REVIEW_REQUEST_TOKEN Optional marker for agent review requests
+                                      (default: @agent review).
+  SYMPHONY_AGENT_REPLY_PREFIX         Optional prefix for agent replies
+                                      (default: [agent]).
+  SYMPHONY_AGENT_REVIEW_HEADING       Optional heading for agent review issue
+                                      comments (default: ## Agent Review).
+  SOURCE_REPO_PROVIDER_KIND          Optional workflow-input default for
+                                      SYMPHONY_REPO_PROVIDER_KIND.
+  SOURCE_REPO_PROVIDER_REPOSITORY    Optional workflow-input default for
+                                      SYMPHONY_REPO_PROVIDER_REPOSITORY.
+  SYMPHONY_CLI                       Optional absolute path to the Symphony CLI executable.
+  CNB_TOKEN                           Required for CNB API operations.
+
+Notes:
+  --jq/-q                            Built-in query subset supports field access,
+                                     array indexing, and array iteration.
+
+Requirements:
+  symphony repo-provider runtime      symphony in PATH, or executable SYMPHONY_CLI
