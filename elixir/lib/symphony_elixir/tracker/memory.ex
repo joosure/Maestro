@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Tracker.Memory do
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Tracker.Config
   alias SymphonyElixir.Tracker.ProjectRef
+  alias SymphonyElixir.Tracker.StatePrecondition
 
   @spec kind() :: String.t()
   def kind, do: "memory"
@@ -87,13 +88,15 @@ defmodule SymphonyElixir.Tracker.Memory do
   end
 
   @spec update_issue_state(Config.t(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
-  def update_issue_state(tracker, issue_id, state_name, _opts \\ []) do
-    if persist_state_updates?(tracker) do
-      persist_state_update(issue_id, state_name)
-    end
+  def update_issue_state(tracker, issue_id, state_name, opts \\ []) do
+    with :ok <- confirm_expected_current_state(tracker, issue_id, opts) do
+      if persist_state_updates?(tracker) do
+        persist_state_update(issue_id, state_name)
+      end
 
-    send_event({:memory_tracker_state_update, issue_id, state_name})
-    :ok
+      send_event({:memory_tracker_state_update, issue_id, state_name})
+      :ok
+    end
   end
 
   defp configured_issues do
@@ -189,6 +192,23 @@ defmodule SymphonyElixir.Tracker.Memory do
   end
 
   defp persist_state_update(_issue_id, _state_name), do: :ok
+
+  defp confirm_expected_current_state(tracker, issue_id, opts)
+       when is_binary(issue_id) and is_list(opts) do
+    case StatePrecondition.expected_current_state(opts) do
+      nil ->
+        :ok
+
+      expected ->
+        case Enum.find(issue_entries(tracker), &(&1.id == issue_id)) do
+          %Issue{} = issue ->
+            StatePrecondition.check(kind(), :update_issue_state, issue, expected)
+
+          nil ->
+            {:error, StatePrecondition.issue_missing_error(kind(), :update_issue_state, issue_id, expected)}
+        end
+    end
+  end
 
   defp apply_state_override(%Issue{id: id} = issue, overrides) when is_binary(id) and is_map(overrides) do
     case Map.get(overrides, id) do

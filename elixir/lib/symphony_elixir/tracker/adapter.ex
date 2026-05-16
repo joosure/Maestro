@@ -22,6 +22,9 @@ defmodule SymphonyElixir.Tracker.Adapter do
   `tool_environment/1` is a tracker-owned dynamic-tool contract; it returns
   environment required by generated tracker helper tools, while higher layers
   decide whether that environment is passed to an AgentProvider process.
+  `update_issue_state/4` implementations should honor
+  `:expected_current_state` in opts when they can confirm the issue's current
+  state before writing.
 
   ## Implementing a New Adapter
 
@@ -41,7 +44,8 @@ defmodule SymphonyElixir.Tracker.Adapter do
       }
   """
 
-  alias SymphonyElixir.Tracker.{Config, Error, ProjectRef}
+  alias SymphonyElixir.Issue
+  alias SymphonyElixir.Tracker.{ChangeProposalReference, Config, Error, ProjectRef}
 
   @type result(t) :: {:ok, t} | {:error, Error.t() | term()}
   @type tool_result :: {:success, term()} | {:failure, term()} | {:error, Error.t() | term()}
@@ -53,6 +57,8 @@ defmodule SymphonyElixir.Tracker.Adapter do
   @callback fetch_candidate_issues(Config.t(), keyword()) :: result([term()])
   @callback fetch_issues_by_states(Config.t(), [String.t()], keyword()) :: result([term()])
   @callback fetch_issue_states_by_ids(Config.t(), [String.t()], keyword()) :: result([term()])
+  @callback fetch_change_proposal_reference(Config.t(), Issue.t() | map(), keyword()) ::
+              result(ChangeProposalReference.t() | nil)
 
   @callback create_comment(Config.t(), String.t(), String.t(), keyword()) ::
               :ok | {:error, Error.t() | term()}
@@ -75,6 +81,7 @@ defmodule SymphonyElixir.Tracker.Adapter do
     fetch_candidate_issues: 2,
     fetch_issues_by_states: 3,
     fetch_issue_states_by_ids: 3,
+    fetch_change_proposal_reference: 3,
     create_comment: 4,
     update_issue_state: 4,
     dynamic_tools: 1,

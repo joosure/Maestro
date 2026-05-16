@@ -481,8 +481,13 @@ defmodule SymphonyElixir.TapdLiveE2ETest do
         "kind" => "coding_pr_delivery",
         "version" => 1,
         "options" => %{
-          "require_typed_tracker_tools" => true,
-          "require_typed_repo_tools" => true
+          "requirements" => %{
+            "typed_tracker_tools" => true,
+            "typed_repo_tools" => true
+          },
+          "execution_profiles" => %{
+            "allowed" => ["land"]
+          }
         }
       },
       agent_provider_options:

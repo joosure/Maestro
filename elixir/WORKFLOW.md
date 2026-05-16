@@ -4,9 +4,13 @@ workflow:
     kind: coding_pr_delivery
     version: 1
     options:
-      require_change_proposal: true
-      require_typed_tracker_tools: true
-      require_typed_repo_tools: true
+      requirements:
+        change_proposal: true
+        typed_tracker_tools: true
+        typed_repo_tools: true
+      execution_profiles:
+        allowed:
+          - land
 tracker:
   kind: linear
   auth:
@@ -104,6 +108,13 @@ Title: {{ issue.title }}
 Current status: {{ issue.state }}
 Labels: {{ issue.labels }}
 URL: {{ issue.url }}
+
+Workflow facts:
+- profile -> `{{ workflow.profile.kind }}` v{{ workflow.profile.version }}
+- current route -> {% if workflow.route.key %}`{{ workflow.route.key }}`{% else %}`unresolved`{% endif %}; action -> {% if workflow.route.action %}`{{ workflow.route.action }}`{% else %}`unknown`{% endif %}; gate -> `{{ workflow.gate.status }}/{{ workflow.gate.gate }}`
+- gate reason -> {{ workflow.gate.reason }}
+- required capabilities -> {{ workflow.capabilities.required }}
+- completion routes -> {{ workflow.completion_contract.allowed_completion_routes }}
 
 Description:
 {% if issue.description %}

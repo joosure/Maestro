@@ -16,8 +16,9 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
 
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error
-  alias SymphonyElixir.Tracker.Linear.{Client, ToolExecutor}
+  alias SymphonyElixir.Tracker.Linear.{Client, ConfigValidator, ToolExecutor}
   alias SymphonyElixir.Tracker.ProjectRef
+  alias SymphonyElixir.Tracker.StatePrecondition
 
   # ── Required callbacks ───────────────────────────────────────────
 
@@ -84,7 +85,7 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
         {:error, config_error(:missing_linear_project_slug, :missing_project_reference, "Linear project slug is required.")}
 
       true ->
-        :ok
+        ConfigValidator.validate(tracker)
     end
   end
 
@@ -150,9 +151,11 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
   end
 
   @spec update_issue_state(TrackerConfig.t(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
-  def update_issue_state(tracker, issue_id, state_name, _opts \\ [])
+  def update_issue_state(tracker, issue_id, state_name, opts \\ [])
       when is_map(tracker) and is_binary(issue_id) and is_binary(state_name) do
-    client_module().update_issue_state(issue_id, state_name, tracker: tracker)
+    with :ok <- confirm_expected_current_state(tracker, issue_id, opts) do
+      client_module().update_issue_state(issue_id, state_name, Keyword.put(opts, :tracker, tracker))
+    end
   end
 
   # ── Workspace ────────────────────────────────────────────────────
@@ -185,6 +188,52 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
 
   defp maybe_put_env(env, key, value) when is_binary(key) do
     Map.put(env, key, to_string(value))
+  end
+
+  defp confirm_expected_current_state(tracker, issue_id, opts)
+       when is_map(tracker) and is_binary(issue_id) and is_list(opts) do
+    case StatePrecondition.expected_current_state(opts) do
+      nil ->
+        :ok
+
+      expected ->
+        with {:ok, issues} <- client_fetch_issue_states_by_ids([issue_id], tracker, opts),
+             {:ok, issue} <- single_issue(issues, issue_id, expected) do
+          StatePrecondition.check(kind(), :update_issue_state, issue, expected)
+        end
+    end
+  end
+
+  defp client_fetch_issue_states_by_ids(issue_ids, tracker, opts) do
+    client = client_module()
+
+    if function_exported?(client, :fetch_issue_states_by_ids, 3) do
+      client.fetch_issue_states_by_ids(issue_ids, tracker, opts)
+    else
+      client.fetch_issue_states_by_ids(issue_ids, tracker)
+    end
+  end
+
+  defp single_issue([%SymphonyElixir.Issue{} = issue | _rest], _issue_id, _expected), do: {:ok, issue}
+
+  defp single_issue([], issue_id, expected) do
+    {:error, StatePrecondition.issue_missing_error(kind(), :update_issue_state, issue_id, expected)}
+  end
+
+  defp single_issue(issues, issue_id, expected) do
+    {:error,
+     Error.new(%{
+       provider: kind(),
+       operation: :update_issue_state,
+       code: :invalid_response,
+       message: "Linear issue precondition lookup returned an unexpected payload.",
+       details: %{
+         issue_id: issue_id,
+         expected_current_state: expected,
+         issue_count: if(is_list(issues), do: length(issues), else: nil),
+         source_reason: :invalid_expected_current_state_lookup
+       }
+     })}
   end
 
   defp client_module do

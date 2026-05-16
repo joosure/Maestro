@@ -335,8 +335,8 @@ defmodule SymphonyElixir.CoreTest do
     assert is_map(config)
 
     assert get_in(config, ["workflow", "profile", "kind"]) == "coding_pr_delivery"
-    assert get_in(config, ["workflow", "profile", "options", "require_typed_tracker_tools"]) == true
-    assert get_in(config, ["workflow", "profile", "options", "require_typed_repo_tools"]) == true
+    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_tracker_tools"]) == true
+    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_repo_tools"]) == true
 
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
@@ -641,10 +641,10 @@ defmodule SymphonyElixir.CoreTest do
     assert get_in(config, ["agent_provider", "options", "permission_mode"]) == "bypassPermissions"
     assert get_in(config, ["agent_provider", "options", "model"]) == "sonnet"
 
-    assert get_in(config, ["workflow", "profile", "options", "require_typed_tracker_tools"]) ==
+    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_tracker_tools"]) ==
              true
 
-    assert get_in(config, ["workflow", "profile", "options", "require_typed_repo_tools"]) == true
+    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_repo_tools"]) == true
 
     assert prompt =~
              "The active repo provider for bundled automation is `{{ repo.provider.kind }}`."
@@ -978,6 +978,11 @@ defmodule SymphonyElixir.CoreTest do
 
       assert log =~ "issue_dispatch_selected"
       assert log =~ "issue_dispatch_started"
+      assert log =~ "workflow_profile=coding_pr_delivery"
+      assert log =~ "workflow_route_key=developing"
+      assert log =~ "workflow_route_action=dispatch"
+      assert log =~ "workflow_gate_status=open"
+      assert log =~ "workflow_gate=dispatch"
       assert log =~ "poll_cycle_completed"
 
       running_entry = Map.fetch!(returned_state.running, issue.id)
@@ -1739,6 +1744,57 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "startup terminal cleanup is best effort when terminal fetch raises" do
+    orchestrator_name = __MODULE__.TerminalCleanupFetchRaisesOrchestrator
+
+    log =
+      capture_log(fn ->
+        assert {:ok, pid} =
+                 Orchestrator.start_link(
+                   name: orchestrator_name,
+                   terminal_cleanup_opts: [
+                     fetch_terminal_issues: fn -> raise ArgumentError, "terminal fetch boom" end,
+                     cleanup_workspace: fn _identifier -> :ok end,
+                     emit_event: fn level, event, extra_fields ->
+                       SymphonyElixir.Observability.Logger.emit(level, event, extra_fields)
+                     end
+                   ]
+                 )
+
+        GenServer.stop(pid)
+      end)
+
+    assert log =~ "terminal_cleanup_skipped"
+    assert log =~ "startup_terminal_cleanup_failed"
+    assert log =~ "terminal fetch boom"
+  end
+
+  test "startup terminal cleanup is best effort when workspace cleanup raises" do
+    orchestrator_name = __MODULE__.TerminalCleanupWorkspaceCleanupRaisesOrchestrator
+
+    log =
+      capture_log(fn ->
+        assert {:ok, pid} =
+                 Orchestrator.start_link(
+                   name: orchestrator_name,
+                   terminal_cleanup_opts: [
+                     fetch_terminal_issues: fn ->
+                       {:ok, [%Issue{id: "issue-terminal-cleanup", identifier: "MT-TERMINAL"}]}
+                     end,
+                     cleanup_workspace: fn "MT-TERMINAL" -> raise ArgumentError, "cleanup boom" end,
+                     emit_event: fn level, event, extra_fields ->
+                       SymphonyElixir.Observability.Logger.emit(level, event, extra_fields)
+                     end
+                   ]
+                 )
+
+        GenServer.stop(pid)
+      end)
+
+    assert log =~ "startup_terminal_cleanup_failed"
+    assert log =~ "cleanup boom"
+  end
+
   test "startup terminal cleanup emits completed event after removing terminal workspaces" do
     test_root =
       Path.join(
@@ -1864,6 +1920,41 @@ defmodule SymphonyElixir.CoreTest do
     assert select_worker_host(state, "worker-a") == "worker-a"
   end
 
+  test "select_worker_host enforces the local runtime concurrency cap" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_max_concurrent_local_agents: 1
+    )
+
+    empty_state = %Orchestrator.State{running: %{}}
+    assert select_worker_host(empty_state, nil) == nil
+
+    full_state = %Orchestrator.State{
+      running: %{
+        "issue-1" => %{worker_host: nil}
+      }
+    }
+
+    assert select_worker_host(full_state, nil) == :no_worker_capacity
+  end
+
+  test "select_worker_host does not apply local caps to Worker Daemon placement" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_max_concurrent_local_agents: 1,
+      agent_runtime: %{
+        placement: "worker_daemon",
+        worker_daemon: %{endpoint: "http://daemon.example"}
+      }
+    )
+
+    state = %Orchestrator.State{
+      running: %{
+        "issue-1" => %{worker_host: nil, worker_daemon_endpoint: "http://daemon.example"}
+      }
+    }
+
+    assert select_worker_host(state, nil) == nil
+  end
+
   defp assert_due_in_range(due_at_ms, min_remaining_ms, max_remaining_ms) do
     remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
 
@@ -1987,6 +2078,109 @@ defmodule SymphonyElixir.CoreTest do
     prompt = PromptBuilder.build_prompt(issue, repo: Config.settings!().repo)
 
     assert prompt == "planning=transition_then_dispatch target=developing merging=land"
+  end
+
+  test "prompt builder renders structured workflow readiness context" do
+    workflow_prompt =
+      "profile={{ workflow.profile.kind }} " <>
+        "route={{ workflow.route.key }} " <>
+        "action={{ workflow.route.action }} " <>
+        "gate={{ workflow.gate.status }}/{{ workflow.gate.gate }} " <>
+        "routes={{ workflow.completion_contract.allowed_completion_routes }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "S-2C",
+      title: "Workflow readiness metadata",
+      description: "Render structured workflow facts",
+      state: "In Review",
+      lifecycle_phase: "human_review",
+      workflow: %{
+        profile: %{
+          "kind" => "coding_pr_delivery",
+          "version" => 1,
+          "options" => %{"requirements" => %{"change_proposal" => true}}
+        },
+        raw_state_by_route_key: %{
+          planning: "Todo",
+          developing: "In Progress",
+          review: "In Review",
+          merging: "Merging",
+          rework: "Rework",
+          resolved: "Done",
+          rejected: "Closed"
+        },
+        policy_by_route_key: %{
+          planning: %{action: :transition_then_dispatch, transition_target: :developing},
+          developing: %{action: :dispatch},
+          review: %{action: :wait},
+          merging: %{action: :dispatch, execution_profile: "land"},
+          rework: %{action: :dispatch},
+          resolved: %{action: :stop},
+          rejected: %{action: :stop}
+        }
+      },
+      url: "https://example.org/issues/S-2C",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, repo: Config.settings!().repo)
+
+    assert prompt =~ "profile=coding_pr_delivery"
+    assert prompt =~ "route=review"
+    assert prompt =~ "action=wait"
+    assert prompt =~ "gate=waiting/approval"
+    assert prompt =~ "review"
+    assert prompt =~ "merging"
+  end
+
+  test "prompt builder resolves workflow route from settings lifecycle when issue omits workflow metadata" do
+    workflow_prompt =
+      "route={{ workflow.route.key }} action={{ workflow.route.action }} gate={{ workflow.gate.status }}/{{ workflow.gate.gate }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: workflow_prompt,
+      tracker_active_states: ["Todo", "In Progress", "Merging", "Rework"],
+      tracker_terminal_states: ["Done", "Closed", "Cancelled", "Canceled", "Duplicate"]
+    )
+
+    settings = Config.settings!()
+
+    issue = %Issue{
+      identifier: "S-2D",
+      title: "Settings-backed route facts",
+      description: "Render Linear route facts",
+      state: "In Progress",
+      lifecycle_phase: "in_progress",
+      url: "https://example.org/issues/S-2D",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, settings: settings, repo: settings.repo)
+
+    assert prompt == "route=developing action=dispatch gate=open/dispatch"
+  end
+
+  test "prompt builder keeps workflow facts renderable when route is unresolved" do
+    workflow_prompt =
+      "route={% if workflow.route.key %}{{ workflow.route.key }}{% else %}unresolved{% endif %} " <>
+        "gate={{ workflow.gate.status }}/{{ workflow.gate.gate }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "S-2E",
+      title: "Unresolved route facts",
+      description: "Render empty route facts",
+      state: "External State",
+      url: "https://example.org/issues/S-2E",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, repo: Config.settings!().repo)
+
+    assert prompt == "route=unresolved gate=blocked/route"
   end
 
   test "prompt builder handles missing repo label via conditional template" do
@@ -2228,7 +2422,8 @@ defmodule SymphonyElixir.CoreTest do
 
     on_exit(fn -> Workflow.set_workflow_file_path(workflow_path) end)
 
-    prompt = PromptBuilder.build_prompt(issue, attempt: 2, repo: Config.settings!().repo)
+    settings = Config.settings!()
+    prompt = PromptBuilder.build_prompt(issue, attempt: 2, settings: settings, repo: settings.repo)
 
     assert prompt =~ "You are working on a Linear ticket `MT-616`"
     assert prompt =~ "Issue context:"
@@ -2236,6 +2431,10 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Title: Use rich templates for WORKFLOW.md"
     assert prompt =~ "Current status: In Progress"
     assert prompt =~ "https://example.org/issues/MT-616/use-rich-templademo-for-workflowmd"
+    assert prompt =~ "Workflow facts:"
+    assert prompt =~ "profile -> `coding_pr_delivery` v1"
+    assert prompt =~ "current route -> `developing`; action -> `dispatch`; gate -> `open/dispatch`"
+    assert prompt =~ "completion routes ->"
     assert prompt =~ "This is an unattended orchestration session."
     assert prompt =~ "Only stop early for a true blocker"
     assert prompt =~ "Do not include \"next steps for user\""

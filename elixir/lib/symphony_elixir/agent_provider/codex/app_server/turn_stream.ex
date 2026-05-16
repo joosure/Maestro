@@ -8,61 +8,89 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
   alias SymphonyElixir.AgentProvider.Codex.AppServer.TurnRequests
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
 
-  @spec await_completion(term(), (map() -> term()), boolean(), map(), pos_integer()) ::
+  @spec await_completion(term(), (map() -> term()), boolean(), map(), pos_integer(), non_neg_integer() | nil) ::
           {:ok, :turn_completed} | {:error, term()}
   def await_completion(
         port,
         on_message,
         auto_approve_requests,
         turn_context,
-        turn_timeout_ms
+        turn_timeout_ms,
+        stall_timeout_ms
       ) do
+    now_ms = monotonic_ms()
+
     receive_loop(
       port,
       on_message,
-      turn_timeout_ms,
       "",
       auto_approve_requests,
-      turn_context
+      turn_context,
+      now_ms,
+      now_ms,
+      turn_timeout_ms,
+      stall_timeout_ms
     )
   end
 
   defp receive_loop(
          port,
          on_message,
-         timeout_ms,
          pending_line,
          auto_approve_requests,
-         turn_context
+         turn_context,
+         started_at_ms,
+         last_activity_ms,
+         turn_timeout_ms,
+         stall_timeout_ms
        ) do
-    receive do
-      {^port, {:data, {:eol, chunk}}} ->
-        complete_line = pending_line <> to_string(chunk)
+    now_ms = monotonic_ms()
 
-        handle_incoming(
-          port,
-          on_message,
-          complete_line,
-          timeout_ms,
-          auto_approve_requests,
-          turn_context
-        )
+    case timeout_reason(now_ms, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms) do
+      nil ->
+        receive_timeout_ms = receive_timeout_ms(now_ms, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms)
 
-      {^port, {:data, {:noeol, chunk}}} ->
-        receive_loop(
-          port,
-          on_message,
-          timeout_ms,
-          pending_line <> to_string(chunk),
-          auto_approve_requests,
-          turn_context
-        )
+        receive do
+          {^port, {:data, {:eol, chunk}}} ->
+            activity_ms = monotonic_ms()
+            complete_line = pending_line <> to_string(chunk)
 
-      {^port, {:exit_status, status}} ->
-        {:error, {:port_exit, status}}
-    after
-      timeout_ms ->
-        {:error, :turn_timeout}
+            handle_incoming(
+              port,
+              on_message,
+              complete_line,
+              auto_approve_requests,
+              turn_context,
+              started_at_ms,
+              activity_ms,
+              turn_timeout_ms,
+              stall_timeout_ms
+            )
+
+          {^port, {:data, {:noeol, chunk}}} ->
+            receive_loop(
+              port,
+              on_message,
+              pending_line <> to_string(chunk),
+              auto_approve_requests,
+              turn_context,
+              started_at_ms,
+              monotonic_ms(),
+              turn_timeout_ms,
+              stall_timeout_ms
+            )
+
+          {^port, {:exit_status, status}} ->
+            {:error, {:port_exit, status}}
+        after
+          receive_timeout_ms ->
+            {:error,
+             timeout_reason(monotonic_ms(), started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms) ||
+               :turn_timeout}
+        end
+
+      reason ->
+        {:error, reason}
     end
   end
 
@@ -70,9 +98,12 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
          port,
          on_message,
          data,
-         timeout_ms,
          auto_approve_requests,
-         turn_context
+         turn_context,
+         started_at_ms,
+         last_activity_ms,
+         turn_timeout_ms,
+         stall_timeout_ms
        ) do
     payload_string = to_string(data)
 
@@ -120,9 +151,12 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
           payload,
           payload_string,
           method,
-          timeout_ms,
           auto_approve_requests,
-          turn_context
+          turn_context,
+          started_at_ms,
+          last_activity_ms,
+          turn_timeout_ms,
+          stall_timeout_ms
         )
 
       {:ok, payload} ->
@@ -139,10 +173,13 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
         receive_loop(
           port,
           on_message,
-          timeout_ms,
           "",
           auto_approve_requests,
-          turn_context
+          turn_context,
+          started_at_ms,
+          last_activity_ms,
+          turn_timeout_ms,
+          stall_timeout_ms
         )
 
       {:error, _reason} ->
@@ -181,10 +218,13 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
         receive_loop(
           port,
           on_message,
-          timeout_ms,
           "",
           auto_approve_requests,
-          turn_context
+          turn_context,
+          started_at_ms,
+          last_activity_ms,
+          turn_timeout_ms,
+          stall_timeout_ms
         )
     end
   end
@@ -212,9 +252,12 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
          payload,
          payload_string,
          method,
-         timeout_ms,
          auto_approve_requests,
-         turn_context
+         turn_context,
+         started_at_ms,
+         last_activity_ms,
+         turn_timeout_ms,
+         stall_timeout_ms
        ) do
     metadata = PortMetadata.message("codex", port, payload, turn_context)
 
@@ -251,10 +294,13 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
         receive_loop(
           port,
           on_message,
-          timeout_ms,
           "",
           auto_approve_requests,
-          turn_context
+          turn_context,
+          started_at_ms,
+          last_activity_ms,
+          turn_timeout_ms,
+          stall_timeout_ms
         )
 
       :approval_required ->
@@ -296,6 +342,16 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
 
           {:error, {:turn_input_required, payload}}
         else
+          ObsLogger.emit(
+            :debug,
+            :codex_turn_notification,
+            EventFields.turn(turn_context, %{
+              operation: "codex_notification",
+              result_summary: "method=#{method}",
+              payload_summary: EventFields.stream_summary(payload)
+            })
+          )
+
           Messages.emit(
             on_message,
             :notification,
@@ -309,14 +365,51 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
           receive_loop(
             port,
             on_message,
-            timeout_ms,
             "",
             auto_approve_requests,
-            turn_context
+            turn_context,
+            started_at_ms,
+            last_activity_ms,
+            turn_timeout_ms,
+            stall_timeout_ms
           )
         end
     end
   end
+
+  defp monotonic_ms, do: System.monotonic_time(:millisecond)
+
+  defp receive_timeout_ms(now_ms, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms) do
+    [
+      remaining_timeout_ms(now_ms, started_at_ms, turn_timeout_ms),
+      remaining_timeout_ms(now_ms, last_activity_ms, stall_timeout_ms)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.min(fn -> turn_timeout_ms end)
+    |> max(0)
+  end
+
+  defp remaining_timeout_ms(now_ms, base_ms, timeout_ms)
+       when is_integer(timeout_ms) and timeout_ms > 0 and is_integer(base_ms) do
+    timeout_ms - max(now_ms - base_ms, 0)
+  end
+
+  defp remaining_timeout_ms(_now_ms, _base_ms, _timeout_ms), do: nil
+
+  defp timeout_reason(now_ms, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms) do
+    cond do
+      timeout_expired?(now_ms, started_at_ms, turn_timeout_ms) -> :turn_timeout
+      timeout_expired?(now_ms, last_activity_ms, stall_timeout_ms) -> :stall_timeout
+      true -> nil
+    end
+  end
+
+  defp timeout_expired?(now_ms, base_ms, timeout_ms)
+       when is_integer(timeout_ms) and timeout_ms > 0 and is_integer(base_ms) do
+    now_ms - base_ms >= timeout_ms
+  end
+
+  defp timeout_expired?(_now_ms, _base_ms, _timeout_ms), do: false
 
   defp emit_non_json_stream_message(
          on_message,

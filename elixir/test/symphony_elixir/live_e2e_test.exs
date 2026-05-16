@@ -2,6 +2,7 @@ defmodule SymphonyElixir.LiveE2ETest do
   use SymphonyElixir.TestSupport
 
   require Logger
+  alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Platform.CommandEnv
   alias SymphonyElixir.Platform.SSH
 
@@ -16,9 +17,17 @@ defmodule SymphonyElixir.LiveE2ETest do
   @docker_support_dir Path.expand("../support/live_e2e_docker", __DIR__)
   @docker_compose_file Path.join(@docker_support_dir, "docker-compose.yml")
   @result_file "LIVE_E2E_RESULT.txt"
+  @joined_live_env "SYMPHONY_RUN_FULL_CODING_PR_DELIVERY_LIVE"
+  @default_repository "acme/widgets"
+  @default_base_branch "master"
+  @default_branch_prefix "symphony/live"
   @live_e2e_skip_reason if(System.get_env("SYMPHONY_RUN_LIVE_E2E") != "1",
                           do: "set SYMPHONY_RUN_LIVE_E2E=1 to enable the real Linear/Codex end-to-end test"
                         )
+
+  @joined_live_skip_reason if(System.get_env(@joined_live_env) != "1",
+                             do: "set #{@joined_live_env}=1 to enable the real Linear/GitHub/Codex joined live smoke"
+                           )
 
   @team_query """
   query SymphonyLiveE2ETeam($key: String!) {
@@ -106,6 +115,12 @@ defmodule SymphonyElixir.LiveE2ETest do
         name
         type
       }
+      attachments {
+        nodes {
+          title
+          url
+        }
+      }
       comments(first: 20) {
         nodes {
           body
@@ -132,8 +147,19 @@ defmodule SymphonyElixir.LiveE2ETest do
   """
 
   @tag skip: @live_e2e_skip_reason
+  @tag timeout: 240_000
+  test "calls a real Linear snapshot through a local Codex MCP turn" do
+    run_live_issue_flow!(:local, :snapshot_probe)
+  end
+
+  @tag skip: @live_e2e_skip_reason
   test "creates a real Linear project and issue with a local worker" do
     run_live_issue_flow!(:local)
+  end
+
+  @tag skip: @joined_live_skip_reason
+  test "creates and links a GitHub change proposal through a local Codex turn" do
+    run_live_issue_flow!(:local, :joined_coding_pr_delivery)
   end
 
   @tag skip: @live_e2e_skip_reason
@@ -292,10 +318,21 @@ defmodule SymphonyElixir.LiveE2ETest do
   defp normalized_state_name(_state), do: ""
 
   defp issue_has_comment?(%{"comments" => %{"nodes" => comments}}, expected_body) when is_list(comments) do
-    Enum.any?(comments, &(&1["body"] == expected_body))
+    Enum.any?(comments, fn comment ->
+      comment
+      |> Map.get("body", "")
+      |> String.contains?(expected_body)
+    end)
   end
 
   defp issue_has_comment?(_issue, _expected_body), do: false
+
+  defp issue_has_attachment?(%{"attachments" => %{"nodes" => attachments}}, expected_url)
+       when is_list(attachments) and is_binary(expected_url) do
+    Enum.any?(attachments, &(Map.get(&1, "url") == expected_url))
+  end
+
+  defp issue_has_attachment?(_issue, _expected_url), do: false
 
   defp update_entity(mutation, variables, mutation_name, entity_name) do
     case Client.graphql(mutation, variables, tracker: SymphonyElixir.Config.settings!().tracker) do
@@ -356,10 +393,54 @@ defmodule SymphonyElixir.LiveE2ETest do
 
     {{ tool_inventory }}
 
-    Use the exact typed tool names from the inventory for Linear reads and
-    writes. Do not guess raw Linear GraphQL operations.
+    For every routine Linear action listed in the inventory, call the exact
+    provider-facing callable tool name shown in the inventory. Runtime tool
+    names identify the intended Symphony tool, but Codex must call the
+    corresponding `mcp__symphony-planned-tools__...` callable from the
+    inventory. For this smoke, that means:
+    - `mcp__symphony-planned-tools__linear_issue_snapshot`
+    - `mcp__symphony-planned-tools__linear_upsert_workpad`
+    - `mcp__symphony-planned-tools__linear_move_issue`
+
+    Do not replace these typed capabilities with raw Linear GraphQL operations,
+    helper CLIs, shell commands, or alternate provider APIs.
 
     Step 1:
+    Call inventory capability `tracker.issue_snapshot` / runtime tool
+    `linear_issue_snapshot` through provider-facing callable
+    `mcp__symphony-planned-tools__linear_issue_snapshot` with:
+    - `issue_id`: `{{ issue.id }}`
+    - `include_comments`: true
+    - `workpad_heading`: `Symphony Live E2E Workpad`
+
+    Read the existing comments and team workflow states.
+
+    Step 2:
+    If the workpad/comment body below is not already present, call inventory
+    capability `tracker.upsert_workpad` / runtime tool `linear_upsert_workpad`
+    through provider-facing callable
+    `mcp__symphony-planned-tools__linear_upsert_workpad` with:
+    - `issue_id`: `{{ issue.id }}`
+    - `heading`: `Symphony Live E2E Workpad`
+    - `body`: the exact body below
+
+    #{expected_comment("{{ issue.identifier }}", project_slug)}
+
+    Step 3:
+    Call inventory capability `tracker.move_issue` / runtime tool
+    `linear_move_issue` through provider-facing callable
+    `mcp__symphony-planned-tools__linear_move_issue` with:
+    - `issue_id`: `{{ issue.id }}`
+    - `state_name`: `#{review_state_name}`
+
+    Step 4:
+    Verify all Linear outcomes with one final call through provider-facing
+    callable `mcp__symphony-planned-tools__linear_issue_snapshot` against
+    `{{ issue.id }}`:
+    - the workpad/comment body contains the exact body above
+    - the issue state name is exactly `#{review_state_name}`
+
+    Step 5:
     Create a file named #{@result_file} in the current working directory by running exactly:
 
     ```sh
@@ -379,34 +460,208 @@ defmodule SymphonyElixir.LiveE2ETest do
     identifier={{ issue.identifier }}
     project_slug=#{project_slug}
 
+    Do not ask for approval.
+    Do not move the issue to a terminal state; the test harness finalizes the
+    temporary issue after it verifies the handoff state.
+    Stop only after all three conditions are true:
+    1. the Linear workpad/comment contains the exact body above
+    2. the Linear issue is in `#{review_state_name}` for human review handoff
+    3. the file exists with the exact contents above
+    """
+  end
+
+  defp live_snapshot_prompt do
+    """
+    You are running a narrow Symphony live MCP snapshot probe.
+
+    The current working directory is the workspace root.
+
+    Generated tool inventory for this session:
+
+    {{ tool_inventory }}
+
+    Call exactly one tool, then stop:
+    `mcp__symphony-planned-tools__linear_issue_snapshot`
+
+    Use these arguments:
+    - `issue_id`: `{{ issue.id }}`
+    - `include_comments`: true
+    - `workpad_heading`: `Symphony Live E2E Workpad`
+
+    Do not write files, run shell commands, inspect the repository, move the
+    issue, update comments, call raw Linear GraphQL, or ask for approval.
+    """
+  end
+
+  defp live_joined_coding_prompt(project_slug, review_state_name, repo_live) when is_map(repo_live) do
+    probe_file = ".symphony-live-smoke/#{safe_file_name(repo_live.branch)}.txt"
+
+    """
+    You are running a real Symphony joined coding PR delivery live smoke.
+
+    The current working directory is the workspace root. The target repository
+    is already cloned at `repo/`.
+
+    Generated tool inventory for this session:
+
+    {{ tool_inventory }}
+
+    For every routine Linear, repo-core, and repo-provider action listed in the
+    inventory, call the exact provider-facing callable tool name shown in the
+    inventory. Runtime tool names identify the intended Symphony tool, but
+    Codex must call the corresponding
+    `mcp__symphony-planned-tools__...` callable from the inventory.
+
+    For this smoke, use these provider-facing callable tools:
+    - `mcp__symphony-planned-tools__linear_issue_snapshot`
+    - `mcp__symphony-planned-tools__linear_upsert_workpad`
+    - `mcp__symphony-planned-tools__repo_checkout`
+    - `mcp__symphony-planned-tools__repo_diff`
+    - `mcp__symphony-planned-tools__repo_commit`
+    - `mcp__symphony-planned-tools__repo_push`
+    - `mcp__symphony-planned-tools__repo_create_or_update_change_proposal`
+    - `mcp__symphony-planned-tools__repo_change_proposal_snapshot`
+    - `mcp__symphony-planned-tools__repo_read_change_proposal_checks`
+    - `mcp__symphony-planned-tools__linear_attach_change_proposal`
+    - `mcp__symphony-planned-tools__linear_move_issue`
+
+    Do not replace these typed capabilities with raw Linear GraphQL operations,
+    GitHub CLI commands, git commit/push commands, shell git side effects, or
+    alternate provider APIs. Shell is allowed only for creating and reading the
+    small probe file inside `repo/`.
+
+    Step 1:
+    Call `mcp__symphony-planned-tools__linear_issue_snapshot` with:
+    - `issue_id`: `{{ issue.id }}`
+    - `include_comments`: true
+    - `include_attachments`: true
+    - `workpad_heading`: `Symphony Live E2E Workpad`
+
     Step 2:
-    You must use the `linear_issue_snapshot` typed tool to query the current issue by `{{ issue.id }}` and read:
-    - existing comments
-    - team workflow states
+    Call `mcp__symphony-planned-tools__linear_upsert_workpad` with:
+    - `issue_id`: `{{ issue.id }}`
+    - `heading`: `Symphony Live E2E Workpad`
+    - `body`: the exact body below
 
-    A turn that only creates the file is incomplete. Do not stop after Step 1.
-
-    If the exact comment body below is not already present, call the
-    `linear_upsert_comment` typed tool once with `issue_id` set to
-    `{{ issue.id }}` and `body` set to this exact body:
     #{expected_comment("{{ issue.identifier }}", project_slug)}
 
     Step 3:
-    Call the `linear_move_issue` typed tool with `issue_id` set to
-    `{{ issue.id }}` and `state_name` set exactly to `#{review_state_name}`.
+    Call `mcp__symphony-planned-tools__repo_checkout` with:
+    - `branch`: `#{repo_live.branch}`
+    - `base`: `origin/#{repo_live.base_branch}`
+    - `mode`: `create`
 
     Step 4:
-    Verify all outcomes with one final `linear_issue_snapshot` call against `{{ issue.id }}`:
-    - the exact comment body is present
-    - the issue state name is exactly `#{review_state_name}`
+    Create the probe file inside the repository by running exactly:
 
-    Do not ask for approval.
-    Stop only after all three conditions are true:
-    1. the file exists with the exact contents above
-    2. the Linear comment exists with the exact body above
-    3. the Linear issue is in `#{review_state_name}` for human review handoff
+    ```sh
+    mkdir -p repo/.symphony-live-smoke
+    cat > repo/#{probe_file} <<'EOF'
+    identifier={{ issue.identifier }}
+    project_slug=#{project_slug}
+    branch=#{repo_live.branch}
+    EOF
+    cat repo/#{probe_file}
+    ```
+
+    Step 5:
+    Call `mcp__symphony-planned-tools__repo_diff` with:
+    - `check`: true
+
+    Step 6:
+    Call `mcp__symphony-planned-tools__repo_commit` with:
+    - `message`: `chore: add joined coding PR live probe`
+    - `mode`: `all`
+
+    Step 7:
+    Call `mcp__symphony-planned-tools__repo_push` with:
+    - `branch`: `#{repo_live.branch}`
+    - `set_upstream`: true
+    - `verify`: true
+
+    Step 8:
+    Call `mcp__symphony-planned-tools__repo_create_or_update_change_proposal`
+    with:
+    - `mode`: `create`
+    - `title`: `Symphony joined coding PR live probe`
+    - `body`: `Temporary PR created by Symphony's joined coding PR delivery live smoke.`
+    - `base`: `#{repo_live.base_branch}`
+    - `head`: `#{repo_live.branch}`
+
+    Save the returned change proposal URL and number.
+
+    Step 9:
+    Call `mcp__symphony-planned-tools__repo_change_proposal_snapshot` with:
+    - `number`: the change proposal number returned in Step 8
+    - `include_discussion`: false
+    - `include_checks`: false
+
+    Verify the snapshot head branch is `#{repo_live.branch}`.
+
+    Step 10:
+    Call `mcp__symphony-planned-tools__repo_read_change_proposal_checks` with:
+    - `number`: the change proposal number returned in Step 8
+
+    Record whether checks are present or unavailable in the workpad.
+
+    Step 11:
+    Call `mcp__symphony-planned-tools__linear_attach_change_proposal` with:
+    - `issue_id`: `{{ issue.id }}`
+    - `url`: the change proposal URL returned in Step 8
+    - `title`: `Symphony joined coding PR live probe`
+    - `repo_provider_kind`: `github`
+    - `repository`: `#{repo_live.repository}`
+    - `change_proposal_id`: the change proposal number returned in Step 8
+
+    Step 12:
+    Call `mcp__symphony-planned-tools__linear_move_issue` with:
+    - `issue_id`: `{{ issue.id }}`
+    - `state_name`: `#{review_state_name}`
+
+    Step 13:
+    Verify final tracker state with
+    `mcp__symphony-planned-tools__linear_issue_snapshot` against
+    `{{ issue.id }}` using:
+    - `include_comments`: true
+    - `include_attachments`: true
+    - `workpad_heading`: `Symphony Live E2E Workpad`
+
+    Step 14:
+    Create a file named #{@result_file} in the workspace root by running exactly:
+
+    ```sh
+    cat > #{@result_file} <<'EOF'
+    identifier={{ issue.identifier }}
+    project_slug=#{project_slug}
+    branch=#{repo_live.branch}
+    EOF
+    cat #{@result_file}
+    ```
+
+    Stop only after all conditions are true:
+    1. the workpad/comment contains the exact body above
+    2. the repository branch `#{repo_live.branch}` has been pushed
+    3. a GitHub change proposal exists for `#{repo_live.branch}`
+    4. GitHub change proposal checks were read through the typed tool
+    5. the Linear issue attachment points to that change proposal URL
+    6. the Linear issue is in `#{review_state_name}` for human review handoff
+    7. #{@result_file} exists with the exact contents from Step 14
+
+    Do not ask for approval. Do not close the PR, delete the remote branch, or
+    move the issue to a terminal state; the test harness performs cleanup after
+    verification.
     """
   end
+
+  defp live_prompt_for(:snapshot_probe, _project_slug, _review_state_name, _repo_live), do: live_snapshot_prompt()
+  defp live_prompt_for(:full, project_slug, review_state_name, _repo_live), do: live_prompt(project_slug, review_state_name)
+
+  defp live_prompt_for(:joined_coding_pr_delivery, project_slug, review_state_name, repo_live),
+    do: live_joined_coding_prompt(project_slug, review_state_name, repo_live)
+
+  defp live_turn_timeout_ms(:snapshot_probe), do: 120_000
+  defp live_turn_timeout_ms(:joined_coding_pr_delivery), do: 840_000
+  defp live_turn_timeout_ms(:full), do: 600_000
 
   defp expected_result(issue_identifier, project_slug) do
     "identifier=#{issue_identifier}\nproject_slug=#{project_slug}\n"
@@ -414,6 +669,10 @@ defmodule SymphonyElixir.LiveE2ETest do
 
   defp expected_comment(issue_identifier, project_slug) do
     "Symphony live e2e comment\nidentifier=#{issue_identifier}\nproject_slug=#{project_slug}"
+  end
+
+  defp expected_joined_result(issue_identifier, project_slug, branch) do
+    "identifier=#{issue_identifier}\nproject_slug=#{project_slug}\nbranch=#{branch}\n"
   end
 
   defp receive_runtime_info!(issue_id) do
@@ -428,6 +687,56 @@ defmodule SymphonyElixir.LiveE2ETest do
       5_000 ->
         flunk("timed out waiting for worker runtime info for #{inspect(issue_id)}")
     end
+  end
+
+  defp assert_dynamic_tool_succeeded!(runtime_info, tool, timeout_ms \\ 60_000)
+       when is_map(runtime_info) and is_binary(tool) and is_integer(timeout_ms) do
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+    assert_dynamic_tool_succeeded_until!(runtime_info, tool, deadline_ms)
+  end
+
+  defp assert_dynamic_tool_succeeded_until!(runtime_info, tool, deadline_ms)
+       when is_map(runtime_info) and is_binary(tool) and is_integer(deadline_ms) do
+    events = dynamic_tool_events(runtime_info)
+
+    if Enum.any?(events, &typed_tool_success?(&1, tool)) do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) < deadline_ms do
+        Process.sleep(100)
+        assert_dynamic_tool_succeeded_until!(runtime_info, tool, deadline_ms)
+      else
+        flunk("expected typed #{tool} success in #{inspect(dynamic_tool_event_summary(events))}")
+      end
+    end
+  end
+
+  defp typed_tool_success?(event, tool) when is_map(event) and is_binary(tool) do
+    event["event"] == "tool_call_succeeded" and
+      event["tool_name"] == tool and
+      event["dynamic_tool_usage_kind"] == "typed"
+  end
+
+  defp dynamic_tool_events(runtime_info) when is_map(runtime_info) do
+    runtime_info
+    |> Map.take([:run_id, :issue_id, :issue_identifier])
+    |> EventStore.recent_issue_events(limit: 1_000)
+    |> Enum.filter(fn event ->
+      event_name = Map.get(event, "event")
+      is_binary(event_name) and String.starts_with?(event_name, "tool_call_")
+    end)
+  end
+
+  defp dynamic_tool_event_summary(events) when is_list(events) do
+    Enum.map(events, fn event ->
+      Map.take(event, [
+        "event",
+        "tool_name",
+        "dynamic_tool_usage_kind",
+        "dynamic_tool_failure_reason",
+        "dynamic_tool_exposure"
+      ])
+    end)
   end
 
   defp read_worker_result!(%{worker_host: nil, workspace_path: workspace_path}, result_file)
@@ -455,12 +764,16 @@ defmodule SymphonyElixir.LiveE2ETest do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
-  defp run_live_issue_flow!(backend) when backend in [:local, :ssh] do
+  defp run_live_issue_flow!(backend), do: run_live_issue_flow!(backend, :full)
+
+  defp run_live_issue_flow!(backend, mode)
+       when backend in [:local, :ssh] and mode in [:full, :snapshot_probe, :joined_coding_pr_delivery] do
     run_id = "symphony-live-e2e-#{backend}-#{System.unique_integer([:positive])}"
     test_root = Path.join(System.tmp_dir!(), run_id)
     workflow_root = Path.join(test_root, "workflow")
     workflow_file = Path.join(workflow_root, "WORKFLOW.md")
     worker_setup = live_worker_setup!(backend, run_id, test_root)
+    repo_live = live_repo_config(mode)
     team_key = System.get_env("SYMPHONY_LIVE_LINEAR_TEAM_KEY") || @default_team_key
     original_workflow_path = Workflow.workflow_file_path()
     orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
@@ -474,13 +787,22 @@ defmodule SymphonyElixir.LiveE2ETest do
 
       Workflow.set_workflow_file_path(workflow_file)
 
-      write_workflow_file!(workflow_file,
-        tracker_api_token: "$LINEAR_API_KEY",
-        tracker_project_slug: "bootstrap",
-        workspace_root: worker_setup.workspace_root,
-        worker_ssh_hosts: worker_setup.ssh_worker_hosts,
-        agent_provider_options: Map.merge(worker_setup.agent_provider_options, %{approval_policy: "never"}),
-        observability_enabled: false
+      write_workflow_file!(
+        workflow_file,
+        [
+          workflow_profile_options: live_workflow_profile_options(mode),
+          tracker_api_token: "$LINEAR_API_KEY",
+          tracker_project_slug: "bootstrap",
+          workspace_root: worker_setup.workspace_root,
+          worker_ssh_hosts: worker_setup.ssh_worker_hosts,
+          agent_provider_options: Map.merge(worker_setup.agent_provider_options, %{approval_policy: "never"}),
+          observability_enabled: false,
+          observability_global_event_limit: 10_000,
+          observability_issue_event_limit: 2_000,
+          observability_run_event_limit: 2_000,
+          observability_session_event_limit: 2_000,
+          observability_pending_event_queue_limit: 20_000
+        ] ++ live_repo_workflow_options(repo_live)
       )
 
       team = fetch_team!(team_key)
@@ -504,40 +826,88 @@ defmodule SymphonyElixir.LiveE2ETest do
           "Symphony live e2e #{backend} issue for #{project["name"]}"
         )
 
-      write_workflow_file!(workflow_file,
-        tracker_api_token: "$LINEAR_API_KEY",
-        tracker_project_slug: project["slugId"],
-        tracker_active_states: active_state_names(team),
-        tracker_terminal_states: terminal_states,
-        workspace_root: worker_setup.workspace_root,
-        worker_ssh_hosts: worker_setup.ssh_worker_hosts,
-        server_port: 0,
-        agent_provider_options:
-          Map.merge(worker_setup.agent_provider_options, %{
-            approval_policy: "never",
-            turn_timeout_ms: 600_000,
-            stall_timeout_ms: 600_000
-          }),
-        observability_enabled: false,
-        prompt: live_prompt(project["slugId"], review_state["name"])
-      )
+      try do
+        write_workflow_file!(
+          workflow_file,
+          [
+            workflow_profile_options: live_workflow_profile_options(mode),
+            tracker_api_token: "$LINEAR_API_KEY",
+            tracker_project_slug: project["slugId"],
+            tracker_active_states: active_state_names(team),
+            tracker_terminal_states: terminal_states,
+            workspace_root: worker_setup.workspace_root,
+            worker_ssh_hosts: worker_setup.ssh_worker_hosts,
+            server_port: 0,
+            agent_provider_options:
+              Map.merge(worker_setup.agent_provider_options, %{
+                approval_policy: "never",
+                turn_timeout_ms: live_turn_timeout_ms(mode),
+                stall_timeout_ms: live_turn_timeout_ms(mode)
+              }),
+            observability_enabled: false,
+            observability_global_event_limit: 10_000,
+            observability_issue_event_limit: 2_000,
+            observability_run_event_limit: 2_000,
+            observability_session_event_limit: 2_000,
+            observability_pending_event_queue_limit: 20_000,
+            prompt: live_prompt_for(mode, project["slugId"], review_state["name"], repo_live)
+          ] ++ live_repo_workflow_options(repo_live)
+        )
 
-      assert :ok = restart_supervised_child(SymphonyElixir.HttpServer)
-      assert is_integer(SymphonyElixir.HttpServer.bound_port())
+        assert :ok = restart_supervised_child(SymphonyElixir.HttpServer)
+        assert is_integer(SymphonyElixir.HttpServer.bound_port())
 
-      assert :ok = AgentRunner.run(issue, self(), max_turns: 3)
+        # This smoke proves the planned typed-tool path in one turn. The target
+        # handoff state is intentionally active, so allowing continuation would
+        # make the generic runner ask for more work and could overwrite the
+        # review handoff before assertions run.
+        assert :ok = AgentRunner.run(issue, self(), max_turns: 1)
 
-      runtime_info = receive_runtime_info!(issue.id)
+        runtime_info =
+          issue.id
+          |> receive_runtime_info!()
+          |> Map.merge(%{issue_id: issue.id, issue_identifier: issue.identifier})
 
-      assert read_worker_result!(runtime_info, @result_file) ==
-               expected_result(issue.identifier, project["slugId"])
+        assert_dynamic_tool_succeeded!(runtime_info, "linear_issue_snapshot")
 
-      issue_snapshot = fetch_issue_details!(issue.id)
-      assert issue_in_review?(issue_snapshot, review_state["name"])
-      assert issue_has_comment?(issue_snapshot, expected_comment(issue.identifier, project["slugId"]))
+        if mode == :full do
+          assert_dynamic_tool_succeeded!(runtime_info, "linear_upsert_workpad")
+          assert_dynamic_tool_succeeded!(runtime_info, "linear_move_issue")
 
-      assert :ok = move_issue_to_state(issue.id, terminal_state["id"])
-      assert :ok = complete_project(project["id"], completed_project_status["id"])
+          assert read_worker_result!(runtime_info, @result_file) ==
+                   expected_result(issue.identifier, project["slugId"])
+
+          issue_snapshot = fetch_issue_details!(issue.id)
+          assert issue_in_review?(issue_snapshot, review_state["name"])
+          assert issue_has_comment?(issue_snapshot, expected_comment(issue.identifier, project["slugId"]))
+        end
+
+        if mode == :joined_coding_pr_delivery do
+          assert_dynamic_tool_succeeded!(runtime_info, "linear_upsert_workpad")
+          assert_dynamic_tool_succeeded!(runtime_info, "repo_checkout")
+          assert_dynamic_tool_succeeded!(runtime_info, "repo_diff")
+          assert_dynamic_tool_succeeded!(runtime_info, "repo_commit")
+          assert_dynamic_tool_succeeded!(runtime_info, "repo_push")
+          assert_dynamic_tool_succeeded!(runtime_info, "repo_create_or_update_change_proposal")
+          assert_dynamic_tool_succeeded!(runtime_info, "repo_change_proposal_snapshot")
+          assert_dynamic_tool_succeeded!(runtime_info, "repo_read_change_proposal_checks")
+          assert_dynamic_tool_succeeded!(runtime_info, "linear_attach_change_proposal")
+          assert_dynamic_tool_succeeded!(runtime_info, "linear_move_issue")
+
+          assert read_worker_result!(runtime_info, @result_file) ==
+                   expected_joined_result(issue.identifier, project["slugId"], repo_live.branch)
+
+          change_proposal = fetch_open_change_proposal_for_branch!(repo_live.repository, repo_live.branch)
+          issue_snapshot = fetch_issue_details!(issue.id)
+          assert issue_in_review?(issue_snapshot, review_state["name"])
+          assert issue_has_comment?(issue_snapshot, expected_comment(issue.identifier, project["slugId"]))
+          assert issue_has_attachment?(issue_snapshot, change_proposal.url)
+        end
+      after
+        cleanup_live_repo(repo_live)
+        move_issue_to_state(issue.id, terminal_state["id"])
+        complete_project(project["id"], completed_project_status["id"])
+      end
     after
       restart_orchestrator_if_needed()
       cleanup_live_worker_setup(worker_setup)
@@ -562,6 +932,199 @@ defmodule SymphonyElixir.LiveE2ETest do
 
       _hosts ->
         live_ssh_worker_setup!(run_id)
+    end
+  end
+
+  defp live_workflow_profile_options(:joined_coding_pr_delivery) do
+    %{
+      "requirements" => %{
+        "change_proposal" => true,
+        "typed_tracker_tools" => true,
+        "typed_repo_tools" => true
+      },
+      "execution_profiles" => %{
+        "allowed" => ["land"]
+      }
+    }
+  end
+
+  defp live_workflow_profile_options(_mode) do
+    %{
+      "requirements" => %{
+        "change_proposal" => false,
+        "typed_tracker_tools" => true,
+        "typed_repo_tools" => false
+      },
+      "execution_profiles" => %{
+        "allowed" => ["land"]
+      }
+    }
+  end
+
+  defp live_repo_config(:joined_coding_pr_delivery) do
+    repository = System.get_env("SOURCE_REPO_PROVIDER_REPOSITORY") || @default_repository
+    base_branch = System.get_env("SOURCE_REPO_BASE_BRANCH") || @default_base_branch
+    branch_prefix = System.get_env("SOURCE_REPO_BRANCH_WORK_PREFIX") || @default_branch_prefix
+    remote_url = System.get_env("SOURCE_REPO_URL") || "https://github.com/#{repository}.git"
+
+    %{
+      repository: repository,
+      remote_url: remote_url,
+      base_branch: base_branch,
+      branch_prefix: branch_prefix,
+      branch: live_repo_branch(branch_prefix)
+    }
+  end
+
+  defp live_repo_config(_mode), do: nil
+
+  defp live_repo_workflow_options(nil), do: []
+
+  defp live_repo_workflow_options(repo_live) when is_map(repo_live) do
+    [
+      repo_path: "repo",
+      repo_base_branch: repo_live.base_branch,
+      repo_remote_name: "origin",
+      repo_remote_url: repo_live.remote_url,
+      repo_branch_work_prefix: repo_live.branch_prefix,
+      repo_provider_kind: "github",
+      repo_provider_repository: repo_live.repository,
+      hook_after_create: live_repo_after_create_hook(repo_live)
+    ]
+  end
+
+  defp live_repo_after_create_hook(repo_live) when is_map(repo_live) do
+    "git clone --depth 1 --branch #{shell_escape(repo_live.base_branch)} #{shell_escape(repo_live.remote_url)} repo\n" <>
+      "git -C repo config user.name 'Symphony Live Smoke'\n" <>
+      "git -C repo config user.email 'symphony-live@example.invalid'"
+  end
+
+  defp live_repo_branch(branch_prefix) when is_binary(branch_prefix) do
+    prefix = String.trim_trailing(branch_prefix, "/")
+    suffix = "coding-pr-delivery-#{System.system_time(:second)}-#{System.unique_integer([:positive])}"
+
+    case prefix do
+      "" -> suffix
+      _prefix -> prefix <> "/" <> suffix
+    end
+  end
+
+  defp fetch_open_change_proposal_for_branch!(repository, branch)
+       when is_binary(repository) and is_binary(branch) do
+    case CommandEnv.system_cmd(
+           "gh",
+           [
+             "pr",
+             "list",
+             "--repo",
+             repository,
+             "--head",
+             branch,
+             "--state",
+             "open",
+             "--json",
+             "number,url",
+             "--jq",
+             ".[0]"
+           ],
+           stderr_to_stdout: true
+         ) do
+      {output, 0} ->
+        output
+        |> String.trim()
+        |> case do
+          "" ->
+            flunk("expected open GitHub change proposal for #{repository} branch #{branch}")
+
+          "null" ->
+            flunk("expected open GitHub change proposal for #{repository} branch #{branch}")
+
+          json ->
+            case Jason.decode(json) do
+              {:ok, %{"number" => number, "url" => url}} when is_binary(url) ->
+                %{number: number, url: url}
+
+              {:ok, payload} ->
+                flunk("unexpected GitHub change proposal payload: #{inspect(payload)}")
+
+              {:error, reason} ->
+                flunk("failed to decode GitHub change proposal payload #{inspect(json)}: #{inspect(reason)}")
+            end
+        end
+
+      {output, status} ->
+        flunk("failed to fetch GitHub change proposal for #{repository} branch #{branch}: #{status} #{output}")
+    end
+  end
+
+  defp cleanup_live_repo(nil), do: :ok
+
+  defp cleanup_live_repo(%{repository: repository, branch: branch, remote_url: remote_url})
+       when is_binary(repository) and is_binary(branch) and is_binary(remote_url) do
+    close_open_prs_for_branch(repository, branch)
+    delete_remote_branch(remote_url, branch)
+  end
+
+  defp close_open_prs_for_branch(repository, branch)
+       when is_binary(repository) and is_binary(branch) do
+    case CommandEnv.system_cmd(
+           "gh",
+           [
+             "pr",
+             "list",
+             "--repo",
+             repository,
+             "--head",
+             branch,
+             "--state",
+             "open",
+             "--json",
+             "number",
+             "--jq",
+             ".[].number"
+           ],
+           stderr_to_stdout: true
+         ) do
+      {output, 0} ->
+        output
+        |> String.split("\n", trim: true)
+        |> Enum.each(&close_pr(repository, &1))
+
+      {output, status} ->
+        Logger.warning("Live e2e GitHub PR cleanup list failed for #{repository} #{branch}: #{status} #{output}")
+    end
+  end
+
+  defp close_pr(repository, number) when is_binary(repository) and is_binary(number) do
+    CommandEnv.system_cmd(
+      "gh",
+      [
+        "pr",
+        "close",
+        number,
+        "--repo",
+        repository,
+        "--comment",
+        "Closing temporary Symphony joined coding PR delivery live probe."
+      ],
+      stderr_to_stdout: true
+    )
+
+    :ok
+  end
+
+  defp delete_remote_branch(remote_url, branch) when is_binary(remote_url) and is_binary(branch) do
+    CommandEnv.system_cmd("git", ["push", remote_url, "--delete", branch], stderr_to_stdout: true)
+    :ok
+  end
+
+  defp safe_file_name(value) when is_binary(value) do
+    value
+    |> String.replace(~r/[^A-Za-z0-9._-]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "joined-coding-pr-delivery"
+      safe -> safe
     end
   end
 

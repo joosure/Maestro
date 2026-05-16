@@ -25,7 +25,9 @@ defmodule SymphonyElixir.Tracker do
   3. Set `tracker.kind` in the user configuration
   """
 
-  alias SymphonyElixir.Tracker.{Adapter, Config, Error, ProjectRef, Registry}
+  alias SymphonyElixir.Issue
+  alias SymphonyElixir.Tracker.{Adapter, ChangeProposalReference, Config, Error, ProjectRef, Registry}
+  alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
 
   @type tracker_config :: Config.t()
   @type result(t) :: {:ok, t} | {:error, Error.t() | term()}
@@ -119,7 +121,16 @@ defmodule SymphonyElixir.Tracker do
   def fetch_terminal_issues(opts \\ []) do
     {adapter, tracker} = current!()
     terminal = Config.terminal_states(tracker) || []
-    dispatch(adapter, :fetch_issues_by_states, [tracker, terminal, opts])
+
+    case candidate_issue_ids(tracker) do
+      [] ->
+        dispatch(adapter, :fetch_issues_by_states, [tracker, terminal, opts])
+
+      issue_ids ->
+        with {:ok, issues} <- dispatch(adapter, :fetch_issue_states_by_ids, [tracker, issue_ids, opts]) do
+          {:ok, Enum.filter(issues, &terminal_issue?(&1, terminal))}
+        end
+    end
   end
 
   # ── Writer ────────────────────────────────────────────────────────
@@ -192,6 +203,36 @@ defmodule SymphonyElixir.Tracker do
   @spec project_url(tracker_config()) :: String.t() | nil
   def project_url(tracker), do: project_ref(tracker) |> Map.get(:url)
 
+  @spec change_proposal_reference(Issue.t() | map()) :: ChangeProposalReference.t() | nil
+  def change_proposal_reference(issue), do: ChangeProposalReference.from_issue(issue)
+
+  @spec fetch_change_proposal_reference(Issue.t() | map(), keyword()) ::
+          result(ChangeProposalReference.t() | nil)
+  def fetch_change_proposal_reference(issue, opts \\ [])
+
+  def fetch_change_proposal_reference(%Issue{} = issue, opts) when is_list(opts) do
+    {adapter, tracker} = current!()
+    do_fetch_change_proposal_reference(adapter, tracker, issue, opts)
+  end
+
+  def fetch_change_proposal_reference(issue, opts) when is_map(issue) and is_list(opts) do
+    {adapter, tracker} = current!()
+    do_fetch_change_proposal_reference(adapter, tracker, issue, opts)
+  end
+
+  @spec fetch_change_proposal_reference(tracker_config() | map(), Issue.t() | map()) ::
+          result(ChangeProposalReference.t() | nil)
+  def fetch_change_proposal_reference(%{kind: _} = tracker, issue) when is_map(issue) do
+    fetch_change_proposal_reference(tracker, issue, [])
+  end
+
+  @spec fetch_change_proposal_reference(tracker_config() | map(), Issue.t() | map(), keyword()) ::
+          result(ChangeProposalReference.t() | nil)
+  def fetch_change_proposal_reference(%{kind: _} = tracker, issue, opts)
+      when is_map(issue) and is_list(opts) do
+    do_fetch_change_proposal_reference(adapter(tracker), tracker, issue, opts)
+  end
+
   # ── Workspace ─────────────────────────────────────────────────────
 
   @spec prepare_workspace(Path.t(), String.t() | nil, keyword()) :: :ok | {:error, term()}
@@ -251,6 +292,88 @@ defmodule SymphonyElixir.Tracker do
       %ProjectRef{} = ref -> ref
       nil -> %ProjectRef{kind: Config.kind(tracker)}
     end
+  end
+
+  defp do_fetch_change_proposal_reference(adapter, tracker, issue, opts)
+       when is_map(tracker) and is_map(issue) and is_list(opts) do
+    case ChangeProposalReference.from_issue(issue) do
+      %ChangeProposalReference{} = reference ->
+        {:ok, reference}
+
+      nil ->
+        optional(adapter, :fetch_change_proposal_reference, [tracker, issue, opts], {:ok, nil})
+    end
+  end
+
+  defp candidate_issue_ids(tracker) do
+    tracker
+    |> Config.provider()
+    |> nested_value("candidate_issue_ids")
+    |> normalize_string_list()
+  end
+
+  defp terminal_issue?(issue, terminal_states) when is_map(issue) and is_list(terminal_states) do
+    terminal_states =
+      terminal_states
+      |> Enum.map(&normalize_state_name/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    issue
+    |> issue_state()
+    |> normalize_state_name()
+    |> then(&MapSet.member?(terminal_states, &1))
+  end
+
+  defp terminal_issue?(_issue, _terminal_states), do: false
+
+  defp issue_state(%Issue{state: state}), do: state
+
+  defp issue_state(issue) when is_map(issue) do
+    Map.get(issue, :state) || Map.get(issue, "state")
+  end
+
+  defp normalize_state_name(value) when is_binary(value) do
+    value
+    |> WorkflowLifecycle.normalize_tracker_state()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_state_name(value), do: value |> to_string() |> normalize_state_name()
+
+  defp normalize_string_list(values) when is_list(values) do
+    values
+    |> Enum.map(&normalize_optional_string/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_string_list(_values), do: []
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_optional_string(value), do: value |> to_string() |> normalize_optional_string()
+
+  defp nested_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || map_get_existing_atom(map, key)
+  end
+
+  defp nested_value(_map, _key), do: nil
+
+  defp map_get_existing_atom(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
   end
 
   defp unsupported_dynamic_tool_error(tracker) do

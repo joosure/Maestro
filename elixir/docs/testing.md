@@ -26,10 +26,58 @@ Useful focused targets:
 - `make test`
 - `make coverage`
 - `make dialyzer`
+- `make tracker-smoke`
 - `make repo-provider-smoke`
+- `make agent-provider-smoke`
 - `make worker-daemon-check`
 
 Target definitions live in [`../Makefile`](../Makefile).
+
+## Tracker Smoke
+
+Run tracker smoke validation from `elixir/` before claiming that a workflow's
+tracker configuration is production-ready:
+
+```bash
+mix tracker.smoke --template memory/no_repo/mock --issue local-memory-1 --json
+make tracker-smoke TRACKER_SMOKE_ARGS='--template memory/no_repo/mock --issue local-memory-1 --json'
+```
+
+The default mode is read-only: it validates the workflow tracker config, runs
+the tracker `healthcheck`, and optionally fetches one issue by id. State-write
+validation is opt-in and must target a disposable or explicitly approved issue:
+
+```bash
+mix tracker.smoke --workflow WORKFLOW.md --issue <issue-id> --confirm-state-write --json
+```
+
+When `--confirm-state-write` is supplied without `--write-state`, the smoke
+runner writes the fetched current state back with `expected_current_state` set
+to that same fetched state. This validates tracker write permission and stale
+state protection while avoiding an intentional route change.
+
+## Agent-Provider Smoke
+
+Run agent-provider smoke validation from `elixir/` before claiming that a
+workflow's selected agent provider can launch in the target environment:
+
+```bash
+mix agent_provider.smoke --template memory/no_repo/mock --json
+make agent-provider-smoke AGENT_PROVIDER_SMOKE_ARGS='--template memory/no_repo/mock --json'
+```
+
+By default the smoke runner validates workflow config, creates a temporary empty
+workspace, prepares provider-owned tooling, starts the configured provider, sends
+one minimal first-turn prompt, stops the session, and removes the temporary
+workspace. It does not run the workflow business prompt and does not read or
+write tracker issues, repositories, or repo-provider resources.
+
+Use `--start-only` when an environment should validate provider process startup
+without consuming a first-turn model request:
+
+```bash
+mix agent_provider.smoke --template tapd/cnb/opencode --start-only --json
+```
 
 ## Secret Scan
 

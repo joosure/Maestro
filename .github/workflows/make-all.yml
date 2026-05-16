@@ -34,5 +34,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-
 
+      - name: Clean application build artifacts
+        run: rm -rf _build/*/lib/symphony_elixir _build/*/phoenix-colocated/symphony_elixir
+
       - name: Verify make all
         run: make all

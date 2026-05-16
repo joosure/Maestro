@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.TestSupport do
   @workflow_prompt "You are an agent for this repository."
 
+  alias SymphonyElixir.ChangeProposalReconciliation.{CandidateInbox, KnownTarget}
   alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Workflow.Runtime.Store, as: WorkflowStore
 
@@ -55,6 +56,8 @@ defmodule SymphonyElixir.TestSupport do
         if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
 
         if Process.whereis(EventStore), do: EventStore.reset()
+        if Process.whereis(CandidateInbox), do: CandidateInbox.reset()
+        if Process.whereis(KnownTarget.Registry), do: KnownTarget.Registry.reset()
 
         stop_default_http_server()
 
@@ -259,10 +262,12 @@ defmodule SymphonyElixir.TestSupport do
           workflow_profile_kind: nil,
           workflow_profile_version: nil,
           workflow_profile_options: nil,
+          workflow_reconciliation: nil,
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
           workspace_bootstrap_automation_from: nil,
           worker_ssh_hosts: [],
+          worker_max_concurrent_local_agents: nil,
           worker_max_concurrent_agents_per_host: nil,
           agent_runtime: nil,
           repo_path: nil,
@@ -340,10 +345,12 @@ defmodule SymphonyElixir.TestSupport do
     workflow_profile_kind = Keyword.get(config, :workflow_profile_kind)
     workflow_profile_version = Keyword.get(config, :workflow_profile_version)
     workflow_profile_options = Keyword.get(config, :workflow_profile_options)
+    workflow_reconciliation = Keyword.get(config, :workflow_reconciliation)
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
     workspace_root = Keyword.get(config, :workspace_root)
     workspace_bootstrap_automation_from = Keyword.get(config, :workspace_bootstrap_automation_from)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
+    worker_max_concurrent_local_agents = Keyword.get(config, :worker_max_concurrent_local_agents)
     agent_runtime = Keyword.get(config, :agent_runtime)
 
     worker_max_concurrent_agents_per_host =
@@ -460,8 +467,7 @@ defmodule SymphonyElixir.TestSupport do
     sections =
       [
         "---",
-        workflow_profile && "workflow:",
-        workflow_profile && "  profile: #{yaml_value(workflow_profile)}",
+        workflow_yaml(workflow_profile, workflow_reconciliation),
         "tracker:",
         "  kind: #{yaml_value(tracker_kind)}",
         "  endpoint: #{yaml_value(tracker_endpoint)}",
@@ -473,7 +479,7 @@ defmodule SymphonyElixir.TestSupport do
         "workspace:",
         "  root: #{yaml_value(workspace_root)}",
         "  bootstrap_automation_from: #{yaml_value(workspace_bootstrap_automation_from)}",
-        worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
+        worker_yaml(worker_ssh_hosts, worker_max_concurrent_local_agents, worker_max_concurrent_agents_per_host),
         agent_runtime && "agent_runtime: #{yaml_value(agent_runtime)}",
         "repo:",
         repo_path && "  path: #{yaml_value(repo_path)}",
@@ -572,6 +578,18 @@ defmodule SymphonyElixir.TestSupport do
 
   defp yaml_value(value), do: yaml_value(to_string(value))
 
+  defp workflow_yaml(nil, nil), do: nil
+
+  defp workflow_yaml(workflow_profile, workflow_reconciliation) do
+    [
+      "workflow:",
+      workflow_profile && "  profile: #{yaml_value(workflow_profile)}",
+      workflow_reconciliation && "  reconciliation: #{yaml_value(workflow_reconciliation)}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
   defp resolve_tracker_state_phase_map(:default, tracker_kind, active_states, terminal_states) do
     case tracker_kind do
       "linear" ->
@@ -658,14 +676,17 @@ defmodule SymphonyElixir.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp worker_yaml(ssh_hosts, max_concurrent_agents_per_host)
-       when ssh_hosts in [nil, []] and is_nil(max_concurrent_agents_per_host),
+  defp worker_yaml(ssh_hosts, max_concurrent_local_agents, max_concurrent_agents_per_host)
+       when ssh_hosts in [nil, []] and is_nil(max_concurrent_local_agents) and
+              is_nil(max_concurrent_agents_per_host),
        do: nil
 
-  defp worker_yaml(ssh_hosts, max_concurrent_agents_per_host) do
+  defp worker_yaml(ssh_hosts, max_concurrent_local_agents, max_concurrent_agents_per_host) do
     [
       "worker:",
       ssh_hosts not in [nil, []] && "  ssh_hosts: #{yaml_value(ssh_hosts)}",
+      !is_nil(max_concurrent_local_agents) &&
+        "  max_concurrent_local_agents: #{yaml_value(max_concurrent_local_agents)}",
       !is_nil(max_concurrent_agents_per_host) &&
         "  max_concurrent_agents_per_host: #{yaml_value(max_concurrent_agents_per_host)}"
     ]

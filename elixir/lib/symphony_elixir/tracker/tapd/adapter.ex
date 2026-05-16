@@ -14,7 +14,8 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error
   alias SymphonyElixir.Tracker.ProjectRef
-  alias SymphonyElixir.Tracker.Tapd.{Client, ConfigValidator, ToolExecutor, WorkspacePreparation}
+  alias SymphonyElixir.Tracker.StatePrecondition
+  alias SymphonyElixir.Tracker.Tapd.{ChangeProposalReference, Client, ConfigValidator, ToolExecutor, WorkspacePreparation}
 
   # ── Required callbacks ───────────────────────────────────────────
 
@@ -119,7 +120,8 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
   # ── Reader ───────────────────────────────────────────────────────
 
   @spec fetch_candidate_issues(TrackerConfig.t(), keyword()) :: {:ok, [term()]} | {:error, term()}
-  def fetch_candidate_issues(tracker, _opts \\ []) when is_map(tracker), do: Client.fetch_candidate_issues(tracker)
+  def fetch_candidate_issues(tracker, opts \\ []) when is_map(tracker) and is_list(opts),
+    do: Client.fetch_candidate_issues(tracker, opts)
 
   @spec fetch_issues_by_states(TrackerConfig.t(), [String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(tracker, states, _opts \\ []) when is_map(tracker) and is_list(states) do
@@ -132,6 +134,12 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
     Client.fetch_issue_states_by_ids(issue_ids, tracker)
   end
 
+  @spec fetch_change_proposal_reference(TrackerConfig.t(), term(), keyword()) ::
+          {:ok, SymphonyElixir.Tracker.ChangeProposalReference.t() | nil} | {:error, term()}
+  def fetch_change_proposal_reference(tracker, issue, opts \\ []) when is_map(tracker) and is_list(opts) do
+    ChangeProposalReference.fetch(tracker, issue, opts)
+  end
+
   # ── Writer ───────────────────────────────────────────────────────
 
   @spec create_comment(TrackerConfig.t(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -141,9 +149,11 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
   end
 
   @spec update_issue_state(TrackerConfig.t(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
-  def update_issue_state(tracker, issue_id, state_name, _opts \\ [])
+  def update_issue_state(tracker, issue_id, state_name, opts \\ [])
       when is_map(tracker) and is_binary(issue_id) and is_binary(state_name) do
-    Client.update_story_status(issue_id, state_name, tracker: tracker)
+    with :ok <- confirm_expected_current_state(tracker, issue_id, opts) do
+      Client.update_story_status(issue_id, state_name, Keyword.put(opts, :tracker, tracker))
+    end
   end
 
   # ── Workspace ────────────────────────────────────────────────────
@@ -157,16 +167,36 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
   # ── Healthcheck ──────────────────────────────────────────────────
 
   @spec healthcheck(TrackerConfig.t(), keyword()) :: :ok | {:error, Error.t() | term()}
-  def healthcheck(tracker, _opts \\ []) when is_map(tracker) do
-    workspace_id = Map.get(provider_field(tracker, "platform"), "workspace_id")
+  def healthcheck(tracker, opts \\ []) when is_map(tracker) and is_list(opts) do
+    request_opts = Keyword.put(opts, :tracker, tracker)
 
-    case Client.request("GET", "/quickstart/testauth", %{"workspace_id" => workspace_id}, tracker: tracker) do
+    case Client.request("GET", "/quickstart/testauth", %{}, request_opts) do
       {:ok, _body} ->
         :ok
 
       {:error, reason} ->
         {:error, Error.normalize(kind(), :healthcheck, reason)}
     end
+  end
+
+  defp confirm_expected_current_state(tracker, issue_id, opts)
+       when is_map(tracker) and is_binary(issue_id) and is_list(opts) do
+    case StatePrecondition.expected_current_state(opts) do
+      nil ->
+        :ok
+
+      expected ->
+        with {:ok, issues} <- Client.fetch_issue_states_by_ids([issue_id], tracker, opts),
+             {:ok, issue} <- single_issue(issues, issue_id, expected) do
+          StatePrecondition.check(kind(), :update_issue_state, issue, expected)
+        end
+    end
+  end
+
+  defp single_issue([%SymphonyElixir.Issue{} = issue | _rest], _issue_id, _expected), do: {:ok, issue}
+
+  defp single_issue([], issue_id, expected) do
+    {:error, StatePrecondition.issue_missing_error(kind(), :update_issue_state, issue_id, expected)}
   end
 
   defp credential_error(source_reason, message, code \\ :missing_credentials) do

@@ -173,7 +173,10 @@ not merge by default.
 
 `--destructive --auto-provision-cnb-pipeline` is CNB-only and creates a
 temporary branch with a minimal `.cnb.yml`, validates `run-list` and
-`run-view --log`, then closes the PR and deletes the branch.
+`run-view --log`, then closes the PR and deletes the branch. The generated
+`.cnb.yml` includes a branch-specific YAML comment so repeated smoke runs still
+produce a disposable diff when the base branch already contains a previous smoke
+pipeline.
 
 The task exits non-zero when any probe fails and emits structured
 `repo_provider_smoke_*` observability events. JSON output reports summaries and

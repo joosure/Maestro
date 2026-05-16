@@ -19,7 +19,8 @@ defmodule SymphonyElixir.Platform.SSHTest do
              SSH.run("root@[::1]:2200", "printf ok", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-o BatchMode=yes -T -p 2200 root@[::1] bash -lc"
+    assert_common_ssh_options(trace)
+    assert trace =~ "-T -p 2200 root@[::1] bash -lc"
     assert trace =~ "printf ok"
   end
 
@@ -55,8 +56,9 @@ defmodule SymphonyElixir.Platform.SSHTest do
              SSH.run("localhost:2222", "echo ready", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
+    assert_common_ssh_options(trace)
     assert trace =~ "-F /tmp/symphony-test-ssh-config"
-    assert trace =~ "-o BatchMode=yes -T -p 2222 localhost bash -lc"
+    assert trace =~ "-T -p 2222 localhost bash -lc"
     assert trace =~ "echo ready"
   end
 
@@ -76,7 +78,8 @@ defmodule SymphonyElixir.Platform.SSHTest do
              SSH.run("root@127.0.0.1:2200", "printf ok", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-o BatchMode=yes -T -p 2200 root@127.0.0.1 bash -lc"
+    assert_common_ssh_options(trace)
+    assert trace =~ "-T -p 2200 root@127.0.0.1 bash -lc"
     assert trace =~ "printf ok"
   end
 
@@ -117,11 +120,34 @@ defmodule SymphonyElixir.Platform.SSHTest do
              SSH.copy_dir("localhost:2222", source_dir, "/remote/workspace", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
+    assert_common_ssh_options(trace)
     assert trace =~ "-F /tmp/symphony-test-ssh-config"
-    assert trace =~ "-o BatchMode=yes"
     assert trace =~ "-P 2222"
     assert trace =~ source_dir
     assert trace =~ "localhost:/remote/workspace"
+  end
+
+  test "run/3 uses an explicit known-hosts source when configured" do
+    test_root = Path.join(System.tmp_dir!(), "symphony-ssh-known-hosts-test-#{System.unique_integer([:positive])}")
+    trace_file = Path.join(test_root, "ssh.trace")
+    previous_path = System.get_env("PATH")
+    previous_known_hosts = System.get_env("SYMPHONY_SSH_KNOWN_HOSTS")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      restore_env("SYMPHONY_SSH_KNOWN_HOSTS", previous_known_hosts)
+      File.rm_rf(test_root)
+    end)
+
+    install_fake_ssh!(test_root, trace_file)
+    System.put_env("SYMPHONY_SSH_KNOWN_HOSTS", "/tmp/symphony-test-known-hosts")
+
+    assert {:ok, {"", 0}} =
+             SSH.run("localhost", "printf ok", stderr_to_stdout: true)
+
+    trace = File.read!(trace_file)
+    assert_common_ssh_options(trace)
+    assert trace =~ "-o UserKnownHostsFile=/tmp/symphony-test-known-hosts"
   end
 
   test "copy_dir/4 returns an error when scp is unavailable" do
@@ -165,7 +191,8 @@ defmodule SymphonyElixir.Platform.SSHTest do
     wait_for_trace!(trace_file)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-o BatchMode=yes -T localhost bash -lc"
+    assert_common_ssh_options(trace)
+    assert trace =~ "-T localhost bash -lc"
     refute trace =~ " -F "
   end
 
@@ -191,7 +218,8 @@ defmodule SymphonyElixir.Platform.SSHTest do
     wait_for_trace!(trace_file)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-o BatchMode=yes -T -p 2222 localhost bash -lc"
+    assert_common_ssh_options(trace)
+    assert trace =~ "-T -p 2222 localhost bash -lc"
   end
 
   test "start_remote_port_forward/5 opens an SSH remote loopback forward" do
@@ -215,7 +243,8 @@ defmodule SymphonyElixir.Platform.SSHTest do
     wait_for_trace!(trace_file)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-o BatchMode=yes -o ExitOnForwardFailure=yes -N -T -p 2222"
+    assert_common_ssh_options(trace)
+    assert trace =~ "-o ExitOnForwardFailure=yes -N -T -p 2222"
     assert trace =~ "-R 127.0.0.1:19421:127.0.0.1:4521 localhost"
 
     Port.close(port)
@@ -304,4 +333,11 @@ defmodule SymphonyElixir.Platform.SSHTest do
 
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
+
+  defp assert_common_ssh_options(trace) do
+    assert trace =~ "-o BatchMode=yes"
+    assert trace =~ "-o NumberOfPasswordPrompts=0"
+    assert trace =~ "-o KbdInteractiveAuthentication=no"
+    assert trace =~ "-o StrictHostKeyChecking=yes"
+  end
 end

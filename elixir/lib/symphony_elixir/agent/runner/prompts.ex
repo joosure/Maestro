@@ -60,10 +60,13 @@ defmodule SymphonyElixir.Agent.Runner.Prompts do
   end
 
   defp rendered_workflow_prompt(session, issue, opts) do
+    settings = Config.settings!()
+
     opts
     |> put_session_tool_context(session)
     |> put_session_provider_kind(session)
-    |> Keyword.put_new(:repo, Config.settings!().repo)
+    |> Keyword.put_new(:settings, settings)
+    |> Keyword.put_new(:repo, settings.repo)
     |> then(&PromptBuilder.build_prompt(issue, &1))
   end
 

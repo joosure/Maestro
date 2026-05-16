@@ -288,6 +288,7 @@ pushes to `main` and pull requests.
 Use the lowest-risk path for local experimentation:
 
 - Configure `tracker.kind: memory` and `repo.provider.kind: memory` when you want to exercise orchestration without external credentials.
+- Use `mix tracker.smoke --template memory/no_repo/mock --issue local-memory-1 --json` from `elixir/` to validate tracker smoke wiring before using real tracker credentials.
 - Use the built-in `mock` agent provider for local no-credential validation; keep additional fake or simulated adapters limited to tests or extension work through the adapter registry. The built-in real agent providers are `codex`, `claude_code`, and `opencode`.
 - Move to Linear/TAPD, GitHub/CNB, or destructive smoke tests only after the memory path is stable.
 

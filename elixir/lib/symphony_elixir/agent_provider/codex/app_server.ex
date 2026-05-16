@@ -23,6 +23,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer do
           auto_approve_requests: boolean(),
           dynamic_tool_specs: [map()],
           read_timeout_ms: pos_integer(),
+          stall_timeout_ms: non_neg_integer(),
           thread_sandbox: String.t(),
           turn_timeout_ms: pos_integer(),
           turn_sandbox_policy: map(),
@@ -89,6 +90,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer do
           approval_policy: approval_policy,
           auto_approve_requests: auto_approve_requests,
           read_timeout_ms: read_timeout_ms,
+          stall_timeout_ms: stall_timeout_ms,
           turn_timeout_ms: turn_timeout_ms,
           turn_sandbox_policy: turn_sandbox_policy,
           run_id: run_id,
@@ -151,7 +153,8 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer do
                on_message,
                auto_approve_requests,
                turn_context,
-               turn_timeout_ms
+               turn_timeout_ms,
+               stall_timeout_ms
              ) do
           {:ok, result} ->
             ObsLogger.emit(
@@ -303,6 +306,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer do
          auto_approve_requests: session_policies.approval_policy == "never",
          dynamic_tool_specs: dynamic_tool_specs,
          read_timeout_ms: codex_settings.read_timeout_ms,
+         stall_timeout_ms: codex_settings.stall_timeout_ms,
          thread_sandbox: session_policies.thread_sandbox,
          turn_timeout_ms: codex_settings.turn_timeout_ms,
          turn_sandbox_policy: session_policies.turn_sandbox_policy,

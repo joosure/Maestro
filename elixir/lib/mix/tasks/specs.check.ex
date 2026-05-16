@@ -4,9 +4,11 @@ defmodule Mix.Tasks.Specs.Check do
   alias SymphonyElixir.SpecsCheck
 
   @moduledoc """
-  Enforces adjacent `@spec` declarations for public APIs in `lib/`.
+  Enforces adjacent `@spec` declarations for public APIs in `lib/` and
+  validates private spec-corpus link boundaries when a repository-level
+  `specs/` directory is present.
   """
-  @shortdoc "Fails when public functions in lib/ are missing adjacent @specs"
+  @shortdoc "Fails on missing @specs or spec-corpus boundary violations"
 
   @switches [paths: :keep, exemptions_file: :string]
   @default_paths ["lib"]
@@ -25,16 +27,21 @@ defmodule Mix.Tasks.Specs.Check do
       end
 
     findings = SpecsCheck.missing_public_specs(scanned_paths, exemptions: exemptions)
+    boundary_violations = SpecsCheck.spec_corpus_boundary_violations(File.cwd!())
 
-    if findings == [] do
-      Mix.shell().info("specs.check: all public functions have @spec or exemption")
+    if findings == [] and boundary_violations == [] do
+      Mix.shell().info("specs.check: all public functions have @spec or exemption and spec corpus boundaries are valid")
       :ok
     else
       Enum.each(findings, fn finding ->
         Mix.shell().error("#{finding.file}:#{finding.line} missing @spec for #{SpecsCheck.finding_identifier(finding)}")
       end)
 
-      Mix.raise("specs.check failed with #{length(findings)} missing @spec declaration(s)")
+      Enum.each(boundary_violations, fn violation ->
+        Mix.shell().error(SpecsCheck.boundary_violation_message(violation))
+      end)
+
+      Mix.raise("specs.check failed with #{length(findings)} missing @spec declaration(s) and #{length(boundary_violations)} spec corpus boundary violation(s)")
     end
   end
 

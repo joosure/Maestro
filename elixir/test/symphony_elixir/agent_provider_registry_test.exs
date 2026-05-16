@@ -365,6 +365,14 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     assert SymphonyElixir.AgentProvider.OpenCode.Error.normalize(existing, :start_session) == existing
 
     assert_native_error(
+      SymphonyElixir.AgentProvider.Codex.Error.normalize(:stall_timeout, :run_turn),
+      "codex",
+      :run_turn,
+      :agent_provider_timeout,
+      true
+    )
+
+    assert_native_error(
       SymphonyElixir.AgentProvider.ClaudeCode.Error.normalize(:turn_start_timeout, :run_turn),
       "claude_code",
       :run_turn,
@@ -1398,10 +1406,14 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     assert :ok = AgentProvider.stop_session(session)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-o BatchMode=yes -o ExitOnForwardFailure=yes -N -T -R "
+    assert trace =~ "-o BatchMode=yes"
+    assert trace =~ "-o NumberOfPasswordPrompts=0"
+    assert trace =~ "-o KbdInteractiveAuthentication=no"
+    assert trace =~ "-o StrictHostKeyChecking=yes"
+    assert trace =~ "-o ExitOnForwardFailure=yes -N -T -R "
     assert trace =~ "127.0.0.1:"
     assert trace =~ ":127.0.0.1:"
-    assert trace =~ "-o BatchMode=yes -T worker.example bash -lc"
+    assert trace =~ "-T worker.example bash -lc"
     assert trace =~ "cd "
     assert trace =~ "/srv/symphony/workspaces/REMOTE-CLAUDE"
     assert trace =~ "export OPENROUTER_API_KEY="

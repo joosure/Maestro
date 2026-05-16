@@ -6,17 +6,19 @@ defmodule SymphonyElixir.Tracker.Tapd.Client do
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Tracker.Tapd.Client.{Reader, Request, Response, Writer}
 
-  @spec fetch_candidate_issues(map()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_candidate_issues(tracker) when is_map(tracker), do: Reader.fetch_candidate_issues(tracker)
+  @spec fetch_candidate_issues(map(), keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  def fetch_candidate_issues(tracker, opts \\ []) when is_map(tracker) and is_list(opts),
+    do: Reader.fetch_candidate_issues(tracker, opts)
 
   @spec fetch_issues_by_states([String.t()], map()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names, tracker) when is_list(state_names) and is_map(tracker) do
     Reader.fetch_issues_by_states(state_names, tracker)
   end
 
-  @spec fetch_issue_states_by_ids([String.t()], map()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issue_states_by_ids(issue_ids, tracker) when is_list(issue_ids) and is_map(tracker) do
-    Reader.fetch_issue_states_by_ids(issue_ids, tracker)
+  @spec fetch_issue_states_by_ids([String.t()], map(), keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  def fetch_issue_states_by_ids(issue_ids, tracker, opts \\ [])
+      when is_list(issue_ids) and is_map(tracker) and is_list(opts) do
+    Reader.fetch_issue_states_by_ids(issue_ids, tracker, opts)
   end
 
   @spec request(String.t(), String.t(), map() | nil, keyword()) :: {:ok, map()} | {:error, term()}

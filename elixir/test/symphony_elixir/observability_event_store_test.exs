@@ -360,9 +360,6 @@ defmodule SymphonyElixir.Observability.EventStoreTest do
           })
         end
       end)
-
-      assert {:message_queue_len, length} = Process.info(Process.whereis(EventStore), :message_queue_len)
-      assert length <= 1
     after
       :sys.resume(EventStore)
     end

@@ -90,6 +90,25 @@ defmodule Mix.Tasks.Specs.CheckTaskTest do
     end)
   end
 
+  test "raises when repository docs link to the private spec corpus" do
+    in_temp_project(fn ->
+      spec_doc = spec_doc_path()
+      target = "../" <> spec_doc
+
+      write_module!(spec_doc, "# Core Spec\n")
+      write_module!(Path.join("docs", "architecture.md"), "[Core spec](#{target})\n")
+
+      error_output =
+        capture_io(:stderr, fn ->
+          assert_raise Mix.Error, ~r/0 missing @spec declaration\(s\) and 1 spec corpus boundary violation/, fn ->
+            Check.run([])
+          end
+        end)
+
+      assert error_output =~ "docs/architecture.md:1 files outside specs/ must not link to private spec corpus files"
+    end)
+  end
+
   defp in_temp_project(fun) do
     root = Path.join(System.tmp_dir!(), "specs-check-task-test-#{System.unique_integer([:positive, :monotonic])}")
     original_cwd = File.cwd!()
@@ -108,5 +127,9 @@ defmodule Mix.Tasks.Specs.CheckTaskTest do
   defp write_module!(path, source) do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, source)
+  end
+
+  defp spec_doc_path do
+    Path.join("spec" <> "s", "SPEC.md")
   end
 end

@@ -17,7 +17,7 @@ defmodule SymphonyWorkerDaemon.Api do
   plug(:reject_oversized_content_length)
   plug(:authenticate)
   plug(:throttle_authenticated)
-  plug(Plug.Parsers, parsers: [:json], pass: ["application/json"], json_decoder: Jason, length: RequestLimits.default_max_request_body_bytes())
+  plug(:parse_body)
   plug(:dispatch)
 
   get @base_path <> "/health" do
@@ -155,6 +155,11 @@ defmodule SymphonyWorkerDaemon.Api do
     conn
     |> Plug.Conn.assign(:worker_daemon_opts, opts)
     |> super(opts)
+  end
+
+  @spec parse_body(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
+  def parse_body(conn, _opts) do
+    Plug.Parsers.call(conn, Plug.Parsers.init(RequestLimits.parser_options()))
   end
 
   @spec authenticate(Plug.Conn.t(), keyword()) :: Plug.Conn.t()

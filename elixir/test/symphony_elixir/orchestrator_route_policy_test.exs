@@ -5,6 +5,7 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
   alias SymphonyElixir.Orchestrator.Dispatch
   alias SymphonyElixir.Orchestrator.Events, as: OrchestratorEvents
   alias SymphonyElixir.Orchestrator.Runtime, as: OrchestratorRuntime
+  alias SymphonyElixir.Tracker.Linear.WorkflowConfig, as: LinearWorkflowConfig
   alias SymphonyElixir.Workflow.RoutePolicy, as: WorkflowRoutePolicy
 
   test "wait routes skip dispatch without refreshing or writing state" do
@@ -49,6 +50,59 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
 
     refute_received :stop_fetch_called
     refute_received :stop_update_called
+  end
+
+  test "merge routes fail closed before dispatch when merge evidence is missing" do
+    write_workflow_file!(Workflow.workflow_file_path(), tapd_route_policy_workflow_config())
+
+    issue = tapd_issue("merging")
+
+    fetcher = fn _issue_ids ->
+      send(self(), :merge_fetch_called)
+      {:ok, []}
+    end
+
+    state_updater = fn _issue_id, _state_name ->
+      send(self(), :merge_update_called)
+      :ok
+    end
+
+    assert {:skip, %Issue{state: "merging"}} =
+             prepare_issue_for_dispatch(issue, fetcher, state_updater, readiness_evidence: %{})
+
+    refute_received :merge_fetch_called
+    refute_received :merge_update_called
+  end
+
+  test "merge routes dispatch when merge readiness evidence is present" do
+    write_workflow_file!(Workflow.workflow_file_path(), tapd_route_policy_workflow_config())
+
+    issue = tapd_issue("merging")
+
+    fetcher = fn _issue_ids ->
+      send(self(), :merge_ready_fetch_called)
+      {:ok, []}
+    end
+
+    state_updater = fn _issue_id, _state_name ->
+      send(self(), :merge_ready_update_called)
+      :ok
+    end
+
+    assert {:ok, %Issue{state: "merging", workflow: workflow}} =
+             prepare_issue_for_dispatch(issue, fetcher, state_updater,
+               readiness_evidence_fn: fn %Issue{}, _context, facts ->
+                 send(self(), {:merge_readiness_evidence_requested, get_in(facts, ["gate", "gate"])})
+                 merge_readiness_evidence()
+               end
+             )
+
+    assert_received {:merge_readiness_evidence_requested, "merge"}
+    assert get_in(workflow, [:completion_evidence, :review, :approved]) == true
+    assert get_in(workflow, [:completion_evidence, :checks, :passing]) == true
+
+    refute_received :merge_ready_fetch_called
+    refute_received :merge_ready_update_called
   end
 
   test "transition routes confirm the target route and skip dispatch" do
@@ -145,6 +199,32 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
            ]
   end
 
+  test "linear workflow routes drive backend Todo to In Progress transition" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_api_token: "linear-token",
+      tracker_project_slug: "PROJ"
+    )
+
+    workflow = Config.settings!().tracker |> LinearWorkflowConfig.global_workflow()
+    issue = linear_issue("Todo", workflow)
+    refreshed_issue = linear_issue("In Progress", workflow)
+
+    fetcher = fn ["linear-route-1"] -> {:ok, [refreshed_issue]} end
+
+    state_updater = fn "linear-route-1", "In Progress" ->
+      send(self(), {:linear_update_called, "linear-route-1", "In Progress"})
+      :ok
+    end
+
+    capture_log(fn ->
+      assert {:ok, %Issue{state: "In Progress"}} =
+               prepare_issue_for_dispatch(issue, fetcher, state_updater)
+    end)
+
+    assert_receive {:linear_update_called, "linear-route-1", "In Progress"}
+  end
+
   defp recent_issue_events(issue) do
     EventStore.recent_issue_events(%{
       issue_id: issue.id,
@@ -152,13 +232,16 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
     })
   end
 
-  defp prepare_issue_for_dispatch(issue, fetcher, state_updater) do
+  defp prepare_issue_for_dispatch(issue, fetcher, state_updater, opts \\ []) do
     Dispatch.prepare_issue_for_dispatch(
       issue,
       fetcher,
       state_updater,
       OrchestratorRuntime.dispatch_context(),
-      emit_route_transition: &OrchestratorEvents.emit_route_transition/7
+      Keyword.merge(
+        [emit_route_transition: &OrchestratorEvents.emit_route_transition/7],
+        opts
+      )
     )
   end
 
@@ -169,6 +252,17 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
       title: "Route policy orchestrator test",
       state: state_name,
       workflow: tapd_workflow(route_policy_overrides)
+    }
+  end
+
+  defp linear_issue(state_name, workflow) do
+    %Issue{
+      id: "linear-route-1",
+      identifier: "LIN-3001",
+      title: "Linear route policy orchestrator test",
+      state: state_name,
+      lifecycle_phase: Map.get(workflow.state_phase_map, state_name),
+      workflow: workflow
     }
   end
 
@@ -238,5 +332,20 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
       ],
       overrides
     )
+  end
+
+  defp merge_readiness_evidence do
+    %{
+      change_proposal: %{
+        url: "https://cnb.example.test/acme/widgets/-/pulls/36",
+        number: "36",
+        linked_issue: true,
+        tracker_linked: true
+      },
+      repo: %{head_sha: "abc123", diff_present: true},
+      checks: %{read: true, status: "passing", check_summary: "passing", passing: true},
+      review: %{approved: true, status: "approved", review_summary: "approved"},
+      tracker: %{state: "merging", change_proposal_attached: true, merge_approved: true}
+    }
   end
 end

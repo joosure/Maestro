@@ -3,6 +3,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
 
   alias SymphonyElixir.Workflow
   alias SymphonyElixir.Workflow.Capabilities, as: WorkflowCapabilities
+  alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Config, as: ReconciliationConfig
   alias SymphonyElixir.Workflow.Templates
 
   @forbidden_runtime_references [
@@ -168,10 +169,10 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
     for path <- tapd_template_paths() do
       assert {:ok, %{config: config, prompt: prompt}} = Workflow.load(path)
 
-      assert get_in(config, ["workflow", "profile", "options", "require_typed_tracker_tools"]) ==
+      assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_tracker_tools"]) ==
                true
 
-      assert get_in(config, ["workflow", "profile", "options", "require_typed_repo_tools"]) ==
+      assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_repo_tools"]) ==
                true
 
       assert prompt =~ "{{ tool_inventory }}"
@@ -221,6 +222,43 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
       refute prompt =~ "repo-provider pr-issue-comments"
       refute prompt =~ "repo-provider pr-review-comments"
       refute prompt =~ "repo-provider pr-reviews"
+    end
+  end
+
+  test "only TAPD CNB templates opt into change-proposal reconciliation" do
+    enabled_aliases =
+      Templates.aliases()
+      |> Enum.filter(fn template_alias ->
+        {:ok, path} = Templates.resolve(template_alias)
+        {:ok, %{config: config}} = Workflow.load(path)
+
+        get_in(config, ["workflow", "reconciliation", "change_proposal", "enabled"]) == true
+      end)
+      |> Enum.sort()
+
+    assert enabled_aliases == ["tapd/cnb/claude_code", "tapd/cnb/opencode"]
+
+    for template_alias <- enabled_aliases do
+      {:ok, path} = Templates.resolve(template_alias)
+      assert {:ok, %{config: config, prompt: prompt}} = Workflow.load(path)
+
+      assert {:ok,
+              %ReconciliationConfig{
+                enabled?: true,
+                candidate_discovery: :runtime_targeted,
+                source_routes: [:review],
+                ready_target_route: :merging,
+                changes_requested_target_route: :rework,
+                failed_checks_target_route: :rework,
+                already_merged_target_route: :resolved,
+                require_approval?: true,
+                require_passing_checks?: true,
+                require_mergeable?: true,
+                failed_checks_confirmation_count: 2,
+                max_processed_candidate_issues_per_cycle: 25
+              }} = ReconciliationConfig.from_settings(config)
+
+      assert prompt =~ "backend change-proposal reconciliation moves the story"
     end
   end
 

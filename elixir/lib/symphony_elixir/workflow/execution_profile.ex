@@ -3,8 +3,9 @@ defmodule SymphonyElixir.Workflow.ExecutionProfile do
   Behaviour for runtime execution-profile handlers.
 
   The registry controls which handlers are admitted at boot. Repository
-  `WORKFLOW.md` files may select an admitted execution profile by name, but they
-  cannot define or load handler modules.
+  `WORKFLOW.md` files may select only execution-profile names declared by the
+  active workflow profile; a matching registry entry can provide the runtime
+  handler, but cannot make an undeclared name selectable.
   """
 
   @type action :: atom()
