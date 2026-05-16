@@ -28,5 +28,12 @@ defmodule SymphonyElixirWeb.Endpoint do
   plug(Plug.MethodOverride)
   plug(Plug.Head)
   plug(Plug.Session, @session_options)
-  plug(SymphonyElixirWeb.Router)
+  plug(:dispatch_to_router)
+
+  defp dispatch_to_router(conn, _opts) do
+    router = router_module()
+    router.call(conn, router.init([]))
+  end
+
+  defp router_module, do: Module.safe_concat(SymphonyElixirWeb, "Router")
 end

@@ -6,10 +6,32 @@ workflow:
     kind: coding_pr_delivery
     version: 1
     options:
-      require_change_proposal: true
-      require_typed_tracker_tools: true
-      require_typed_repo_tools: true
-      land_execution_profile: land
+      requirements:
+        change_proposal: true
+        typed_tracker_tools: true
+        typed_repo_tools: true
+      execution_profiles:
+        allowed:
+          - land
+  reconciliation:
+    change_proposal:
+      enabled: true
+      candidates:
+        discovery: runtime_targeted
+        source_routes:
+          - review
+        max_processed_issues_per_cycle: 25
+      gates:
+        approval_required: true
+        passing_checks_required: true
+        mergeable_required: true
+      transitions:
+        ready: merging
+        changes_requested: rework
+        failed_checks: rework
+        already_merged: resolved
+      thresholds:
+        failed_checks_confirmation_count: 2
 tracker:
   kind: tapd
   auth:
@@ -611,7 +633,7 @@ section must not override them.
 1. When the story is in `{{ issue.workflow.raw_state_by_route_key.review }}`, do not code or change the story body.
 2. Poll for updates as needed, including active-provider PR review comments from humans and bots plus raw TAPD state changes.
 3. If review feedback requires changes, move the story to `{{ issue.workflow.raw_state_by_route_key.rework }}` and follow the rework flow.
-4. If approved, a human moves the story to `{{ issue.workflow.raw_state_by_route_key.merging }}`.
+4. If approved and PR checks/mergeability are ready, backend change-proposal reconciliation moves the story to `{{ issue.workflow.raw_state_by_route_key.merging }}`. A human may also move it there manually when the local process requires a manual tracker transition.
 5. When the story is in `{{ issue.workflow.raw_state_by_route_key.merging }}`, open workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists and follow its loop. Otherwise, merge the PR with the repository's normal repo-core/repo-provider flow after required approvals and checks pass.
 6. After merge is complete:
    - update the same workpad comment and local mirror with merge or closure state

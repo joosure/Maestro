@@ -2,8 +2,10 @@ defmodule SymphonyElixir.Workflow.ExecutionProfileRegistry do
   @moduledoc """
   Boot-configured runtime execution-profile registry.
 
-  Repository-controlled workflow config may select execution-profile names, but
-  it cannot define registry entries or runtime handlers.
+  Repository-controlled workflow config may select execution-profile names only
+  when the active workflow profile declares them. The registry can provide
+  runtime handlers and capabilities for declared names, but it cannot expand the
+  selectable name set by itself.
   """
 
   alias SymphonyElixir.Workflow.ExecutionProfileRegistry.Entry

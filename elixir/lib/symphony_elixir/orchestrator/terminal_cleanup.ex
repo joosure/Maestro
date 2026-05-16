@@ -2,6 +2,7 @@ defmodule SymphonyElixir.Orchestrator.TerminalCleanup do
   @moduledoc false
 
   alias SymphonyElixir.Issue
+  alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
 
   def run(opts \\ [])
 
@@ -11,7 +12,7 @@ defmodule SymphonyElixir.Orchestrator.TerminalCleanup do
     cleanup_workspace = Keyword.fetch!(opts, :cleanup_workspace)
     emit_event = Keyword.get(opts, :emit_event)
 
-    case fetch_terminal_issues.() do
+    case fetch_terminal_issues(fetch_terminal_issues) do
       {:ok, issues} ->
         identifiers =
           Enum.flat_map(issues, fn
@@ -30,12 +31,28 @@ defmodule SymphonyElixir.Orchestrator.TerminalCleanup do
             })
 
           cleanup_targets ->
-            Enum.each(cleanup_targets, &cleanup_workspace(cleanup_workspace, &1))
+            cleanup_failures =
+              cleanup_targets
+              |> Enum.flat_map(fn identifier ->
+                case cleanup_workspace(cleanup_workspace, identifier) do
+                  :ok -> []
+                  {:error, reason} -> [%{issue_identifier: identifier, reason: inspect(reason)}]
+                end
+              end)
 
-            emit_event(emit_event, :info, :terminal_cleanup_completed, %{
-              result_summary: "cleanup_targets=#{length(cleanup_targets)}",
-              message: "terminal_cleanup_completed cleanup_targets=#{length(cleanup_targets)}"
-            })
+            if cleanup_failures == [] do
+              emit_event(emit_event, :info, :terminal_cleanup_completed, %{
+                result_summary: "cleanup_targets=#{length(cleanup_targets)}",
+                message: "terminal_cleanup_completed cleanup_targets=#{length(cleanup_targets)}"
+              })
+            else
+              emit_event(emit_event, :warning, :startup_terminal_cleanup_failed, %{
+                cleanup_targets: length(cleanup_targets),
+                failed_cleanup_targets: length(cleanup_failures),
+                cleanup_failures: cleanup_failures,
+                error: inspect(cleanup_failures)
+              })
+            end
         end
 
       {:error, reason} ->
@@ -54,9 +71,34 @@ defmodule SymphonyElixir.Orchestrator.TerminalCleanup do
     :ok
   end
 
+  defp fetch_terminal_issues(fetch_terminal_issues) when is_function(fetch_terminal_issues, 0) do
+    case fetch_terminal_issues.() do
+      {:ok, issues} when is_list(issues) -> {:ok, issues}
+      {:ok, issues} -> {:error, {:invalid_terminal_cleanup_fetch_result, issues}}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_terminal_cleanup_fetch_result, other}}
+    end
+  rescue
+    error ->
+      {:error, ObservabilityLogger.format_error(error, __STACKTRACE__)}
+  catch
+    kind, reason ->
+      {:error, ObservabilityLogger.format_error({kind, reason}, __STACKTRACE__)}
+  end
+
   defp cleanup_workspace(cleanup_workspace, identifier)
        when is_function(cleanup_workspace, 1) and is_binary(identifier) do
-    cleanup_workspace.(identifier)
+    case cleanup_workspace.(identifier) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_terminal_cleanup_result, other}}
+    end
+  rescue
+    error ->
+      {:error, ObservabilityLogger.format_error(error, __STACKTRACE__)}
+  catch
+    kind, reason ->
+      {:error, ObservabilityLogger.format_error({kind, reason}, __STACKTRACE__)}
   end
 
   defp cleanup_workspace(_cleanup_workspace, _identifier), do: :ok

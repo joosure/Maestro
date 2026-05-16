@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.Orchestrator.PollCycle do
   @moduledoc false
 
+  alias SymphonyElixir.ChangeProposalReconciliation
   alias SymphonyElixir.Config
   alias SymphonyElixir.Orchestrator.Events
   alias SymphonyElixir.Orchestrator.IssueDispatch
@@ -61,7 +62,10 @@ defmodule SymphonyElixir.Orchestrator.PollCycle do
   defp dispatch(%State{} = state, opts) do
     state = reconcile_running_issues(state, opts)
 
-    with :ok <- Config.validate!(),
+    with {:ok, settings} <- Config.settings(),
+         :ok <- Config.validate!(),
+         {:ok, state} <-
+           {:ok, ChangeProposalReconciliation.reconcile(settings, state, change_proposal_reconciler_opts(opts))},
          {:ok, issues} <- Tracker.fetch_candidate_issues() do
       if Events.available_slots(state) > 0 do
         {IssueDispatch.choose_issues(issues, state), :info, %{status: "ok", candidate_count: length(issues)}}
@@ -139,6 +143,14 @@ defmodule SymphonyElixir.Orchestrator.PollCycle do
   defp running_opts(opts, state) do
     case Keyword.get(opts, :running_opts) do
       running_opts when is_function(running_opts, 1) -> running_opts.(state)
+      _other -> []
+    end
+  end
+
+  defp change_proposal_reconciler_opts(opts) do
+    case Keyword.get(opts, :change_proposal_reconciler_opts) do
+      reconciler_opts when is_function(reconciler_opts, 0) -> reconciler_opts.()
+      reconciler_opts when is_list(reconciler_opts) -> reconciler_opts
       _other -> []
     end
   end

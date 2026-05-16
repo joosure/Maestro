@@ -1,7 +1,43 @@
 defmodule SymphonyElixir.AgentProvider.Codex.AppServerTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.Agent.DynamicTool
+  alias SymphonyElixir.Agent.Runtime.DynamicToolBridge
+  alias SymphonyElixir.AgentProvider.Codex.Tooling
+  alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Platform.CommandEnv
+
+  defmodule FakeMcpDynamicToolSource do
+    @behaviour SymphonyElixir.Agent.DynamicTool.Source
+
+    def default_context(opts), do: Keyword.fetch!(opts, :dynamic_tool_source_context)
+    def kind(_context), do: "fake_mcp"
+
+    def tools(_context, _opts) do
+      [
+        %{
+          "name" => "linear_issue_snapshot",
+          "description" => "Read a Linear issue workflow snapshot.",
+          "inputSchema" => %{
+            "type" => "object",
+            "required" => ["issue_id"],
+            "properties" => %{"issue_id" => %{"type" => "string"}}
+          },
+          "workflowCapability" => "tracker.issue_snapshot",
+          "sideEffect" => "read_only",
+          "sourceKind" => "linear",
+          "schemaVersion" => "1"
+        }
+      ]
+    end
+
+    def environment(_context, _opts), do: %{}
+
+    def execute(%{owner: owner}, tool, arguments, opts) do
+      send(owner, {:fake_mcp_dynamic_tool_called, tool, arguments, Keyword.get(opts, :workspace)})
+      {:success, %{"tool" => tool, "arguments" => arguments}}
+    end
+  end
 
   test "stop_session terminates lingering local app-server processes" do
     bash = System.find_executable("bash") || flunk("bash executable is required for this test")
@@ -798,6 +834,100 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServerTest do
     end
   end
 
+  test "generated Codex MCP bridge executes planned dynamic tools through the runtime bridge" do
+    System.find_executable("node") || flunk("node executable is required for this test")
+
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-codex-mcp-wrapper-#{System.unique_integer([:positive])}"
+      )
+
+    bridge_port = free_port!()
+
+    try do
+      workspace = Path.join(test_root, "workspaces/MT-MCP-WRAPPER")
+      File.mkdir_p!(Path.join(workspace, ".git"))
+      EventStore.reset()
+
+      start_supervised!({SymphonyElixir.HttpServer, [host: "127.0.0.1", port: bridge_port]})
+      assert wait_until(fn -> SymphonyElixir.HttpServer.bound_port() == bridge_port end)
+
+      tool_context =
+        DynamicTool.capture_context(
+          dynamic_tool_source: FakeMcpDynamicToolSource,
+          dynamic_tool_source_context: %{owner: self()}
+        )
+
+      assert {:ok, runtime} =
+               DynamicToolBridge.start(
+                 http_port: bridge_port,
+                 tool_context: tool_context,
+                 run_id: "run-mcp-wrapper",
+                 issue_id: "issue-mcp-wrapper",
+                 issue_identifier: "MT-MCP-WRAPPER",
+                 agent_provider_kind: "codex"
+               )
+
+      try do
+        assert :ok =
+                 Tooling.write_runtime_mcp_server(workspace,
+                   tool_context: tool_context,
+                   dynamic_tool_bridge_runtime: runtime
+                 )
+
+        mcp = start_mcp_wrapper!(workspace)
+
+        try do
+          assert %{
+                   "result" => %{
+                     "capabilities" => %{"tools" => %{}},
+                     "serverInfo" => %{"name" => "symphony-planned-tools"}
+                   }
+                 } =
+                   mcp_request!(mcp, 1, "initialize", %{
+                     "protocolVersion" => "2024-11-05",
+                     "capabilities" => %{},
+                     "clientInfo" => %{"name" => "symphony-test", "version" => "0.0.0"}
+                   })
+
+          assert %{"result" => %{"tools" => tools}} = mcp_request!(mcp, 2, "tools/list", %{})
+          assert Enum.any?(tools, &(&1["name"] == "linear_issue_snapshot"))
+
+          assert %{"result" => %{"isError" => false, "content" => [%{"type" => "text", "text" => text}]}} =
+                   mcp_request!(mcp, 3, "tools/call", %{
+                     "name" => "linear_issue_snapshot",
+                     "arguments" => %{"issue_id" => "MT-MCP-WRAPPER"}
+                   })
+
+          assert Jason.decode!(text) == %{
+                   "tool" => "linear_issue_snapshot",
+                   "arguments" => %{"issue_id" => "MT-MCP-WRAPPER"}
+                 }
+
+          assert_receive {:fake_mcp_dynamic_tool_called, "linear_issue_snapshot", %{"issue_id" => "MT-MCP-WRAPPER"}, called_workspace}
+
+          assert normalized_path(called_workspace) == normalized_path(workspace)
+
+          event =
+            EventStore.recent_issue_events(%{run_id: "run-mcp-wrapper"}, limit: 10)
+            |> Enum.find(&(&1["event"] == "tool_call_succeeded" and &1["tool_name"] == "linear_issue_snapshot"))
+
+          assert event["issue_id"] == "issue-mcp-wrapper"
+          assert event["issue_identifier"] == "MT-MCP-WRAPPER"
+          assert event["agent_provider_kind"] == "codex"
+          assert event["dynamic_tool_usage_kind"] == "typed"
+        after
+          close_mcp_wrapper(mcp)
+        end
+      after
+        DynamicToolBridge.stop(runtime)
+      end
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server auto-approves MCP tool approval prompts when approval policy is never" do
     test_root =
       Path.join(
@@ -888,6 +1018,103 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServerTest do
                  payload["id"] == 110 and
                    get_in(payload, ["result", "answers", "mcp_tool_call_approval_call-717", "answers"]) ==
                      ["Approve this Session"]
+               else
+                 false
+               end
+             end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "app server auto-approves MCP server elicitation approval prompts when approval policy is never" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-mcp-elicitation-auto-approve-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-720")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-mcp-elicitation-auto-approve.trace")
+      previous_trace = System.get_env("SYMP_TEST_CODEX_TRACE")
+
+      on_exit(fn ->
+        if is_binary(previous_trace) do
+          System.put_env("SYMP_TEST_CODEX_TRACE", previous_trace)
+        else
+          System.delete_env("SYMP_TEST_CODEX_TRACE")
+        end
+      end)
+
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-mcp-elicitation-auto-approve.trace}"
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-720"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-720"}}}'
+            printf '%s\\n' '{"id":120,"method":"mcpServer/elicitation/request","params":{"message":"Allow Symphony planned tools to call linear_issue_snapshot?","_meta":{"codex_approval_kind":"mcp_tool_call","codex_request_type":"approval_request","persist":["session","always"],"tool_name":"linear_issue_snapshot","tool_title":"Read Linear issue"}}}'
+            ;;
+          5)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        agent_provider_options: %{command: "#{codex_binary} app-server", approval_policy: "never"}
+      )
+
+      issue = %Issue{
+        id: "issue-mcp-elicitation-auto-approve",
+        identifier: "MT-720",
+        title: "Auto approve MCP elicitation",
+        description: "Ensure MCP server elicitation approvals continue automatically",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-720",
+        labels: ["backend"]
+      }
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Handle MCP elicitation approval prompt", issue, codex_app_server_opts(workspace))
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 payload =
+                   line
+                   |> String.trim_leading("JSON:")
+                   |> Jason.decode!()
+
+                 payload["id"] == 120 and get_in(payload, ["result", "action"]) == "accept"
                else
                  false
                end
@@ -1459,6 +1686,90 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServerTest do
     end
   end
 
+  test "app server returns stall timeout when a turn stops producing events" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-stall-timeout-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-91S")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "fake-codex.trace")
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file=#{inspect(trace_file)}
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf '%s:%s\\n' "$count" "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-91s"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-91s"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"mcpServer/startupStatus/updated","params":{"error":null,"name":"symphony-planned-tools","status":"ready"}}'
+            while :; do sleep 1; done
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        agent_provider_options: %{
+          command: "#{codex_binary} app-server",
+          approval_policy: "never",
+          read_timeout_ms: 5_000,
+          turn_timeout_ms: 30_000,
+          stall_timeout_ms: 100
+        }
+      )
+
+      issue = %Issue{
+        id: "issue-stall-timeout",
+        identifier: "MT-91S",
+        title: "Stall timeout",
+        description: "Ensure idle turns fail through stall timeout",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-91S",
+        labels: ["backend"]
+      }
+
+      started_at_ms = System.monotonic_time(:millisecond)
+
+      result =
+        AppServer.run(
+          workspace,
+          "Wait for a stalled turn",
+          issue,
+          codex_app_server_opts(workspace)
+        )
+
+      assert result == {:error, :stall_timeout}, "trace=#{File.read!(trace_file)}"
+
+      assert System.monotonic_time(:millisecond) - started_at_ms < 10_000
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server captures codex side output and logs it through Logger" do
     test_root =
       Path.join(
@@ -1883,7 +2194,9 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServerTest do
                  String.starts_with?(line, "ARGV:") and String.contains?(line, "fake-remote-codex app-server")
                end)
 
-      assert argv_line =~ "-o BatchMode=yes -T -p 2200 worker-01 bash -lc"
+      assert argv_line =~
+               "-o BatchMode=yes -o NumberOfPasswordPrompts=0 -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -T -p 2200 worker-01 bash -lc"
+
       assert argv_line =~ "export SYMPHONY_REPO_PROVIDER_KIND="
       assert argv_line =~ "github"
       assert argv_line =~ "export SYMPHONY_REPO_PROVIDER_REPOSITORY="
@@ -2274,6 +2587,96 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServerTest do
     {:ok, port} = :inet.port(socket)
     :ok = :gen_tcp.close(socket)
     port
+  end
+
+  defp normalized_path(path) when is_binary(path) do
+    path
+    |> Path.expand()
+    |> String.replace_prefix("/private/var/", "/var/")
+  end
+
+  defp start_mcp_wrapper!(workspace) when is_binary(workspace) do
+    sh = System.find_executable("sh") || flunk("sh executable is required for this test")
+
+    Port.open(
+      {:spawn_executable, String.to_charlist(sh)},
+      [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [String.to_charlist(Tooling.wrapper_path(workspace))],
+        cd: String.to_charlist(workspace)
+      ]
+    )
+  rescue
+    error in [ArgumentError, ErlangError] ->
+      flunk("failed to start generated MCP wrapper: #{Exception.message(error)}")
+  end
+
+  defp close_mcp_wrapper(port) when is_port(port) do
+    if Port.info(port) do
+      Port.close(port)
+    end
+  rescue
+    _error -> :ok
+  after
+    receive do
+      {^port, {:exit_status, _status}} -> :ok
+    after
+      100 -> :ok
+    end
+  end
+
+  defp mcp_request!(port, id, method, params) when is_port(port) do
+    message = Jason.encode!(%{"jsonrpc" => "2.0", "id" => id, "method" => method, "params" => params})
+
+    if Port.command(port, message <> "\n") do
+      wait_for_mcp_response!(port, id, "", 100)
+    else
+      flunk("MCP wrapper port closed before request #{id}")
+    end
+  end
+
+  defp wait_for_mcp_response!(port, id, buffer, attempts_left)
+       when is_port(port) and is_integer(attempts_left) and attempts_left > 0 do
+    receive do
+      {^port, {:data, chunk}} ->
+        {lines, rest} = complete_lines(buffer <> chunk)
+
+        case find_mcp_response(lines, id) do
+          nil -> wait_for_mcp_response!(port, id, rest, attempts_left)
+          response -> response
+        end
+
+      {^port, {:exit_status, status}} ->
+        flunk("MCP wrapper exited before response #{id} with status #{status}; output=#{inspect(buffer)}")
+    after
+      50 ->
+        wait_for_mcp_response!(port, id, buffer, attempts_left - 1)
+    end
+  end
+
+  defp wait_for_mcp_response!(_port, id, buffer, 0) do
+    flunk("timed out waiting for MCP response #{id}; buffered_output=#{inspect(buffer)}")
+  end
+
+  defp complete_lines(buffer) when is_binary(buffer) do
+    parts = String.split(buffer, "\n")
+    {Enum.drop(parts, -1), List.last(parts) || ""}
+  end
+
+  defp find_mcp_response(lines, id) when is_list(lines) do
+    Enum.find_value(lines, fn line ->
+      line = String.trim(line)
+
+      with true <- String.starts_with?(line, "{"),
+           {:ok, payload} <- Jason.decode(line),
+           true <- payload["id"] == id do
+        payload
+      else
+        _ -> nil
+      end
+    end)
   end
 
   defp codex_dynamic_tool_context_for_test do

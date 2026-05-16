@@ -53,4 +53,9 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Settings do
 
   @spec pipeline() :: String.t()
   def pipeline, do: @pipeline
+
+  @spec pipeline(String.t()) :: String.t()
+  def pipeline(branch) when is_binary(branch) do
+    @pipeline <> "\n# smoke_branch=#{branch}\n"
+  end
 end

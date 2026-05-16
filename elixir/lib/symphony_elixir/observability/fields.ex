@@ -48,6 +48,14 @@ defmodule SymphonyElixir.Observability.Fields do
     route_key
     target_route
     target_state
+    workflow_profile
+    workflow_profile_version
+    workflow_route_key
+    workflow_route_action
+    workflow_gate_status
+    workflow_gate
+    workflow_gate_reason
+    workflow_missing_capabilities
     tool_name
     dynamic_tool_exposure
     dynamic_tool_count
@@ -113,6 +121,14 @@ defmodule SymphonyElixir.Observability.Fields do
     route_key
     target_route
     target_state
+    workflow_profile
+    workflow_profile_version
+    workflow_route_key
+    workflow_route_action
+    workflow_gate_status
+    workflow_gate
+    workflow_gate_reason
+    workflow_missing_capabilities
     tool_name
     dynamic_tool_usage_kind
     dynamic_tool_workflow_capability

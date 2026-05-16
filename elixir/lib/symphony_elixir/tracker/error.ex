@@ -101,6 +101,13 @@ defmodule SymphonyElixir.Tracker.Error do
     )
   end
 
+  defp do_normalize(provider, operation, {:state_conflict, details}) when is_map(details) do
+    error(provider, operation, :state_conflict,
+      message: "Tracker issue state changed before conditional state update.",
+      details: Map.put(details, :source_reason, {:state_conflict, details})
+    )
+  end
+
   defp do_normalize(provider, operation, reason)
        when reason in [:comment_create_failed, :issue_update_failed] do
     error(provider, operation, :write_failed,

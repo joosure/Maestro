@@ -312,9 +312,14 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
           kind: "coding_pr_delivery",
           version: 1,
           options: %{
-            require_change_proposal: true,
-            require_typed_tracker_tools: true,
-            require_typed_repo_tools: true
+            requirements: %{
+              change_proposal: true,
+              typed_tracker_tools: true,
+              typed_repo_tools: true
+            },
+            execution_profiles: %{
+              allowed: ["land"]
+            }
           }
         }
       },

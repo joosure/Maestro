@@ -165,6 +165,27 @@ defmodule SymphonyElixir.WorkflowValidatorTest do
              Validator.validate_workflow(:global, workflow)
   end
 
+  test "rejects merging execution profiles that are not declared by the active profile" do
+    options = %{"execution_profiles" => %{"allowed" => ["ship"]}}
+
+    policy_by_route_key =
+      CodingPrDelivery.default_policy_by_route_key(options)
+      |> put_in([:merging], %{action: :dispatch, execution_profile: "land"})
+
+    workflow =
+      coding_workflow(%{
+        profile: %{
+          "kind" => CodingPrDelivery.kind(),
+          "version" => CodingPrDelivery.version(),
+          "options" => options
+        },
+        policy_by_route_key: policy_by_route_key
+      })
+
+    assert {:error, {:unsupported_route_policy_execution_profile, :global, :merging, "land"}} =
+             Validator.validate_workflow(:global, workflow)
+  end
+
   test "validates raw policy override entries before normalization" do
     profile_context = ProfileRegistry.resolve!(nil)
 

@@ -2,7 +2,7 @@ defmodule SymphonyElixir.TapdClientTest do
   use SymphonyElixir.TestSupport
 
   alias SymphonyElixir.Tracker.Error, as: TrackerError
-  alias SymphonyElixir.Tracker.Tapd.{Client, CommentCodec}
+  alias SymphonyElixir.Tracker.Tapd.{Adapter, Client, CommentCodec}
 
   test "fetch_candidate_issues returns an invalid configuration error when active states are missing" do
     tracker = %SymphonyElixir.Tracker.Config{
@@ -21,6 +21,70 @@ defmodule SymphonyElixir.TapdClientTest do
               message: "TAPD active states are required.",
               details: %{source_reason: :missing_tapd_active_states}
             }} = Client.fetch_candidate_issues(tracker)
+  end
+
+  test "healthcheck lets the TAPD request layer inject workspace id" do
+    tracker = tapd_tracker([])
+
+    request_fun = fn request ->
+      assert request.method == "GET"
+      assert request.url == "https://api.tapd.cn/quickstart/testauth"
+      assert request.params["workspace_id"] == "53000000"
+
+      {:ok, %{status: 200, body: %{"status" => 1, "data" => %{"ok" => true}}}}
+    end
+
+    assert :ok = Adapter.healthcheck(tracker, request_fun: request_fun)
+  end
+
+  test "fetch_candidate_issues can be narrowed to configured candidate issue ids" do
+    tracker =
+      tapd_tracker(
+        provider: %{
+          "candidate_issue_ids" => ["story-2", "", "story-1", "story-2"]
+        }
+      )
+
+    test_pid = self()
+
+    assert {:ok, issues} =
+             Client.fetch_candidate_issues(tracker,
+               request_fun: fn
+                 %{url: "https://api.tapd.cn/stories", params: %{"id" => story_id}} = request ->
+                   send(test_pid, {:tapd_request, request})
+
+                   {:ok,
+                    %{
+                      status: 200,
+                      body: %{
+                        "status" => 1,
+                        "data" => [
+                          %{
+                            "Story" => %{
+                              "id" => story_id,
+                              "name" => "Story #{story_id}",
+                              "status" => "merging",
+                              "workitem_type_id" => "story"
+                            }
+                          }
+                        ]
+                      }
+                    }}
+
+                 %{
+                   url: "https://api.tapd.cn/stories/get_time_relative_stories",
+                   params: %{"story_id" => _story_id}
+                 } = request ->
+                   send(test_pid, {:tapd_request, request})
+                   {:ok, %{status: 200, body: %{"status" => 1, "data" => []}}}
+               end
+             )
+
+    assert Enum.map(issues, & &1.id) == ["story-2", "story-1"]
+
+    assert_receive {:tapd_request, %{url: "https://api.tapd.cn/stories", params: %{"id" => "story-2"}}}
+    assert_receive {:tapd_request, %{url: "https://api.tapd.cn/stories", params: %{"id" => "story-1"}}}
+    refute_received {:tapd_request, %{url: "https://api.tapd.cn/stories", params: %{"status" => _status}}}
   end
 
   test "fetch_stories_by_status allows multiple workitem types when terminal states match config" do

@@ -70,7 +70,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Git do
       pipeline_path = Path.join(context.worktree, ".cnb.yml")
 
       with {:ok, _branch} <- TargetRepo.create_branch(context.worktree, context.head, "HEAD", Runtime.repo_command_opts(deps)),
-           :ok <- Runtime.write_file(deps, pipeline_path, Settings.pipeline()),
+           :ok <- Runtime.write_file(deps, pipeline_path, Settings.pipeline(context.head)),
            {:ok, _sha_or_noop} <-
              TargetRepo.commit_all(
                context.worktree,

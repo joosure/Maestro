@@ -10,15 +10,24 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Reader do
   @request_timeout_ms 30_000
   @id_fetch_max_concurrency 4
 
-  @spec fetch_candidate_issues(map()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_candidate_issues(tracker) when is_map(tracker) do
-    case TrackerConfig.active_states(tracker) do
-      state_names when is_list(state_names) ->
-        fetch_stories_by_status(state_names, tracker: tracker)
+  @spec fetch_candidate_issues(map(), keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  def fetch_candidate_issues(tracker, opts \\ []) when is_map(tracker) and is_list(opts) do
+    request_fun = Keyword.get(opts, :request_fun, &Request.default_request/1)
+
+    case candidate_issue_ids(tracker) do
+      issue_ids when is_list(issue_ids) and issue_ids != [] ->
+        fetch_stories_by_ids(issue_ids, tracker: tracker, request_fun: request_fun)
         |> Errors.map_result(:fetch_candidate_issues)
 
-      _other ->
-        {:error, Errors.normalize(:fetch_candidate_issues, :missing_tapd_active_states)}
+      _issue_ids ->
+        case TrackerConfig.active_states(tracker) do
+          state_names when is_list(state_names) ->
+            fetch_stories_by_status(state_names, tracker: tracker, request_fun: request_fun)
+            |> Errors.map_result(:fetch_candidate_issues)
+
+          _other ->
+            {:error, Errors.normalize(:fetch_candidate_issues, :missing_tapd_active_states)}
+        end
     end
   end
 
@@ -28,9 +37,12 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Reader do
     |> Errors.map_result(:fetch_issues_by_states)
   end
 
-  @spec fetch_issue_states_by_ids([String.t()], map()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issue_states_by_ids(issue_ids, tracker) when is_list(issue_ids) and is_map(tracker) do
-    fetch_stories_by_ids(issue_ids, tracker: tracker)
+  @spec fetch_issue_states_by_ids([String.t()], map(), keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  def fetch_issue_states_by_ids(issue_ids, tracker, opts \\ [])
+      when is_list(issue_ids) and is_map(tracker) and is_list(opts) do
+    opts = Keyword.put(opts, :tracker, tracker)
+
+    fetch_stories_by_ids(issue_ids, opts)
     |> Errors.map_result(:fetch_issue_states_by_ids)
   end
 
@@ -180,5 +192,33 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Reader do
       nil -> params
       value -> Map.put(params, "workitem_type_id", value)
     end
+  end
+
+  defp candidate_issue_ids(tracker) do
+    tracker
+    |> TrackerConfig.provider()
+    |> nested_value("candidate_issue_ids")
+    |> normalize_string_list()
+  end
+
+  defp normalize_string_list(values) when is_list(values) do
+    values
+    |> Enum.map(&Fields.normalize_string/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_string_list(_values), do: []
+
+  defp nested_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || map_get_existing_atom(map, key)
+  end
+
+  defp nested_value(_map, _key), do: nil
+
+  defp map_get_existing_atom(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
   end
 end

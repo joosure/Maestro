@@ -422,6 +422,7 @@ defmodule SymphonyElixir.RepoProviderSmokeTest do
         Agent.update(call_log, &Map.update!(&1, :writes, fn calls -> calls ++ [{path, contents}] end))
         assert path == Path.join(worktree, ".cnb.yml")
         assert contents =~ "repo-provider probe pull_request"
+        assert contents =~ "# smoke_branch=#{Agent.get(state_ref, & &1.head)}"
         :ok
       end,
       rm_rf: fn path ->

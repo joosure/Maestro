@@ -10,16 +10,16 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
   @issue_page_size 50
 
   @spec fetch_by_states(map(), String.t(), [String.t()], map() | nil, map()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_by_states(tracker, project_slug, state_names, assignee_filter, state_phase_map) do
-    fetch_by_states_page(tracker, project_slug, state_names, assignee_filter, state_phase_map, nil, [])
+  def fetch_by_states(tracker, project_slug, state_names, assignee_filter, workflow_or_state_phase_map) do
+    fetch_by_states_page(tracker, project_slug, state_names, assignee_filter, workflow_or_state_phase_map, nil, [])
   end
 
   @spec fetch_issue_states([String.t()], map() | nil, (String.t(), map() -> {:ok, map()} | {:error, term()}), map()) ::
           {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issue_states(ids, assignee_filter, graphql_fun, state_phase_map)
+  def fetch_issue_states(ids, assignee_filter, graphql_fun, workflow_or_state_phase_map)
       when is_list(ids) and is_function(graphql_fun, 2) do
     issue_order_index = Pagination.issue_order_index(ids)
-    fetch_issue_states_page(ids, assignee_filter, graphql_fun, state_phase_map, [], issue_order_index)
+    fetch_issue_states_page(ids, assignee_filter, graphql_fun, workflow_or_state_phase_map, [], issue_order_index)
   end
 
   defp fetch_by_states_page(
@@ -27,7 +27,7 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
          project_slug,
          state_names,
          assignee_filter,
-         state_phase_map,
+         workflow_or_state_phase_map,
          after_cursor,
          acc_issues
        ) do
@@ -44,7 +44,7 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
              tracker: tracker
            ),
          {:ok, issues, page_info} <-
-           decode_page_response(body, assignee_filter, state_phase_map) do
+           decode_page_response(body, assignee_filter, workflow_or_state_phase_map) do
       updated_acc = Pagination.prepend_page_issues(issues, acc_issues)
 
       case Pagination.next_page_cursor(page_info) do
@@ -54,7 +54,7 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
             project_slug,
             state_names,
             assignee_filter,
-            state_phase_map,
+            workflow_or_state_phase_map,
             next_cursor,
             updated_acc
           )
@@ -72,7 +72,7 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
          [],
          _assignee_filter,
          _graphql_fun,
-         _state_phase_map,
+         _workflow_or_state_phase_map,
          acc_issues,
          issue_order_index
        ) do
@@ -86,7 +86,7 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
          ids,
          assignee_filter,
          graphql_fun,
-         state_phase_map,
+         workflow_or_state_phase_map,
          acc_issues,
          issue_order_index
        ) do
@@ -98,14 +98,14 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
            relationFirst: @issue_page_size
          }) do
       {:ok, body} ->
-        with {:ok, issues} <- decode_response(body, assignee_filter, state_phase_map) do
+        with {:ok, issues} <- decode_response(body, assignee_filter, workflow_or_state_phase_map) do
           updated_acc = Pagination.prepend_page_issues(issues, acc_issues)
 
           fetch_issue_states_page(
             rest_ids,
             assignee_filter,
             graphql_fun,
-            state_phase_map,
+            workflow_or_state_phase_map,
             updated_acc,
             issue_order_index
           )
@@ -119,11 +119,13 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
   defp decode_response(
          %{"data" => %{"issues" => %{"nodes" => nodes}}},
          assignee_filter,
-         state_phase_map
+         workflow_or_state_phase_map
        ) do
+    opts = normalizer_opts(workflow_or_state_phase_map)
+
     issues =
       nodes
-      |> Enum.map(&Normalizer.normalize_issue(&1, assignee_filter, state_phase_map: state_phase_map))
+      |> Enum.map(&Normalizer.normalize_issue(&1, assignee_filter, opts))
       |> Enum.reject(&is_nil(&1))
 
     {:ok, issues}
@@ -147,18 +149,29 @@ defmodule SymphonyElixir.Tracker.Linear.IssueReader do
            }
          },
          assignee_filter,
-         state_phase_map
+         workflow_or_state_phase_map
        ) do
     with {:ok, issues} <-
            decode_response(
              %{"data" => %{"issues" => %{"nodes" => nodes}}},
              assignee_filter,
-             state_phase_map
+             workflow_or_state_phase_map
            ) do
       {:ok, issues, %{has_next_page: has_next_page == true, end_cursor: end_cursor}}
     end
   end
 
-  defp decode_page_response(response, assignee_filter, state_phase_map),
-    do: decode_response(response, assignee_filter, state_phase_map)
+  defp decode_page_response(response, assignee_filter, workflow_or_state_phase_map),
+    do: decode_response(response, assignee_filter, workflow_or_state_phase_map)
+
+  defp normalizer_opts(%{state_phase_map: state_phase_map} = workflow) when is_map(state_phase_map) do
+    [state_phase_map: state_phase_map, workflow: workflow]
+  end
+
+  defp normalizer_opts(%{"state_phase_map" => state_phase_map} = workflow) when is_map(state_phase_map) do
+    [state_phase_map: state_phase_map, workflow: workflow]
+  end
+
+  defp normalizer_opts(state_phase_map) when is_map(state_phase_map), do: [state_phase_map: state_phase_map]
+  defp normalizer_opts(_state_phase_map), do: [state_phase_map: %{}]
 end

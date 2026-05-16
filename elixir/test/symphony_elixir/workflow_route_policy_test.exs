@@ -68,22 +68,36 @@ defmodule SymphonyElixir.WorkflowRoutePolicyTest do
              ProfileRegistry.resolve(%{
                "kind" => "coding_pr_delivery",
                "version" => 1,
-               "options" => %{"land_execution_profile" => "ship"}
+               "options" => %{"execution_profiles" => %{"allowed" => ["land", "ship"]}}
              })
 
     assert resolved_profile.module == CodingPrDelivery
-    assert resolved_profile.options["land_execution_profile"] == "ship"
+    assert resolved_profile.options["execution_profiles"]["allowed"] == ["land", "ship"]
 
     assert ProfileRegistry.default_policy_by_route_key(CodingPrDelivery, resolved_profile.options).merging ==
-             %{action: :dispatch, execution_profile: "ship"}
+             %{action: :dispatch, execution_profile: "land"}
 
-    assert ProfileRegistry.allowed_execution_profiles(CodingPrDelivery, resolved_profile.options) == ["ship"]
+    assert ProfileRegistry.allowed_execution_profiles(CodingPrDelivery, resolved_profile.options) == ["land", "ship"]
 
     assert {:error, {:unknown_profile_option, "coding_pr_delivery", "unknown"}} =
              ProfileRegistry.resolve(%{
                "kind" => "coding_pr_delivery",
                "version" => 1,
                "options" => %{"unknown" => true}
+             })
+
+    assert {:error, {:unknown_profile_option, "coding_pr_delivery", "land_execution_profile"}} =
+             ProfileRegistry.resolve(%{
+               "kind" => "coding_pr_delivery",
+               "version" => 1,
+               "options" => %{"land_execution_profile" => "ship"}
+             })
+
+    assert {:error, {:unknown_profile_option, "coding_pr_delivery", "merging_route_execution_profile"}} =
+             ProfileRegistry.resolve(%{
+               "kind" => "coding_pr_delivery",
+               "version" => 1,
+               "options" => %{"merging_route_execution_profile" => "ship"}
              })
 
     assert {:error, {:invalid_workflow_profile, "coding_pr_delivery", 0}} =

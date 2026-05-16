@@ -12,10 +12,13 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   alias SymphonyElixir.Platform.CommandEnv
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error, as: TrackerError
+  alias SymphonyElixir.Tracker.Linear.Adapter, as: LinearAdapter
   alias SymphonyElixir.Tracker.Linear.Client
   alias SymphonyElixir.Tracker.Linear.IssueReader
   alias SymphonyElixir.Tracker.Linear.Normalizer
   alias SymphonyElixir.Tracker.Linear.Pagination
+  alias SymphonyElixir.Tracker.Linear.WorkflowConfig, as: LinearWorkflowConfig
+  alias SymphonyElixir.Workflow.IssueContext
 
   defmodule LimitedRepoProviderAdapter do
     @behaviour SymphonyElixir.RepoProvider.Adapter
@@ -1073,6 +1076,92 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
            ]
   end
 
+  test "linear workflow config exposes effective coding profile routes on issues" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_api_token: "linear-token",
+      tracker_project_slug: "PROJ"
+    )
+
+    workflow = Config.settings!().tracker |> LinearWorkflowConfig.global_workflow()
+
+    assert workflow.profile.kind == "coding_pr_delivery"
+    assert workflow.raw_state_by_route_key.planning == "Todo"
+    assert workflow.raw_state_by_route_key.developing == "In Progress"
+    assert workflow.raw_state_by_route_key.review == "In Review"
+
+    assert workflow.policy_by_route_key.planning == %{
+             action: :transition_then_dispatch,
+             transition_target: :developing
+           }
+
+    issue =
+      Normalizer.normalize_issue(
+        %{
+          "id" => "issue-1",
+          "identifier" => "MT-1",
+          "title" => "Linear workflow route",
+          "state" => %{"name" => "In Progress"},
+          "labels" => %{"nodes" => []},
+          "inverseRelations" => %{"nodes" => []}
+        },
+        nil,
+        state_phase_map: workflow.state_phase_map,
+        workflow: workflow
+      )
+
+    assert issue.workflow == workflow
+    assert IssueContext.route_facts(issue).route_key == :developing
+    assert IssueContext.route_facts(issue).action == :dispatch
+  end
+
+  test "linear config validation rejects route keys outside the active profile vocabulary" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_api_token: "linear-token",
+      tracker_project_slug: "PROJ",
+      tracker_raw_state_by_route_key: %{
+        "planning" => "Todo",
+        "developing" => "In Progress",
+        "review" => "In Review",
+        "merging" => "Merging",
+        "rework" => "Rework",
+        "resolved" => "Done",
+        "rejected" => "Canceled",
+        "qa_review" => "In Review"
+      }
+    )
+
+    assert {:error,
+            %TrackerError{
+              provider: "linear",
+              operation: :validate_config,
+              details: %{
+                source_reason: {:invalid_linear_workflow_config, {:invalid_raw_state_route_key, :global, "qa_review"}}
+              }
+            }} = LinearAdapter.validate_config(Config.settings!().tracker)
+  end
+
+  test "linear config validation rejects route policy keys outside the active profile vocabulary" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_api_token: "linear-token",
+      tracker_project_slug: "PROJ",
+      tracker_policy_by_route_key: %{
+        "qa_review" => %{"action" => "wait"}
+      }
+    )
+
+    assert {:error,
+            %TrackerError{
+              provider: "linear",
+              operation: :validate_config,
+              details: %{
+                source_reason: {:invalid_linear_workflow_config, {:invalid_route_policy_key, :global, "qa_review"}}
+              }
+            }} = LinearAdapter.validate_config(Config.settings!().tracker)
+  end
+
   test "tapd global raw_state_by_route_key config is preserved and exposed through the global workflow" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "tapd",
@@ -1654,7 +1743,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       repo_provider_kind: "limited",
-      workflow_profile_options: %{"require_change_proposal" => false}
+      workflow_profile_options: %{"requirements" => %{"change_proposal" => false}}
     )
 
     assert {:error, {:missing_workflow_capability, "coding_pr_delivery", 1, "repo_provider.merge", :repo_provider}} =
@@ -1662,7 +1751,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       repo_provider_kind: "limited",
-      workflow_profile_options: %{"require_change_proposal" => false},
+      workflow_profile_options: %{"requirements" => %{"change_proposal" => false}},
       tracker_policy_by_route_key: %{
         "merging" => %{"action" => "wait"}
       }
@@ -1686,8 +1775,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       tracker_api_token: nil,
       tracker_project_slug: nil,
       workflow_profile_options: %{
-        "require_change_proposal" => false,
-        "require_typed_tracker_tools" => true
+        "requirements" => %{
+          "change_proposal" => false,
+          "typed_tracker_tools" => true
+        }
       },
       tracker_policy_by_route_key: %{
         "merging" => %{"action" => "wait"}
@@ -1712,8 +1803,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       tracker_api_token: nil,
       tracker_project_slug: nil,
       workflow_profile_options: %{
-        "require_change_proposal" => false,
-        "require_typed_tracker_tools" => true
+        "requirements" => %{
+          "change_proposal" => false,
+          "typed_tracker_tools" => true
+        }
       },
       tracker_policy_by_route_key: %{
         "merging" => %{"action" => "wait"}
@@ -1745,8 +1838,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       repo_provider_kind: "github",
       workflow_profile_options: %{
-        "require_change_proposal" => true,
-        "require_typed_repo_tools" => true
+        "requirements" => %{
+          "change_proposal" => true,
+          "typed_repo_tools" => true
+        }
       },
       tracker_policy_by_route_key: %{
         "merging" => %{"action" => "wait"}
@@ -1756,7 +1851,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert {:error, {:typed_workflow_tool_resolution_failed, "coding_pr_delivery", 1, "repo.change_proposal_snapshot", :missing}} = Config.validate!()
   end
 
-  test "config admits boot-registered execution profiles scoped to the active workflow profile" do
+  test "config rejects boot-registered execution profiles not declared by the active workflow profile" do
     Application.put_env(:symphony_elixir, :workflow_execution_profiles, [
       %{
         "name" => "ship_without_merge",
@@ -1776,11 +1871,58 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       }
     )
 
+    assert {:error,
+            {:invalid_selected_workflow_execution_profile, %{action: :dispatch, execution_profile: "ship_without_merge", route_key: :merging},
+             {:undeclared_workflow_execution_profile, "ship_without_merge", ["land"]}}} = Config.validate!()
+  end
+
+  test "config admits boot-registered execution profiles declared by the active workflow profile" do
+    Application.put_env(:symphony_elixir, :workflow_execution_profiles, [
+      %{
+        "name" => "ship_without_merge",
+        "profile_kind" => "coding_pr_delivery",
+        "profile_versions" => [1],
+        "supported_actions" => ["dispatch"],
+        "required_capabilities" => [],
+        "runtime_handler" => ShipWithoutMergeExecutionProfile
+      }
+    ])
+
+    on_exit(fn -> Application.delete_env(:symphony_elixir, :workflow_execution_profiles) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workflow_profile_options: %{
+        "execution_profiles" => %{"allowed" => ["ship_without_merge"]}
+      },
+      tracker_policy_by_route_key: %{
+        "merging" => %{"execution_profile" => "ship_without_merge"}
+      }
+    )
+
     assert :ok = Config.validate!()
 
-    assert "ship_without_merge" in SymphonyElixir.Workflow.ExecutionProfileRegistry.effective_allowed_execution_profiles(
-             SymphonyElixir.Workflow.ProfileRegistry.resolve!(Config.settings!().workflow.profile)
-           )
+    resolved_profile = SymphonyElixir.Workflow.ProfileRegistry.resolve!(Config.settings!().workflow.profile)
+
+    assert ["ship_without_merge"] ==
+             SymphonyElixir.Workflow.ExecutionProfileRegistry.effective_allowed_execution_profiles(resolved_profile)
+  end
+
+  test "config rejects declared execution profiles without profile-owned implementation or registry entry" do
+    Application.delete_env(:symphony_elixir, :workflow_execution_profiles)
+    on_exit(fn -> Application.delete_env(:symphony_elixir, :workflow_execution_profiles) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workflow_profile_options: %{
+        "execution_profiles" => %{"allowed" => ["ship_without_merge"]}
+      },
+      tracker_policy_by_route_key: %{
+        "merging" => %{"execution_profile" => "ship_without_merge"}
+      }
+    )
+
+    assert {:error,
+            {:invalid_selected_workflow_execution_profile, %{action: :dispatch, execution_profile: "ship_without_merge", route_key: :merging},
+             {:missing_workflow_execution_profile_registry_entry, "ship_without_merge", "coding_pr_delivery", 1}}} = Config.validate!()
   end
 
   test "config admits a single keyword execution profile registry entry" do
@@ -1796,6 +1938,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     on_exit(fn -> Application.delete_env(:symphony_elixir, :workflow_execution_profiles) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
+      workflow_profile_options: %{
+        "execution_profiles" => %{"allowed" => ["ship_without_merge"]}
+      },
       tracker_policy_by_route_key: %{
         "merging" => %{"execution_profile" => "ship_without_merge"}
       }
@@ -1872,6 +2017,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     on_exit(fn -> Application.delete_env(:symphony_elixir, :workflow_execution_profiles) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
+      workflow_profile_options: %{
+        "execution_profiles" => %{"allowed" => ["ship_without_merge"]}
+      },
       tracker_policy_by_route_key: %{
         "merging" => %{"execution_profile" => "ship_without_merge"}
       }
@@ -1916,7 +2064,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       repo_provider_kind: "limited",
-      workflow_profile_options: %{"require_change_proposal" => false},
+      workflow_profile_options: %{
+        "requirements" => %{"change_proposal" => false},
+        "execution_profiles" => %{"allowed" => ["ship_with_merge"]}
+      },
       tracker_policy_by_route_key: %{
         "merging" => %{"execution_profile" => "ship_with_merge"}
       }
@@ -1926,7 +2077,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              Config.validate!()
   end
 
-  test "config rejects runtime execution profiles when the active profile disallows registry extension" do
+  test "config rejects runtime execution profiles not declared by profiles without execution profiles" do
     Application.put_env(:symphony_elixir, :workflow_execution_profiles, [
       %{
         name: "triage_dispatch",
@@ -1949,7 +2100,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert {:error,
             {:invalid_selected_workflow_execution_profile, %{action: :dispatch, execution_profile: "triage_dispatch", route_key: :classifying},
-             {:unsupported_workflow_execution_profile, "triage_dispatch"}}} = Config.validate!()
+             {:undeclared_workflow_execution_profile, "triage_dispatch", []}}} = Config.validate!()
   end
 
   test "config reads defaults for optional settings" do
@@ -1970,6 +2121,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert TrackerConfig.api_key(config.tracker) == nil
     assert TrackerConfig.provider(config.tracker)["project_slug"] == nil
     assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
+    assert config.worker.max_concurrent_local_agents == nil
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.execution.max_concurrent_agents == 10
 
@@ -1977,10 +2129,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              "kind" => "coding_pr_delivery",
              "version" => 1,
              "options" => %{
-               "require_change_proposal" => true,
-               "require_typed_tracker_tools" => false,
-               "require_typed_repo_tools" => false,
-               "land_execution_profile" => "land"
+               "requirements" => %{
+                 "change_proposal" => true,
+                 "typed_tracker_tools" => false,
+                 "typed_repo_tools" => false
+               },
+               "execution_profiles" => %{
+                 "allowed" => ["land"]
+               }
              }
            }
 
@@ -2141,6 +2297,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), worker_max_concurrent_agents_per_host: 0)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "worker.max_concurrent_agents_per_host"
+
+    write_workflow_file!(Workflow.workflow_file_path(), worker_max_concurrent_local_agents: 0)
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "worker.max_concurrent_local_agents"
 
     File.write!(
       Workflow.workflow_file_path(),
@@ -2688,11 +2848,13 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.max_concurrent_agents_for_state(:not_a_string) == 10
 
     write_workflow_file!(Workflow.workflow_file_path(),
+      worker_max_concurrent_local_agents: 2,
       worker_max_concurrent_agents_per_host: 2,
       worker_ssh_hosts: ["worker-a"]
     )
 
     assert :ok = Config.validate!()
+    assert Config.settings!().worker.max_concurrent_local_agents == 2
     assert Config.settings!().worker.max_concurrent_agents_per_host == 2
   end
 

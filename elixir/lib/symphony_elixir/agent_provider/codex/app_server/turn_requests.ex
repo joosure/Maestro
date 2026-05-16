@@ -96,6 +96,19 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnRequests do
     maybe_auto_answer_tool_request_user_input(request, id, params)
   end
 
+  def handle(
+        %{
+          method: "mcpServer/elicitation/request",
+          payload: %{"id" => id, "params" => params}
+        } = request
+      ) do
+    if mcp_elicitation_approval_request?(params) do
+      accept_or_require_mcp_elicitation(request, id)
+    else
+      :input_required
+    end
+  end
+
   def handle(_request) do
     :unhandled
   end
@@ -178,6 +191,52 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnRequests do
        ) do
     :approval_required
   end
+
+  defp accept_or_require_mcp_elicitation(
+         %{
+           port: port,
+           payload: payload,
+           payload_string: payload_string,
+           on_message: on_message,
+           metadata: metadata,
+           auto_approve_requests: true,
+           turn_context: turn_context
+         },
+         id
+       ) do
+    Protocol.send_message(port, %{"id" => id, "result" => %{"action" => "accept"}})
+
+    ObsLogger.emit(
+      :info,
+      :codex_approval_requested,
+      EventFields.turn(turn_context, %{
+        payload_summary: EventFields.stream_summary(payload),
+        policy_action: "auto_approved"
+      })
+    )
+
+    Messages.emit(
+      on_message,
+      :approval_auto_approved,
+      %{payload: payload, raw: payload_string, decision: "accept"},
+      metadata
+    )
+
+    :approved
+  end
+
+  defp accept_or_require_mcp_elicitation(%{auto_approve_requests: false}, _id), do: :approval_required
+
+  defp mcp_elicitation_approval_request?(params) when is_map(params) do
+    meta = Map.get(params, "_meta") || Map.get(params, :_meta) || %{}
+
+    Map.get(meta, "codex_approval_kind") == "mcp_tool_call" or
+      Map.get(meta, :codex_approval_kind) == "mcp_tool_call" or
+      Map.get(meta, "codex_request_type") == "approval_request" or
+      Map.get(meta, :codex_request_type) == "approval_request"
+  end
+
+  defp mcp_elicitation_approval_request?(_params), do: false
 
   defp maybe_auto_answer_tool_request_user_input(
          %{

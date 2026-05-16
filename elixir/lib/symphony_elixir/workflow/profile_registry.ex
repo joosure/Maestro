@@ -114,7 +114,7 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
 
     options =
       default_options
-      |> Map.merge(normalize_options(map_value(profile_config, "options")))
+      |> deep_merge(normalize_options(map_value(profile_config, "options")))
 
     %{"kind" => kind, "version" => version, "options" => options}
   end
@@ -272,10 +272,22 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
   defp normalize_version(_version), do: nil
 
   defp normalize_options(options) when is_map(options) do
-    Map.new(options, fn {key, value} -> {to_string(key), value} end)
+    Map.new(options, fn {key, value} -> {to_string(key), normalize_option_value(value)} end)
   end
 
   defp normalize_options(_options), do: %{}
+
+  defp normalize_option_value(value) when is_map(value), do: normalize_options(value)
+  defp normalize_option_value(values) when is_list(values), do: Enum.map(values, &normalize_option_value/1)
+  defp normalize_option_value(value), do: value
+
+  defp deep_merge(left, right) when is_map(left) and is_map(right) do
+    Map.merge(left, right, fn _key, left_value, right_value ->
+      deep_merge(left_value, right_value)
+    end)
+  end
+
+  defp deep_merge(_left, right), do: right
 
   defp validate_profile_config_shape(profile_config) when is_map(profile_config) do
     with :ok <- validate_profile_kind_field(profile_config),

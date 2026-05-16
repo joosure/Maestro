@@ -118,7 +118,11 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     {Regex.compile!("\\b" <> @source_design_asset_entrypoint <> "\\b"), "source-only design asset entrypoint reference"}
   ]
   @source_design_asset_reference_exclusions [
-    ".secrets.baseline"
+    ".secrets.baseline",
+    "elixir/lib/mix/tasks/specs.check.ex",
+    "elixir/lib/symphony_elixir/specs_check.ex",
+    "elixir/test/mix/tasks/specs_check_task_test.exs",
+    "elixir/test/symphony_elixir/specs_check_test.exs"
   ]
 
   @forbidden_provider_patterns [
@@ -206,6 +210,14 @@ defmodule SymphonyElixir.RepoArchitectureTest do
      "Agent.DynamicTool core must depend on Source abstractions, not the Tracker facade directly"}
   ]
 
+  @forbidden_orchestrator_change_proposal_reconciliation_patterns [
+    {~r/\bSymphonyElixir\.ChangeProposalReconciliation\.(?:Reconciler|RouteContext|Transition|Counters|Events)\b/,
+     "orchestrator must depend on the ChangeProposalReconciliation facade, not its internal modules"},
+    {~r/\bSymphonyElixir\.ChangeProposalReconciliation\.\{[^}]*\b(?:Reconciler|RouteContext|Transition|Counters|Events)\b/,
+     "orchestrator must depend on the ChangeProposalReconciliation facade, not its internal modules"},
+    {~r/\bChangeProposalReconciliation\.(?:Reconciler|RouteContext|Transition|Counters|Events)\b/, "orchestrator must depend on the ChangeProposalReconciliation facade, not its internal modules"}
+  ]
+
   @forbidden_provider_app_server_support_patterns [
     {~r/\bSymphonyElixir\.AgentProvider\.(?:Codex|ClaudeCode|OpenCode)\b/, "provider-neutral app-server support must not depend on concrete provider modules"},
     {~r/\b(?:Launcher|StreamProtocol|SessionProtocol|TurnRequests|HttpRequests|EventStream)\b/, "provider-neutral app-server support must not own provider protocol or startup modules"}
@@ -239,6 +251,7 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     {"lib/symphony_elixir/agent.ex", "SymphonyElixir.Agent"},
     {"lib/symphony_elixir/agent_provider.ex", "SymphonyElixir.AgentProvider"},
     {"lib/symphony_elixir/application.ex", "SymphonyElixir.Application"},
+    {"lib/symphony_elixir/change_proposal_reconciliation.ex", "SymphonyElixir.ChangeProposalReconciliation"},
     {"lib/symphony_elixir/cli.ex", "SymphonyElixir.CLI"},
     {"lib/symphony_elixir/config.ex", "SymphonyElixir.Config"},
     {"lib/symphony_elixir/http_server.ex", "SymphonyElixir.HttpServer"},
@@ -256,6 +269,7 @@ defmodule SymphonyElixir.RepoArchitectureTest do
 
   @namespace_path_rules [
     {"lib/symphony_elixir/config", "SymphonyElixir.Config"},
+    {"lib/symphony_elixir/change_proposal_reconciliation", "SymphonyElixir.ChangeProposalReconciliation"},
     {"lib/symphony_elixir/config/schema", "SymphonyElixir.Config.Schema"},
     {"lib/symphony_elixir/workflow", "SymphonyElixir.Workflow"},
     {"lib/symphony_elixir/workflow/execution_profile_registry", "SymphonyElixir.Workflow.ExecutionProfileRegistry"},
@@ -622,6 +636,15 @@ defmodule SymphonyElixir.RepoArchitectureTest do
       "lib/symphony_elixir/agent/dynamic_tool"
       |> source_files()
       |> Enum.flat_map(&forbidden_matches(&1, @forbidden_agent_dynamic_tool_dependency_patterns))
+
+    assert violations == []
+  end
+
+  test "orchestrator only depends on change proposal reconciliation facade" do
+    violations =
+      "lib/symphony_elixir/orchestrator"
+      |> source_files()
+      |> Enum.flat_map(&forbidden_matches(&1, @forbidden_orchestrator_change_proposal_reconciliation_patterns))
 
     assert violations == []
   end

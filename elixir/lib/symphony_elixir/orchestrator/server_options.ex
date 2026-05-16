@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.Orchestrator.ServerOptions do
   @moduledoc false
 
+  alias SymphonyElixir.ChangeProposalReconciliation.CandidateInbox
   alias SymphonyElixir.Config
   alias SymphonyElixir.Observability.StatusDashboard
   alias SymphonyElixir.Orchestrator.Events
@@ -16,6 +17,7 @@ defmodule SymphonyElixir.Orchestrator.ServerOptions do
   def poll_cycle_opts do
     [
       running_opts: &running_opts/1,
+      change_proposal_reconciler_opts: &change_proposal_reconciler_opts/0,
       notify_dashboard: &notify_dashboard/0
     ]
   end
@@ -84,6 +86,13 @@ defmodule SymphonyElixir.Orchestrator.ServerOptions do
       emit_event: fn level, event, extra_fields ->
         Events.emit(level, event, nil, nil, extra_fields)
       end
+    ]
+  end
+
+  @spec change_proposal_reconciler_opts() :: keyword()
+  def change_proposal_reconciler_opts do
+    [
+      targeted_issue_ids_fn: &CandidateInbox.drain_issue_ids/1
     ]
   end
 

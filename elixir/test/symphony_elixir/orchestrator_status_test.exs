@@ -52,7 +52,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.SnapshotOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -140,7 +140,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.GenericAgentSnapshotOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -212,7 +212,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.UsageOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -310,7 +310,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.TurnCompletedUsageOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -385,7 +385,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.TokenCountOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -498,7 +498,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.RateLimitOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -579,7 +579,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.CamelCaseRateLimitOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -654,7 +654,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.TokenPrecedenceOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -742,7 +742,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.ThreadTokenUsageOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -816,7 +816,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     orchestrator_name = __MODULE__.LastTokenIgnoredOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -888,7 +888,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
   test "orchestrator snapshot includes retry backoff entries" do
     orchestrator_name = __MODULE__.RetryOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -926,7 +926,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
   test "orchestrator snapshot excludes internal continuation timers from retry backoff" do
     orchestrator_name = __MODULE__.ContinuationSnapshotOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -954,7 +954,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
   test "orchestrator snapshot includes poll countdown and checking status" do
     orchestrator_name = __MODULE__.PollingSnapshotOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -1004,7 +1004,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     )
 
     orchestrator_name = __MODULE__.ImmediateStartupOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -1056,7 +1056,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     )
 
     orchestrator_name = __MODULE__.PollCycleOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -1106,7 +1106,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     issue_id = "issue-stall"
     orchestrator_name = __MODULE__.StallOrchestrator
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = start_orchestrator(orchestrator_name)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -2076,6 +2076,16 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   defp wait_for_snapshot(pid, predicate, timeout_ms \\ 200) when is_function(predicate, 1) do
     deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
     do_wait_for_snapshot(pid, predicate, deadline_ms)
+  end
+
+  defp start_orchestrator(orchestrator_name) when is_atom(orchestrator_name) do
+    Orchestrator.start_link(
+      name: orchestrator_name,
+      terminal_cleanup_opts: [
+        fetch_terminal_issues: fn -> {:ok, []} end,
+        cleanup_workspace: fn _identifier -> :ok end
+      ]
+    )
   end
 
   defp do_wait_for_snapshot(pid, predicate, deadline_ms) do

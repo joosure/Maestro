@@ -25,10 +25,14 @@ defmodule SymphonyElixir.Orchestrator do
   @impl true
   def init(opts) do
     state = State.initial()
-    :ok = TerminalCleanup.run(ServerOptions.terminal_cleanup_opts())
+    :ok = TerminalCleanup.run(terminal_cleanup_opts(opts))
     state = PollCycle.schedule_initial_poll(state, opts)
 
     {:ok, state}
+  end
+
+  defp terminal_cleanup_opts(opts) when is_list(opts) do
+    Keyword.get_lazy(opts, :terminal_cleanup_opts, &ServerOptions.terminal_cleanup_opts/0)
   end
 
   @impl true

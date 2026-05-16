@@ -75,21 +75,19 @@ defmodule SymphonyElixir.Workflow.Capabilities do
     profile_capabilities ++ current_execution_profile_capabilities
   end
 
-  defp selected_execution_profile_capabilities(settings, %{module: profile_module, options: profile_options} = profile_context) do
+  defp selected_execution_profile_capabilities(settings, profile_context) do
     settings
     |> ExecutionProfileRegistry.selected_execution_profiles(profile_context)
     |> Enum.flat_map(fn %{execution_profile: execution_profile, action: action} ->
-      ProfileRegistry.execution_profile_required_capabilities(profile_module, execution_profile, profile_options) ++
-        ExecutionProfileRegistry.required_capabilities(profile_context, execution_profile, action)
+      ExecutionProfileRegistry.required_capabilities(profile_context, execution_profile, action)
     end)
   end
 
-  defp current_execution_profile_capabilities(settings, %{module: profile_module, options: profile_options} = profile_context, issue)
+  defp current_execution_profile_capabilities(settings, profile_context, issue)
        when is_map(issue) do
     case current_route_policy(settings, profile_context, issue) do
       %{action: :dispatch, execution_profile: execution_profile} when is_binary(execution_profile) ->
-        ProfileRegistry.execution_profile_required_capabilities(profile_module, execution_profile, profile_options) ++
-          ExecutionProfileRegistry.required_capabilities(profile_context, execution_profile, :dispatch)
+        ExecutionProfileRegistry.required_capabilities(profile_context, execution_profile, :dispatch)
 
       _route_policy ->
         []

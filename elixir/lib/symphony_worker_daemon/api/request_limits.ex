@@ -11,6 +11,16 @@ defmodule SymphonyWorkerDaemon.Api.RequestLimits do
   @spec default_max_request_body_bytes() :: pos_integer()
   def default_max_request_body_bytes, do: @default_max_request_body_bytes
 
+  @spec parser_options() :: keyword()
+  def parser_options do
+    [
+      parsers: [:json],
+      pass: ["application/json"],
+      json_decoder: Jason,
+      length: default_max_request_body_bytes()
+    ]
+  end
+
   @spec reject_oversized_headers(Plug.Conn.t()) :: Plug.Conn.t()
   def reject_oversized_headers(conn) do
     max_bytes = conn |> runtime_opts() |> positive_integer(:max_header_bytes, @default_max_header_bytes)

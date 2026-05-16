@@ -15,6 +15,8 @@ defmodule SymphonyElixir.Orchestrator.Dispatch do
           active_state_names: [String.t()],
           terminal_state_names: [String.t()],
           state_phase_map: map(),
+          workflow_settings: map(),
+          available_capabilities: MapSet.t(String.t()),
           max_concurrent_agents_for_state: (term() -> pos_integer()) | nil
         }
 

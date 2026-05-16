@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Tracker.Linear.Client do
   alias SymphonyElixir.Tracker.Linear.IssueReader
   alias SymphonyElixir.Tracker.Linear.ProviderOptions
   alias SymphonyElixir.Tracker.Linear.Queries
+  alias SymphonyElixir.Tracker.Linear.WorkflowConfig
 
   # ── Write Operations ─────────────────────────────────────────────
 
@@ -39,13 +40,14 @@ defmodule SymphonyElixir.Tracker.Linear.Client do
       when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
     tracker = Keyword.fetch!(opts, :tracker)
 
-    with {:ok, state_id} <- resolve_state_id(tracker, issue_id, state_name),
+    request_opts = Keyword.put(opts, :tracker, tracker)
+
+    with {:ok, state_id} <- resolve_state_id(issue_id, state_name, request_opts),
          {:ok, response} <-
            graphql(
              Queries.update_state_mutation(),
              %{issueId: issue_id, stateId: state_id},
-             tracker: tracker,
-             operation: :update_issue_state
+             Keyword.put(request_opts, :operation, :update_issue_state)
            ),
          true <- get_in(response, ["data", "issueUpdate", "success"]) == true do
       :ok
@@ -87,12 +89,14 @@ defmodule SymphonyElixir.Tracker.Linear.Client do
 
         true ->
           with {:ok, assignee_filter} <- ProviderOptions.routing_assignee_filter(tracker) do
+            workflow = WorkflowConfig.global_workflow(tracker)
+
             IssueReader.fetch_by_states(
               tracker,
               project_slug,
               TrackerConfig.active_states(tracker),
               assignee_filter,
-              TrackerConfig.state_phase_map(tracker)
+              workflow
             )
           end
       end
@@ -118,12 +122,14 @@ defmodule SymphonyElixir.Tracker.Linear.Client do
             {:error, :missing_linear_project_slug}
 
           true ->
+            workflow = WorkflowConfig.global_workflow(tracker)
+
             IssueReader.fetch_by_states(
               tracker,
               project_slug,
               normalized_states,
               nil,
-              TrackerConfig.state_phase_map(tracker)
+              workflow
             )
         end
       end
@@ -131,8 +137,9 @@ defmodule SymphonyElixir.Tracker.Linear.Client do
     map_linear_result(result, :fetch_issues_by_states)
   end
 
-  @spec fetch_issue_states_by_ids([String.t()], map()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issue_states_by_ids(issue_ids, tracker) when is_list(issue_ids) and is_map(tracker) do
+  @spec fetch_issue_states_by_ids([String.t()], map(), keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  def fetch_issue_states_by_ids(issue_ids, tracker, opts \\ [])
+      when is_list(issue_ids) and is_map(tracker) and is_list(opts) do
     ids = Enum.uniq(issue_ids)
 
     result =
@@ -142,8 +149,8 @@ defmodule SymphonyElixir.Tracker.Linear.Client do
 
         ids ->
           with {:ok, assignee_filter} <- ProviderOptions.routing_assignee_filter(tracker) do
-            graphql_fun = fn query, variables -> graphql(query, variables, tracker: tracker) end
-            IssueReader.fetch_issue_states(ids, assignee_filter, graphql_fun, TrackerConfig.state_phase_map(tracker))
+            graphql_fun = fn query, variables -> graphql(query, variables, Keyword.put(opts, :tracker, tracker)) end
+            IssueReader.fetch_issue_states(ids, assignee_filter, graphql_fun, WorkflowConfig.global_workflow(tracker))
           end
       end
 
@@ -159,13 +166,12 @@ defmodule SymphonyElixir.Tracker.Linear.Client do
   defp map_linear_result({:error, reason}, operation), do: {:error, Errors.normalize(operation, reason)}
   defp map_linear_result(result, _operation), do: result
 
-  defp resolve_state_id(tracker, issue_id, state_name) do
+  defp resolve_state_id(issue_id, state_name, opts) do
     with {:ok, response} <-
            graphql(
              Queries.state_lookup_query(),
              %{issueId: issue_id, stateName: state_name},
-             tracker: tracker,
-             operation: :update_issue_state
+             Keyword.put(opts, :operation, :update_issue_state)
            ),
          state_id when is_binary(state_id) <-
            get_in(response, ["data", "issue", "team", "states", "nodes", Access.at(0), "id"]) do

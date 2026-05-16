@@ -395,6 +395,22 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert SymphonyElixir.Tracker.adapter() == Adapter
   end
 
+  test "terminal issue fetch respects configured candidate issue ids" do
+    done = %Issue{id: "done-1", identifier: "MT-1", state: "Done"}
+    other_done = %Issue{id: "done-2", identifier: "MT-2", state: "Done"}
+    active = %Issue{id: "active-1", identifier: "MT-3", state: "In Progress"}
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [done, other_done, active])
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_terminal_states: ["Done"],
+      tracker_provider: %{"candidate_issue_ids" => ["done-1", "active-1", "missing"]}
+    )
+
+    assert {:ok, [^done]} = SymphonyElixir.Tracker.fetch_terminal_issues()
+  end
+
   test "linear adapter delegates reads and validates mutation responses" do
     Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
     tracker = explicit_linear_tracker()

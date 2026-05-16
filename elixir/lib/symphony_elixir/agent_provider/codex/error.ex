@@ -23,6 +23,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.Error do
   end
 
   defp classify(:turn_timeout, _operation), do: {:agent_provider_timeout, true}
+  defp classify(:stall_timeout, _operation), do: {:agent_provider_timeout, true}
   defp classify(:response_timeout, _operation), do: {:agent_provider_response_timeout, true}
   defp classify({:turn_input_required, _payload}, _operation), do: {:agent_provider_input_required, false}
   defp classify({:approval_required, _payload}, _operation), do: {:agent_provider_input_required, false}
@@ -47,6 +48,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.Error do
   defp classify(_reason, _operation), do: {:agent_provider_turn_failed, false}
 
   defp message(:turn_timeout, _code), do: "Codex turn timed out"
+  defp message(:stall_timeout, _code), do: "Codex turn stalled"
   defp message(:response_timeout, _code), do: "Codex app-server response timed out"
   defp message({:turn_input_required, _payload}, _code), do: "Codex requested manual input"
   defp message({:approval_required, _payload}, _code), do: "Codex requested manual approval"

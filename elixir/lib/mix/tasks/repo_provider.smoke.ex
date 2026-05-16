@@ -34,25 +34,36 @@ defmodule Mix.Tasks.RepoProvider.Smoke do
     if Enum.any?(args, &(&1 in ["--help", "-h"])) do
       Mix.shell().info(@moduledoc)
     else
-      {stdout, stderr, exit_code} = RepoProviderSmokeCLI.evaluate(args)
+      with :ok <- ensure_runtime_started() do
+        {stdout, stderr, exit_code} = RepoProviderSmokeCLI.evaluate(args)
 
-      if stdout != "", do: IO.write(stdout)
+        if stdout != "", do: IO.write(stdout)
 
-      case exit_code do
-        0 ->
-          :ok
+        case exit_code do
+          0 ->
+            :ok
 
-        _other ->
-          message =
-            stderr
-            |> String.trim()
-            |> case do
-              "" -> "repo_provider.smoke failed"
-              value -> value
-            end
+          _other ->
+            message =
+              stderr
+              |> String.trim()
+              |> case do
+                "" -> "repo_provider.smoke failed"
+                value -> value
+              end
 
-          Mix.raise(message)
+            Mix.raise(message)
+        end
       end
+    end
+  end
+
+  defp ensure_runtime_started do
+    with {:ok, _logger_apps} <- Application.ensure_all_started(:logger),
+         {:ok, _req_apps} <- Application.ensure_all_started(:req) do
+      :ok
+    else
+      {:error, reason} -> Mix.raise("Failed to start repo-provider smoke runtime dependencies: #{inspect(reason)}")
     end
   end
 end

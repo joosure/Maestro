@@ -6,10 +6,13 @@ workflow:
     kind: coding_pr_delivery
     version: 1
     options:
-      require_change_proposal: true
-      require_typed_tracker_tools: true
-      require_typed_repo_tools: true
-      land_execution_profile: land
+      requirements:
+        change_proposal: true
+        typed_tracker_tools: true
+        typed_repo_tools: true
+      execution_profiles:
+        allowed:
+          - land
 tracker:
   kind: tapd
   auth:
@@ -220,6 +223,10 @@ Labels: {{ issue.labels }}
 URL: {{ issue.url }}
 
 Current workflow contract for this Story:
+- profile: `{{ workflow.profile.kind }}` v{{ workflow.profile.version }}
+- current route: {% if workflow.route.key %}`{{ workflow.route.key }}`{% else %}`unresolved`{% endif %}; action `{{ workflow.route.action }}`; gate `{{ workflow.gate.status }}/{{ workflow.gate.gate }}`
+- gate reason: {{ workflow.gate.reason }}
+- allowed completion routes: {{ workflow.completion_contract.allowed_completion_routes }}
 - planning: raw state `{{ issue.workflow.raw_state_by_route_key.planning }}`; policy `{{ issue.workflow.policy_by_route_key.planning.action }}`{% if issue.workflow.policy_by_route_key.planning.transition_target %} -> `{{ issue.workflow.policy_by_route_key.planning.transition_target }}`{% endif %}
 - developing: raw state `{{ issue.workflow.raw_state_by_route_key.developing }}`; policy `{{ issue.workflow.policy_by_route_key.developing.action }}`
 - review: raw state `{{ issue.workflow.raw_state_by_route_key.review }}`; policy `{{ issue.workflow.policy_by_route_key.review.action }}`

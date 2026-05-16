@@ -14,6 +14,7 @@ defmodule SymphonyElixir.Tracker.Linear.Normalizer do
   def normalize_issue(issue, assignee_filter, opts) when is_map(issue) and is_list(opts) do
     assignee = issue["assignee"]
     state_phase_map = Keyword.get(opts, :state_phase_map, %{})
+    workflow = Keyword.get(opts, :workflow, %{})
     raw_state = get_in(issue, ["state", "name"])
 
     %Issue{
@@ -29,6 +30,7 @@ defmodule SymphonyElixir.Tracker.Linear.Normalizer do
       assignee_id: assignee_field(assignee, "id"),
       blocked_by: extract_blockers(issue, state_phase_map),
       labels: extract_labels(issue),
+      workflow: workflow,
       assigned_to_worker: assigned_to_worker?(assignee, assignee_filter),
       created_at: parse_datetime(issue["createdAt"]),
       updated_at: parse_datetime(issue["updatedAt"])

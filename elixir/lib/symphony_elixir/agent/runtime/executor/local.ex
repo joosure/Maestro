@@ -36,6 +36,7 @@ defmodule SymphonyElixir.Agent.Runtime.Executor.Local do
     PlatformProcess.close_port(port)
 
     PlatformProcess.terminate_os_process(os_pid,
+      process_group?: true,
       initial_signal?: false,
       grace_ms: Keyword.get(opts, :grace_ms, 500),
       kill_wait_ms: Keyword.get(opts, :kill_wait_ms, 500),

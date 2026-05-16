@@ -15,6 +15,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
 
   @spec terminal_event_for_error(term()) :: atom()
   def terminal_event_for_error(:turn_timeout), do: :agent_turn_timeout
+  def terminal_event_for_error(:stall_timeout), do: :agent_turn_timeout
   def terminal_event_for_error(:response_timeout), do: :agent_turn_timeout
   def terminal_event_for_error({:turn_input_required, _payload}), do: :agent_turn_input_required
   def terminal_event_for_error({:approval_required, _payload}), do: :agent_turn_input_required
@@ -86,6 +87,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
   end
 
   def failure_class(:turn_timeout), do: "timeout"
+  def failure_class(:stall_timeout), do: "timeout"
   def failure_class(:response_timeout), do: "timeout"
   def failure_class({:agent_turn_terminal_status, :timeout}), do: "timeout"
   def failure_class({:agent_turn_terminal_status, :input_required}), do: "input_required"
@@ -126,6 +128,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
 
   defp error_code(%ProviderError{code: code}), do: code
   defp error_code(:turn_timeout), do: :turn_timeout
+  defp error_code(:stall_timeout), do: :stall_timeout
   defp error_code(:response_timeout), do: :response_timeout
   defp error_code({:agent_turn_terminal_status, status}), do: status
   defp error_code({:turn_input_required, _payload}), do: :turn_input_required
@@ -135,6 +138,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
 
   defp retryable?(%ProviderError{retryable?: retryable}), do: retryable
   defp retryable?(:turn_timeout), do: true
+  defp retryable?(:stall_timeout), do: true
   defp retryable?(:response_timeout), do: true
   defp retryable?(_reason), do: false
 end

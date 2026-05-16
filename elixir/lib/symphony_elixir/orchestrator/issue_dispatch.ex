@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
 
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Orchestrator.Dispatch
+  alias SymphonyElixir.Orchestrator.Dispatch.Context, as: DispatchContext
   alias SymphonyElixir.Orchestrator.Events
   alias SymphonyElixir.Orchestrator.Launch
   alias SymphonyElixir.Orchestrator.Retry
@@ -10,6 +11,7 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
   alias SymphonyElixir.Orchestrator.State
   alias SymphonyElixir.Orchestrator.WorkerHosts
   alias SymphonyElixir.Tracker
+  alias SymphonyElixir.Workflow.Readiness
 
   @spec choose_issues([Issue.t()], State.t()) :: State.t()
   def choose_issues(issues, %State{} = state) when is_list(issues) do
@@ -20,7 +22,14 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
     |> Enum.reduce(state, fn issue, state_acc ->
       case Dispatch.dispatch_skip_reason(issue, Runtime.dispatch_runtime(state_acc), dispatch_context) do
         nil ->
-          Events.emit_issue_dispatch(:info, :issue_dispatch_selected, issue, state_acc)
+          Events.emit_issue_dispatch(
+            :info,
+            :issue_dispatch_selected,
+            issue,
+            state_acc,
+            workflow_event_fields(issue, dispatch_context)
+          )
+
           dispatch_issue(state_acc, issue)
 
         skip_reason ->
@@ -29,7 +38,10 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
             :issue_dispatch_skipped,
             issue,
             state_acc,
-            %{skip_reason: Atom.to_string(skip_reason)}
+            Map.merge(
+              workflow_event_fields(issue, dispatch_context),
+              %{skip_reason: Atom.to_string(skip_reason)}
+            )
           )
 
           state_acc
@@ -58,7 +70,10 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           :issue_dispatch_skipped,
           issue,
           state,
-          %{attempt: attempt, skip_reason: "refresh_missing"}
+          Map.merge(
+            workflow_event_fields(issue, dispatch_context),
+            %{attempt: attempt, skip_reason: "refresh_missing"}
+          )
         )
 
         state
@@ -69,7 +84,10 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           :issue_dispatch_skipped,
           refreshed_issue,
           state,
-          %{attempt: attempt, skip_reason: "refresh_not_dispatchable"}
+          Map.merge(
+            workflow_event_fields(refreshed_issue, dispatch_context),
+            %{attempt: attempt, skip_reason: "refresh_not_dispatchable"}
+          )
         )
 
         state
@@ -80,7 +98,10 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           :issue_dispatch_skipped,
           issue,
           state,
-          %{attempt: attempt, skip_reason: "refresh_failed", error: inspect(reason)}
+          Map.merge(
+            workflow_event_fields(issue, dispatch_context),
+            %{attempt: attempt, skip_reason: "refresh_failed", error: inspect(reason)}
+          )
         )
 
         state
@@ -96,7 +117,7 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
            emit_route_transition: &Events.emit_route_transition/7
          ) do
       {:ok, %Issue{} = prepared_issue} ->
-        do_dispatch_issue(state, prepared_issue, attempt, preferred_worker_host)
+        do_dispatch_issue(state, prepared_issue, attempt, preferred_worker_host, dispatch_context)
 
       {:skip, :missing} ->
         Events.emit_issue_dispatch(
@@ -104,7 +125,10 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           :issue_dispatch_skipped,
           refreshed_issue,
           state,
-          %{attempt: attempt, skip_reason: "route_preparation_missing"}
+          Map.merge(
+            workflow_event_fields(refreshed_issue, dispatch_context),
+            %{attempt: attempt, skip_reason: "route_preparation_missing"}
+          )
         )
 
         state
@@ -115,7 +139,10 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           :issue_dispatch_skipped,
           prepared_issue,
           state,
-          %{attempt: attempt, skip_reason: "route_preparation_skipped"}
+          Map.merge(
+            workflow_event_fields(prepared_issue, dispatch_context),
+            %{attempt: attempt, skip_reason: "route_preparation_skipped"}
+          )
         )
 
         state
@@ -126,14 +153,17 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           :issue_dispatch_skipped,
           refreshed_issue,
           state,
-          %{attempt: attempt, skip_reason: "route_preparation_failed", error: inspect(reason)}
+          Map.merge(
+            workflow_event_fields(refreshed_issue, dispatch_context),
+            %{attempt: attempt, skip_reason: "route_preparation_failed", error: inspect(reason)}
+          )
         )
 
         state
     end
   end
 
-  defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
+  defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, dispatch_context) do
     recipient = self()
 
     case WorkerHosts.select_host(state, preferred_worker_host) do
@@ -143,7 +173,10 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           :issue_dispatch_skipped,
           issue,
           state,
-          %{attempt: attempt, skip_reason: "no_worker_capacity"}
+          Map.merge(
+            workflow_event_fields(issue, dispatch_context),
+            %{attempt: attempt, skip_reason: "no_worker_capacity"}
+          )
         )
 
         state
@@ -155,11 +188,45 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           attempt,
           recipient,
           worker_host,
-          emit_issue_dispatch: &Events.emit_issue_dispatch/5,
+          emit_issue_dispatch: fn level, event, issue, state, extra_fields ->
+            Events.emit_issue_dispatch(
+              level,
+              event,
+              issue,
+              state,
+              Map.merge(workflow_event_fields(issue, dispatch_context), extra_fields)
+            )
+          end,
           schedule_retry: fn state, issue, next_attempt, metadata ->
             Retry.schedule(state, issue.id, next_attempt, metadata, emit_event: &Events.emit/5)
           end
         )
     end
   end
+
+  defp workflow_event_fields(%Issue{} = issue, dispatch_context) when is_map(dispatch_context) do
+    facts =
+      Readiness.facts(issue,
+        settings: DispatchContext.workflow_settings(dispatch_context),
+        available_capabilities: DispatchContext.available_capabilities(dispatch_context)
+      )
+
+    profile = Map.get(facts, "profile", %{})
+    route = Map.get(facts, "route", %{})
+    gate = Map.get(facts, "gate", %{})
+    capabilities = Map.get(facts, "capabilities", %{})
+
+    %{
+      workflow_profile: Map.get(profile, "kind"),
+      workflow_profile_version: Map.get(profile, "version"),
+      workflow_route_key: Map.get(route, "key"),
+      workflow_route_action: Map.get(route, "action"),
+      workflow_gate_status: Map.get(gate, "status"),
+      workflow_gate: Map.get(gate, "gate"),
+      workflow_gate_reason: Map.get(gate, "reason"),
+      workflow_missing_capabilities: Map.get(capabilities, "missing", [])
+    }
+  end
+
+  defp workflow_event_fields(_issue, _dispatch_context), do: %{}
 end

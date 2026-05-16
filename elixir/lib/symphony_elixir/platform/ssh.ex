@@ -3,7 +3,17 @@ defmodule SymphonyElixir.Platform.SSH do
 
   alias SymphonyElixir.Platform.CommandEnv
 
-  @batch_mode_args ["-o", "BatchMode=yes"]
+  @ssh_config_env "SYMPHONY_SSH_CONFIG"
+  @ssh_known_hosts_env "SYMPHONY_SSH_KNOWN_HOSTS"
+  @non_interactive_args [
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "NumberOfPasswordPrompts=0",
+    "-o",
+    "KbdInteractiveAuthentication=no"
+  ]
+  @host_key_verification_args ["-o", "StrictHostKeyChecking=yes"]
   @ssh_user_pattern ~r/^[A-Za-z0-9._-]+$/
   @ssh_host_pattern ~r/^[A-Za-z0-9._-]+$/
 
@@ -120,8 +130,7 @@ defmodule SymphonyElixir.Platform.SSH do
     %{destination: destination, port: port} = parse_target(host)
 
     []
-    |> maybe_put_config()
-    |> Kernel.++(@batch_mode_args)
+    |> put_common_ssh_options()
     |> Kernel.++(["-T"])
     |> maybe_put_port(port)
     |> Kernel.++([destination, remote_shell_command(command)])
@@ -132,8 +141,7 @@ defmodule SymphonyElixir.Platform.SSH do
     forward_spec = "127.0.0.1:#{remote_port}:#{local_host}:#{local_port}"
 
     []
-    |> maybe_put_config()
-    |> Kernel.++(@batch_mode_args)
+    |> put_common_ssh_options()
     |> Kernel.++(["-o", "ExitOnForwardFailure=yes", "-N", "-T"])
     |> maybe_put_port(port)
     |> Kernel.++(["-R", forward_spec, destination])
@@ -145,8 +153,7 @@ defmodule SymphonyElixir.Platform.SSH do
     remote_target = destination <> ":" <> remote_parent_dir
 
     []
-    |> maybe_put_config()
-    |> Kernel.++(@batch_mode_args)
+    |> put_common_ssh_options()
     |> maybe_put_scp_port(port)
     |> Kernel.++(["-r", source_dir, remote_target])
   end
@@ -173,10 +180,28 @@ defmodule SymphonyElixir.Platform.SSH do
   defp maybe_put_line_option(port_opts, nil), do: port_opts
   defp maybe_put_line_option(port_opts, line_bytes), do: port_opts ++ [line: line_bytes]
 
+  defp put_common_ssh_options(args) do
+    args
+    |> maybe_put_config()
+    |> maybe_put_known_hosts()
+    |> Kernel.++(@non_interactive_args)
+    |> Kernel.++(@host_key_verification_args)
+  end
+
   defp maybe_put_config(args) do
-    case System.get_env("SYMPHONY_SSH_CONFIG") do
+    case System.get_env(@ssh_config_env) do
       config_path when is_binary(config_path) and config_path != "" ->
         args ++ ["-F", config_path]
+
+      _ ->
+        args
+    end
+  end
+
+  defp maybe_put_known_hosts(args) do
+    case System.get_env(@ssh_known_hosts_env) do
+      known_hosts_path when is_binary(known_hosts_path) and known_hosts_path != "" ->
+        args ++ ["-o", "UserKnownHostsFile=#{known_hosts_path}"]
 
       _ ->
         args

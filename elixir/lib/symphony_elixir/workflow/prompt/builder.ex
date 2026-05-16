@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Workflow.Prompt.Builder do
   alias SymphonyElixir.Observability.Redaction
   alias SymphonyElixir.Workflow
   alias SymphonyElixir.Workflow.Prompt.Template, as: PromptTemplate
+  alias SymphonyElixir.Workflow.Readiness
 
   @render_opts [strict_variables: true, strict_filters: true]
 
@@ -26,6 +27,7 @@ defmodule SymphonyElixir.Workflow.Prompt.Builder do
           "attempt" => Keyword.get(opts, :attempt),
           "issue" => issue |> structless_map() |> to_solid_map(),
           "repo" => opts |> Keyword.get(:repo, %{}) |> structless_map() |> to_solid_map(),
+          "workflow" => issue |> Readiness.facts(opts) |> to_solid_map(),
           "tool_inventory" => tool_inventory(opts)
         },
         @render_opts

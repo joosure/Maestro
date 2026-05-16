@@ -2,6 +2,7 @@ defmodule SymphonyElixir.Orchestrator.Runtime do
   @moduledoc false
 
   alias SymphonyElixir.Config
+  alias SymphonyElixir.Config.Capabilities, as: ConfigCapabilities
   alias SymphonyElixir.Orchestrator.Events
   alias SymphonyElixir.Orchestrator.State
   alias SymphonyElixir.Orchestrator.WorkerHosts
@@ -9,12 +10,15 @@ defmodule SymphonyElixir.Orchestrator.Runtime do
 
   @spec dispatch_context() :: map()
   def dispatch_context do
-    tracker_config = Config.settings!().tracker
+    settings = Config.settings!()
+    tracker_config = settings.tracker
 
     SymphonyElixir.Orchestrator.Dispatch.new_context(
       TrackerConfig.active_states(tracker_config),
       TrackerConfig.terminal_states(tracker_config),
       state_phase_map: TrackerConfig.state_phase_map(tracker_config) || %{},
+      workflow_settings: workflow_settings(settings),
+      available_capabilities: ConfigCapabilities.available_capabilities(settings),
       max_concurrent_agents_for_state: &Config.max_concurrent_agents_for_state/1
     )
   end
@@ -50,4 +54,13 @@ defmodule SymphonyElixir.Orchestrator.Runtime do
       do: poll_interval_ms
 
   def running_poll_interval_ms(_state, default_ms) when is_integer(default_ms), do: default_ms
+
+  defp workflow_settings(settings) when is_map(settings) do
+    %{
+      workflow: Map.get(settings, :workflow),
+      tracker: %{
+        lifecycle: settings |> Map.get(:tracker) |> TrackerConfig.lifecycle()
+      }
+    }
+  end
 end

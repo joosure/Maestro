@@ -253,6 +253,20 @@ See [`docs/repo_provider.md`](./docs/repo_provider.md) for prerequisites,
 environment variables, supported commands, GitHub/CNB behavior, and smoke
 workflows.
 
+## Tracker Smoke
+
+Use `mix tracker.smoke` for deployment-scoped tracker validation. It is
+read-only by default and validates workflow tracker config, tracker
+connectivity, and optional targeted issue refresh:
+
+```bash
+mix tracker.smoke --template memory/no_repo/mock --issue local-memory-1 --json
+```
+
+State-write validation requires `--confirm-state-write` and sends
+`expected_current_state` to the tracker adapter. Run it only against disposable
+or explicitly approved tracker issues.
+
 ## Observability
 
 The optional dashboard uses Phoenix LiveView and Bandit:

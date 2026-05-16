@@ -7,13 +7,15 @@ defmodule SymphonyElixir.Config.Schema.Workflow do
 
   embedded_schema do
     field(:profile, :map, default: %{})
+    field(:reconciliation, :map, default: %{})
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:profile], empty_values: [])
+    |> cast(attrs, [:profile, :reconciliation], empty_values: [])
     |> validate_profile()
+    |> validate_reconciliation()
   end
 
   defp validate_profile(changeset) do
@@ -31,6 +33,26 @@ defmodule SymphonyElixir.Config.Schema.Workflow do
         |> validate_optional_string_field(profile, "kind", :"profile.kind")
         |> validate_optional_positive_integer_field(profile, "version", :"profile.version")
         |> validate_optional_map_field(profile, "options", :"profile.options")
+    end
+  end
+
+  defp validate_reconciliation(changeset) do
+    reconciliation = get_field(changeset, :reconciliation)
+
+    cond do
+      is_nil(reconciliation) ->
+        changeset
+
+      not is_map(reconciliation) ->
+        add_error(changeset, :reconciliation, "must be a map")
+
+      true ->
+        validate_optional_map_field(
+          changeset,
+          reconciliation,
+          "change_proposal",
+          :"reconciliation.change_proposal"
+        )
     end
   end
 

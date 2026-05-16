@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Config do
   alias SymphonyElixir.Tracker.Error, as: TrackerError
   alias SymphonyElixir.Workflow
   alias SymphonyElixir.Workflow.Capabilities, as: WorkflowCapabilities
+  alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Config, as: ChangeProposalReconciliationConfig
   alias SymphonyElixir.Workflow.ExecutionProfileRegistry
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
@@ -137,6 +138,7 @@ defmodule SymphonyElixir.Config do
              :ok <- AgentProvider.validate_config(settings.agent_provider),
              :ok <- RepoProvider.validate_config(settings.repo),
              :ok <- WorkflowLifecycle.validate_state_phase_map(settings.tracker),
+             :ok <- ChangeProposalReconciliationConfig.validate_settings(settings, resolved_profile),
              :ok <- ExecutionProfileRegistry.validate_selected_execution_profiles(settings, resolved_profile),
              :ok <-
                WorkflowCapabilities.validate_required_capabilities(
