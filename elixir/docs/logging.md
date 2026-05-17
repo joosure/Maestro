@@ -130,6 +130,17 @@ The implementation source of truth for context, message-context, and formatter m
 Add new shared event fields there first, then use the existing event/logger/formatter projection
 paths instead of maintaining local duplicate field lists.
 
+Provider-neutral operation lifecycle status labels such as `started`,
+`completed`, `failed`, `stopped`, and `prepared` are owned by
+`SymphonyElixir.Observability.OperationStatus`. Turn terminal statuses are a
+separate agent-provider contract owned by `SymphonyElixir.AgentProvider.TurnStatus`.
+
+Dynamic Tool metric projection keys are owned by
+`SymphonyElixir.Observability.DynamicToolMetrics`. Dynamic Tool operator alert
+envelope keys and severity/status values are owned by
+`SymphonyElixir.Observability.AlertContract`; dashboard rendering should consume
+that contract instead of matching raw alert literals directly.
+
 For HTTP/API-facing events, include the request-critical facts in both structured fields and the
 human-readable `message` string. Text-mode operators often tail logs without a JSON parser, so the
 message still needs to stand on its own. When a request runs inside Phoenix/Plug, preserve the

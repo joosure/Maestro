@@ -3,8 +3,7 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.PoolResolver.Candidates do
 
   alias SymphonyElixir.Agent.Runtime.Target
   alias SymphonyElixir.Agent.Runtime.WorkerDaemon.Endpoint
-
-  @endpoint_env "SYMPHONY_WORKER_DAEMON_ENDPOINTS"
+  alias SymphonyElixir.Agent.Runtime.WorkerDaemon.RuntimeEnv
 
   @spec build(Target.t(), keyword()) :: [map()]
   def build(%Target{} = target, opts) when is_list(opts) do
@@ -72,9 +71,8 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.PoolResolver.Candidates do
   defp pool_candidates(_worker_pool, _pools, _source), do: []
 
   defp env_candidates do
-    @endpoint_env
-    |> System.get_env()
-    |> source_candidates("env." <> @endpoint_env)
+    RuntimeEnv.endpoints()
+    |> source_candidates("env." <> RuntimeEnv.endpoints_env())
   end
 
   defp normalize_candidate(value, source) when is_binary(value) do

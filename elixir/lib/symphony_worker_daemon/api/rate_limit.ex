@@ -4,6 +4,7 @@ defmodule SymphonyWorkerDaemon.Api.RateLimit do
   import Plug.Conn, only: [halt: 1, put_resp_header: 3]
 
   alias SymphonyWorkerDaemon.Api.{Audit, Response}
+  alias SymphonyWorkerDaemon.Auth.Defaults, as: AuthDefaults
   alias SymphonyWorkerDaemon.RateLimiter
 
   @default_rate_limit_window_ms 60_000
@@ -146,7 +147,7 @@ defmodule SymphonyWorkerDaemon.Api.RateLimit do
 
   defp runtime_opts(conn), do: conn.assigns[:worker_daemon_opts] || []
 
-  defp principal(conn), do: conn.assigns[:worker_daemon_principal] || %{owner: "symphony", roles: ["admin"]}
+  defp principal(conn), do: conn.assigns[:worker_daemon_principal] || AuthDefaults.default_principal()
 
   defp positive_integer(opts, key, default) when is_list(opts) and is_integer(default) and default > 0 do
     case Keyword.get(opts, key, default) do

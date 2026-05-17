@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Errors do
   @moduledoc false
 
+  alias SymphonyElixir.RepoProvider.CNB.RuntimeEnv
   alias SymphonyElixir.RepoProvider.Error
 
   @spec map_runtime_error(term()) :: Error.t()
@@ -9,7 +10,7 @@ defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Errors do
     if cnb_build_scope_error?(url, body) do
       Error.runtime_failure(
         :cnb_build_scope_required,
-        "CNB build endpoints require build/bill authorization for this repository; current CNB_TOKEN cannot access run data. Grant CNB build authorization for the target repository and retry.",
+        "CNB build endpoints require build/bill authorization for this repository; current #{RuntimeEnv.token_env()} cannot access run data. Grant CNB build authorization for the target repository and retry.",
         body
       )
     else
@@ -100,7 +101,7 @@ defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Errors do
   end
 
   def map_runtime_error(:missing_cnb_token) do
-    Error.runtime_failure(:missing_cnb_token, "CNB provider requires CNB_TOKEN")
+    Error.runtime_failure(:missing_cnb_token, "CNB provider requires #{RuntimeEnv.token_env()}")
   end
 
   def map_runtime_error(:missing_cnb_repository_slug) do

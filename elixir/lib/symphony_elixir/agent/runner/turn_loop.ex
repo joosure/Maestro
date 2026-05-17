@@ -6,6 +6,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
   alias SymphonyElixir.AgentProvider
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationStatus
 
   @type worker_host :: String.t() | nil
 
@@ -40,7 +41,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
       :info,
       :agent_turn_started,
       EventFields.turn(app_session, issue, worker_host, workspace, run_id, turn_number, max_turns, %{
-        status: "started",
+        status: OperationStatus.started(),
         operation: "run_turn"
       })
       |> Map.merge(EventFields.prompt_observability_fields(prompt))

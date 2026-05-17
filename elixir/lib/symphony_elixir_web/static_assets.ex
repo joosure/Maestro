@@ -1,6 +1,8 @@
 defmodule SymphonyElixirWeb.StaticAssets do
   @moduledoc false
 
+  alias SymphonyElixirWeb.BrowserPaths
+
   @dashboard_css_path Path.expand("../../priv/static/dashboard.css", __DIR__)
   @phoenix_html_js_path Application.app_dir(:phoenix_html, "priv/static/phoenix_html.js")
   @phoenix_js_path Application.app_dir(:phoenix, "priv/static/phoenix.js")
@@ -17,10 +19,10 @@ defmodule SymphonyElixirWeb.StaticAssets do
   @phoenix_live_view_js File.read!(@phoenix_live_view_js_path)
 
   @assets %{
-    "/dashboard.css" => {"text/css", @dashboard_css},
-    "/vendor/phoenix_html/phoenix_html.js" => {"application/javascript", @phoenix_html_js},
-    "/vendor/phoenix/phoenix.js" => {"application/javascript", @phoenix_js},
-    "/vendor/phoenix_live_view/phoenix_live_view.js" => {"application/javascript", @phoenix_live_view_js}
+    BrowserPaths.dashboard_css_path() => {"text/css", @dashboard_css},
+    BrowserPaths.phoenix_html_js_path() => {"application/javascript", @phoenix_html_js},
+    BrowserPaths.phoenix_js_path() => {"application/javascript", @phoenix_js},
+    BrowserPaths.phoenix_live_view_js_path() => {"application/javascript", @phoenix_live_view_js}
   }
 
   @spec fetch(String.t()) :: {:ok, String.t(), binary()} | :error

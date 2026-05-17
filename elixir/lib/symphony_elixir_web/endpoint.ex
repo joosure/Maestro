@@ -5,13 +5,15 @@ defmodule SymphonyElixirWeb.Endpoint do
 
   use Phoenix.Endpoint, otp_app: :symphony_elixir
 
+  alias SymphonyElixirWeb.BrowserPaths
+
   @session_options [
     store: :cookie,
     key: "_symphony_elixir_key",
     signing_salt: "symphony-session"
   ]
 
-  socket("/live", Phoenix.LiveView.Socket,
+  socket(BrowserPaths.live_socket_path(), Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],
     longpoll: false
   )

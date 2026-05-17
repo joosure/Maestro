@@ -2,9 +2,10 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Error do
   @moduledoc false
 
   alias SymphonyElixir.AgentProvider.Error
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Observability.Redaction
 
-  @provider "opencode"
+  @provider Kinds.opencode()
 
   @spec normalize(term(), atom()) :: Error.t()
   def normalize(%Error{} = error, _operation), do: error

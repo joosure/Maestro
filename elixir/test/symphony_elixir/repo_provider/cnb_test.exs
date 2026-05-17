@@ -91,7 +91,7 @@ defmodule SymphonyElixir.RepoProvider.CNBTest do
     end
   end
 
-  test "validate_config rejects GitHub-only PR label enforcement and repository helpers cover config, opts, origin, and defaults" do
+  test "validate_config rejects unsupported PR label enforcement and repository helpers cover config, opts, origin, and defaults" do
     assert :ok == CNB.validate_config(%{})
     assert :ok == CNB.validate_config(%{provider: %{options: %{required_pr_label: nil}}})
 

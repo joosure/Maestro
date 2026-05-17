@@ -2,7 +2,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.StoryRelations do
   @moduledoc false
 
   alias SymphonyElixir.Issue
-  alias SymphonyElixir.Tracker.Tapd.Client.{Fields, Request, Response}
+  alias SymphonyElixir.Tracker.Tapd.Client.{Fields, Paths, Request, Response}
 
   @request_timeout_ms 30_000
   @id_fetch_max_concurrency 4
@@ -107,11 +107,11 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.StoryRelations do
 
   defp fetch_story_time_blockers(story_id, tracker, request_fun) when is_binary(story_id) do
     with {:ok, body} <-
-           Request.request("GET", "/stories/get_time_relative_stories", %{"story_id" => story_id},
+           Request.request("GET", Paths.story_time_relations(), %{"story_id" => story_id},
              tracker: tracker,
              request_fun: request_fun
            ),
-         {:ok, data} <- Response.decode_success_envelope("/stories/get_time_relative_stories", body),
+         {:ok, data} <- Response.decode_success_envelope(Paths.story_time_relations(), body),
          {:ok, blockers} <- decode_story_time_blockers(story_id, data, body) do
       {:ok, blockers}
     end
@@ -127,7 +127,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.StoryRelations do
           {:cont, {:ok, acc ++ blockers}}
 
         :error ->
-          {:halt, {:error, {:unexpected_tapd_payload, "/stories/get_time_relative_stories", body}}}
+          {:halt, {:error, {:unexpected_tapd_payload, Paths.story_time_relations(), body}}}
       end
     end)
     |> case do
@@ -137,7 +137,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.StoryRelations do
   end
 
   defp decode_story_time_blockers(_story_id, _data, body),
-    do: {:error, {:unexpected_tapd_payload, "/stories/get_time_relative_stories", body}}
+    do: {:error, {:unexpected_tapd_payload, Paths.story_time_relations(), body}}
 
   defp decode_story_time_blocker_entry(story_id, %{"WorkitemTimeRelation" => %{} = relation}),
     do: decode_story_time_blocker_entry(story_id, relation)

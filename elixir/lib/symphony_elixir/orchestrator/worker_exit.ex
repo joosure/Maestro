@@ -3,8 +3,11 @@ defmodule SymphonyElixir.Orchestrator.WorkerExit do
 
   alias SymphonyElixir.Orchestrator.Events
   alias SymphonyElixir.Orchestrator.Retry
+  alias SymphonyElixir.Orchestrator.Retry.ResultSummary
+  alias SymphonyElixir.Orchestrator.Retry.Status, as: RetryStatus
   alias SymphonyElixir.Orchestrator.RunningState
   alias SymphonyElixir.Orchestrator.State
+  alias SymphonyWorkerDaemon.Session.Status, as: WorkerSessionStatus
 
   def handle_down_message(state, ref, reason, opts \\ [])
 
@@ -48,7 +51,7 @@ defmodule SymphonyElixir.Orchestrator.WorkerExit do
       running_entry,
       :normal,
       "completed",
-      "continuation_scheduled"
+      ResultSummary.continuation_scheduled()
     )
 
     state
@@ -75,8 +78,8 @@ defmodule SymphonyElixir.Orchestrator.WorkerExit do
       issue_id,
       running_entry,
       reason,
-      "exited",
-      "retry_scheduled"
+      WorkerSessionStatus.exited(),
+      RetryStatus.retry_scheduled()
     )
 
     next_attempt = Retry.next_attempt_from_running(running_entry)

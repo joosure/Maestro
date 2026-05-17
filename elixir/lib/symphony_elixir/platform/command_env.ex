@@ -4,8 +4,7 @@ defmodule SymphonyElixir.Platform.CommandEnv do
   @sensitive_env_name ~r/(TOKEN|SECRET|PASSWORD|API_KEY|API_SECRET|AUTHORIZATION|CREDENTIAL|PRIVATE_KEY)/i
 
   @allowed_sensitive_env_by_command %{
-    "gh" => ~w[GH_TOKEN GITHUB_TOKEN GITHUB_ENTERPRISE_TOKEN],
-    "cnb" => ~w[CNB_TOKEN]
+    "gh" => ~w[GH_TOKEN GITHUB_TOKEN GITHUB_ENTERPRISE_TOKEN]
   }
 
   @type env :: %{optional(String.t()) => String.t() | nil} | [{String.t(), String.t() | nil}]

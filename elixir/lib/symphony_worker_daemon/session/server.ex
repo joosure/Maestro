@@ -4,10 +4,21 @@ defmodule SymphonyWorkerDaemon.Session.Server do
   use GenServer
 
   alias SymphonyWorkerDaemon.{BridgeProxy, CapacityManager, CommandPolicy, ProcessRunner, WorkspaceManager}
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
   alias SymphonyWorkerDaemon.Session.Ledger
-  alias SymphonyWorkerDaemon.Session.Server.{Events, Options, Payloads, ProviderEnvironment, Request, RequestFingerprint, ResourceBudget, Status, TimeoutPolicy}
+  alias SymphonyWorkerDaemon.Session.Server.{Events, Options, Payloads, ProviderEnvironment, Request, RequestFingerprint, ResourceBudget, TimeoutPolicy}
+  alias SymphonyWorkerDaemon.Session.Status
 
   @type status :: String.t()
+
+  @running_status Status.running()
+  @failed_status Status.failed()
+  @cleaned_status Status.cleaned()
+  @stopped_status Status.stopped()
+  @lost_status Status.lost()
+  @terminal_statuses Status.terminal_statuses()
+  @caller_key ProtocolFields.caller()
+  @run_id_key ProtocolFields.run_id()
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) when is_list(opts) do
@@ -89,7 +100,7 @@ defmodule SymphonyWorkerDaemon.Session.Server do
 
   @impl true
   @spec handle_call(term(), GenServer.from(), map()) :: {:reply, term(), map()} | {:stop, term(), term(), map()}
-  def handle_call({:send_input, data}, _from, %{status: "running", port: port} = state) when is_binary(data) do
+  def handle_call({:send_input, data}, _from, %{status: @running_status, port: port} = state) when is_binary(data) do
     true = Port.command(port, data)
     {:reply, :ok, note_client_activity(state)}
   rescue
@@ -118,7 +129,7 @@ defmodule SymphonyWorkerDaemon.Session.Server do
 
     cleaned_state =
       state
-      |> Map.put(:status, "cleaned")
+      |> Map.put(:status, @cleaned_status)
       |> Map.put(:updated_at_ms, System.system_time(:millisecond))
       |> record_ledger()
 
@@ -134,19 +145,19 @@ defmodule SymphonyWorkerDaemon.Session.Server do
     do: {:noreply, state |> note_provider_output() |> Events.append_output("stdout", IO.iodata_to_binary(chunk))}
 
   def handle_info({port, {:exit_status, _status}}, %{port: port, status: status} = state)
-      when status in ["exited", "failed", "cleaned", "stopped", "lost"],
+      when status in @terminal_statuses,
       do: {:noreply, state}
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state), do: {:noreply, mark_exit_status(state, status)}
 
-  def handle_info({:session_timeout, token}, %{session_timeout_ref: {_timer_ref, token}, status: "running"} = state),
-    do: {:noreply, stop_running_process(state, terminal_status: "failed", stop_reason: "session_timeout")}
+  def handle_info({:session_timeout, token}, %{session_timeout_ref: {_timer_ref, token}, status: @running_status} = state),
+    do: {:noreply, stop_running_process(state, terminal_status: @failed_status, stop_reason: "session_timeout")}
 
-  def handle_info({:startup_timeout, token}, %{startup_timeout_ref: {_timer_ref, token}, status: "running"} = state),
-    do: {:noreply, stop_running_process(state, terminal_status: "failed", stop_reason: "startup_timeout")}
+  def handle_info({:startup_timeout, token}, %{startup_timeout_ref: {_timer_ref, token}, status: @running_status} = state),
+    do: {:noreply, stop_running_process(state, terminal_status: @failed_status, stop_reason: "startup_timeout")}
 
-  def handle_info({:idle_timeout, token}, %{idle_timeout_ref: {_timer_ref, token}, status: "running"} = state),
-    do: {:noreply, stop_running_process(state, terminal_status: "failed", stop_reason: "idle_timeout")}
+  def handle_info({:idle_timeout, token}, %{idle_timeout_ref: {_timer_ref, token}, status: @running_status} = state),
+    do: {:noreply, stop_running_process(state, terminal_status: @failed_status, stop_reason: "idle_timeout")}
 
   def handle_info({:session_timeout, _token}, state), do: {:noreply, state}
   def handle_info({:startup_timeout, _token}, state), do: {:noreply, state}
@@ -172,8 +183,8 @@ defmodule SymphonyWorkerDaemon.Session.Server do
   defp admit(capacity_manager, session_id, request) do
     CapacityManager.admit(capacity_manager, %{
       session_id: session_id,
-      run_id: request["run_id"],
-      caller: request["caller"]
+      run_id: Map.get(request, @run_id_key),
+      caller: Map.get(request, @caller_key)
     })
   end
 
@@ -201,7 +212,7 @@ defmodule SymphonyWorkerDaemon.Session.Server do
           %{
             session_id: context.session_id,
             lease_id: context.lease_id,
-            status: "running",
+            status: @running_status,
             request: context.request,
             request_fingerprint: RequestFingerprint.fingerprint(context.request),
             cwd: context.cwd,
@@ -238,7 +249,7 @@ defmodule SymphonyWorkerDaemon.Session.Server do
     end
   end
 
-  defp stop_running_process(%{status: status} = state, _opts) when status in ["exited", "failed", "cleaned", "stopped", "lost"], do: cancel_timeouts(state)
+  defp stop_running_process(%{status: status} = state, _opts) when status in @terminal_statuses, do: cancel_timeouts(state)
 
   defp stop_running_process(state, opts) do
     state = cancel_timeouts(state)
@@ -247,7 +258,7 @@ defmodule SymphonyWorkerDaemon.Session.Server do
     state
     |> stop_bridge_proxy_once()
     |> release_capacity_once()
-    |> Map.put(:status, Keyword.get(opts, :terminal_status, "stopped"))
+    |> Map.put(:status, Keyword.get(opts, :terminal_status, @stopped_status))
     |> Status.put_stop_reason(Keyword.get(opts, :stop_reason) || Keyword.get(opts, :reason))
     |> Map.put(:updated_at_ms, System.system_time(:millisecond))
     |> record_ledger()
@@ -280,10 +291,10 @@ defmodule SymphonyWorkerDaemon.Session.Server do
 
   defp runner_os_pid(_runner, _handle), do: nil
 
-  defp record_lost_on_terminate(%{status: status} = state) when status in ["running"] do
+  defp record_lost_on_terminate(%{status: @running_status} = state) do
     state
     |> cancel_timeouts()
-    |> Map.put(:status, "lost")
+    |> Map.put(:status, @lost_status)
     |> Map.put(:lost_reason, "session_server_terminated")
     |> Map.put(:updated_at_ms, System.system_time(:millisecond))
     |> record_ledger()

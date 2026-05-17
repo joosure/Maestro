@@ -7,9 +7,10 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
   alias SymphonyElixir.Agent.DynamicTool
   alias SymphonyElixir.Agent.DynamicTool.BridgeContract
   alias SymphonyElixir.Agent.DynamicTool.BridgeRegistry
-  alias SymphonyElixir.Agent.DynamicTool.{Context, Policy, Serializer, Usage}
+  alias SymphonyElixir.Agent.DynamicTool.{Context, EventContract, Policy, Serializer, Usage}
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
 
   @token_key {__MODULE__, :token}
   @dialyzer {:nowarn_function, normalize_dynamic_tool_result: 1}
@@ -54,7 +55,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
     started_at_ms = System.monotonic_time(:millisecond)
     base_fields = audit_fields(tool_context, tool, arguments, opts)
 
-    ObservabilityLogger.emit(:info, :tool_call_requested, base_fields)
+    ObservabilityLogger.emit(:info, EventContract.tool_call_requested_event(), base_fields)
 
     case supported_tool_spec(tool_context, tool) do
       %{} ->
@@ -62,13 +63,11 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
 
       _tool_spec ->
         reject_tool_call(
-          %{
-            "error" => %{
-              "code" => "unsupported_tool",
-              "message" => "Unsupported dynamic tool: #{inspect(tool)}.",
-              "supportedTools" => supported_tool_names(tool_context)
-            }
-          },
+          Response.error_payload(
+            EventContract.unsupported_tool(),
+            "Unsupported dynamic tool: #{inspect(tool)}.",
+            %{EventContract.supported_tools_key() => supported_tool_names(tool_context)}
+          ),
           base_fields,
           started_at_ms
         )
@@ -78,7 +77,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
   defp execute_supported_tool(tool_context, tool, arguments, opts, base_fields, started_at_ms) do
     case Policy.authorize(tool_context, tool, opts) do
       :ok ->
-        ObservabilityLogger.emit(:info, :tool_call_started, base_fields)
+        ObservabilityLogger.emit(:info, EventContract.tool_call_started_event(), base_fields)
 
         result =
           tool_context
@@ -86,10 +85,9 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
           |> normalize_dynamic_tool_result()
 
         {level, event} =
-          case result do
-            %{"success" => true} -> {:info, :tool_call_succeeded}
-            _result -> {:warning, :tool_call_failed}
-          end
+          if Response.success?(result),
+            do: {:info, EventContract.tool_call_succeeded_event()},
+            else: {:warning, EventContract.tool_call_failed_event()}
 
         ObservabilityLogger.emit(
           level,
@@ -115,7 +113,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
 
     ObservabilityLogger.emit(
       :warning,
-      :tool_call_rejected,
+      EventContract.tool_call_rejected_event(),
       Map.merge(base_fields, %{
         duration_ms: elapsed_ms(started_at_ms),
         dynamic_tool_failure_reason: Usage.failure_reason(response),
@@ -151,7 +149,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
 
   @spec normalize_dynamic_tool_result(term()) :: bridge_result()
   defp normalize_dynamic_tool_result({:success, payload}) do
-    %{"success" => true, "payload" => Serializer.json_safe_value(payload)}
+    Response.success(Serializer.json_safe_value(payload))
   end
 
   defp normalize_dynamic_tool_result({:failure, payload}) do
@@ -159,29 +157,19 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
   end
 
   defp normalize_dynamic_tool_result({:error, %{__struct__: _struct} = error}) do
-    failure_response(%{"error" => Serializer.error_payload(error)})
+    failure_response(%{Response.error_key() => Serializer.error_payload(error)})
   end
 
   defp normalize_dynamic_tool_result({:error, reason}) do
-    failure_response(%{
-      "error" => %{
-        "message" => "Dynamic tool execution failed.",
-        "reason" => inspect(reason)
-      }
-    })
+    failure_response(Response.error_payload(nil, "Dynamic tool execution failed.", %{"reason" => inspect(reason)}))
   end
 
   defp normalize_dynamic_tool_result(result) do
-    failure_response(%{
-      "error" => %{
-        "message" => "Dynamic tool execution returned an invalid result.",
-        "result" => inspect(result)
-      }
-    })
+    failure_response(Response.error_payload(nil, "Dynamic tool execution returned an invalid result.", %{"result" => inspect(result)}))
   end
 
   defp failure_response(payload) do
-    %{"success" => false, "payload" => Serializer.json_safe_value(payload)}
+    Response.failure(Serializer.json_safe_value(payload))
   end
 
   defp audit_fields(tool_context, tool, arguments, opts) do

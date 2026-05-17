@@ -1,6 +1,7 @@
 defmodule SymphonyWorkerDaemon.Config do
   @moduledoc false
 
+  alias SymphonyWorkerDaemon.Auth.Defaults, as: AuthDefaults
   alias SymphonyWorkerDaemon.Config.{Authentication, ListenAddress, Options, Policies, WorkerIdentity, WorkspaceRoots}
 
   @default_host "127.0.0.1"
@@ -11,7 +12,7 @@ defmodule SymphonyWorkerDaemon.Config do
   @default_api_rate_limit 600
   @default_session_create_rate_limit 60
   @default_token_env "SYMPHONY_WORKER_DAEMON_TOKEN"
-  @default_owner "symphony"
+  @default_owner AuthDefaults.default_owner()
   @default_worker_profile_version "default"
 
   @type deps :: %{

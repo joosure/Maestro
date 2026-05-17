@@ -7,35 +7,17 @@ defmodule SymphonyElixir.Agent.DynamicTool.Inventory do
   and must not be used to reintroduce arbitrary raw provider passthrough.
   """
 
-  alias SymphonyElixir.Agent.DynamicTool.Context
+  alias SymphonyElixir.Agent.DynamicTool.{Context, MetadataContract}
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @typed_capabilities MapSet.new([
-                        "tracker.issue_snapshot",
-                        "tracker.move_issue",
-                        "tracker.upsert_workpad",
-                        "tracker.attach_change_proposal",
-                        "tracker.upsert_comment",
-                        "tracker.create_follow_up_issue",
-                        "tracker.read_issue_relations",
-                        "tracker.add_issue_relation",
-                        "tracker.read_issue_dependencies",
-                        "tracker.save_issue_dependency",
-                        "tracker.prepare_file_upload",
-                        "tracker.provider_diagnostics",
-                        "repo.checkout",
-                        "repo.diff",
-                        "repo.commit",
-                        "repo.push",
-                        "repo.change_proposal_snapshot",
-                        "repo.create_or_update_change_proposal",
-                        "repo.read_change_proposal_discussion",
-                        "repo.add_change_proposal_comment",
-                        "repo.submit_change_proposal_review",
-                        "repo.reply_change_proposal_review_comment",
-                        "repo.read_change_proposal_checks",
-                        "repo.merge_change_proposal",
-                        "repo.close_change_proposal"
-                      ])
+  @typed_capabilities MapSet.new(CapabilityNames.typed_workflow())
+  @workflow_capability_key MetadataContract.workflow_capability()
+  @side_effect_key MetadataContract.side_effect()
+  @source_kind_key MetadataContract.source_kind()
+  @schema_version_key MetadataContract.schema_version()
+  @deprecated_key MetadataContract.deprecated()
+  @default_side_effect MetadataContract.default_side_effect()
+  @default_schema_version MetadataContract.default_schema_version()
 
   @type resolved_tool :: %{
           required(:capability) => String.t(),
@@ -143,18 +125,24 @@ defmodule SymphonyElixir.Agent.DynamicTool.Inventory do
 
   defp typed_tool_from_spec(%{"name" => name}, metadata) when is_binary(name) and is_map(metadata) do
     case Map.get(metadata, name, %{}) do
-      %{"workflowCapability" => capability} = tool_metadata when is_binary(capability) ->
-        [
-          %{
-            capability: capability,
-            tool: name,
-            side_effect: Map.get(tool_metadata, "sideEffect", "destructive"),
-            source_kind: Map.get(tool_metadata, "sourceKind"),
-            schema_version: Map.get(tool_metadata, "schemaVersion", "1"),
-            deprecated?: Map.get(tool_metadata, "deprecated", false) == true,
-            fallback?: false
-          }
-        ]
+      tool_metadata when is_map(tool_metadata) ->
+        capability = string_field(tool_metadata, @workflow_capability_key)
+
+        if is_binary(capability) do
+          [
+            %{
+              capability: capability,
+              tool: name,
+              side_effect: string_field(tool_metadata, @side_effect_key) || @default_side_effect,
+              source_kind: string_field(tool_metadata, @source_kind_key),
+              schema_version: string_field(tool_metadata, @schema_version_key) || @default_schema_version,
+              deprecated?: Map.get(tool_metadata, @deprecated_key, false) == true,
+              fallback?: false
+            }
+          ]
+        else
+          []
+        end
 
       _metadata ->
         []
@@ -194,9 +182,9 @@ defmodule SymphonyElixir.Agent.DynamicTool.Inventory do
        %{
          capability: capability,
          tool: tool,
-         side_effect: Map.get(metadata, "sideEffect", "destructive"),
-         source_kind: Map.get(metadata, "sourceKind"),
-         schema_version: Map.get(metadata, "schemaVersion", "1"),
+         side_effect: string_field(metadata, @side_effect_key) || @default_side_effect,
+         source_kind: string_field(metadata, @source_kind_key),
+         schema_version: string_field(metadata, @schema_version_key) || @default_schema_version,
          deprecated?: false,
          fallback?: true,
          fallback_reason: Map.get(fallback, :reason)
@@ -210,11 +198,11 @@ defmodule SymphonyElixir.Agent.DynamicTool.Inventory do
 
   defp validate_fallback_metadata(metadata, capability, tool) when is_map(metadata) do
     cond do
-      Map.get(metadata, "deprecated", false) == true ->
+      Map.get(metadata, @deprecated_key, false) == true ->
         {:error, {:deprecated_fallback_workflow_tool, capability, tool}}
 
-      is_binary(Map.get(metadata, "workflowCapability")) ->
-        {:error, {:typed_fallback_workflow_tool, capability, tool, Map.get(metadata, "workflowCapability")}}
+      is_binary(string_field(metadata, @workflow_capability_key)) ->
+        {:error, {:typed_fallback_workflow_tool, capability, tool, string_field(metadata, @workflow_capability_key)}}
 
       true ->
         :ok
@@ -360,9 +348,9 @@ defmodule SymphonyElixir.Agent.DynamicTool.Inventory do
   end
 
   defp normalize_fallback(fallback) when is_map(fallback) do
-    case fallback |> string_field("tool") |> normalize_string() do
+    case fallback |> string_field(MetadataContract.tool()) |> normalize_string() do
       tool when is_binary(tool) ->
-        reason = fallback |> string_field("reason") |> normalize_string()
+        reason = fallback |> string_field(MetadataContract.reason()) |> normalize_string()
         {:ok, %{tool: tool, reason: reason}}
 
       _tool ->
@@ -378,7 +366,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Inventory do
   end
 
   defp string_field(map, field) when is_map(map) and is_binary(field) do
-    Map.get(map, field) || Map.get(map, atom_field(field))
+    MetadataContract.field_value(map, field)
   end
 
   defp string_field(_map, _field), do: nil
@@ -391,8 +379,4 @@ defmodule SymphonyElixir.Agent.DynamicTool.Inventory do
   end
 
   defp normalize_string(_value), do: nil
-
-  defp atom_field("tool"), do: :tool
-  defp atom_field("reason"), do: :reason
-  defp atom_field(_field), do: nil
 end

@@ -5,25 +5,31 @@ defmodule SymphonyElixir.Repo.ToolExecutor do
 
   @dialyzer {:nowarn_function, typed_error: 1}
 
-  alias SymphonyElixir.Agent.DynamicTool.Serializer
+  alias SymphonyElixir.Agent.DynamicTool.{MetadataContract, Serializer}
   alias SymphonyElixir.Repo
   alias SymphonyElixir.Repo.Context
   alias SymphonyElixir.Repo.Error
   alias SymphonyElixir.Repo.Status
+  alias SymphonyElixir.Workflow.CapabilityNames
 
   @schema_version "1"
   @risk_flags ["external_process", "filesystem_write"]
   @read_risk_flags ["external_process", "filesystem_read"]
+  @metadata_schema_version_key MetadataContract.schema_version()
+  @metadata_side_effect_key MetadataContract.side_effect()
+  @metadata_risk_flags_key MetadataContract.risk_flags()
+  @metadata_workflow_capability_key MetadataContract.workflow_capability()
+  @metadata_source_kind_key MetadataContract.source_kind()
 
   @checkout_tool "repo_checkout"
   @diff_tool "repo_diff"
   @commit_tool "repo_commit"
   @push_tool "repo_push"
 
-  @checkout_capability "repo.checkout"
-  @diff_capability "repo.diff"
-  @commit_capability "repo.commit"
-  @push_capability "repo.push"
+  @checkout_capability CapabilityNames.repo_checkout()
+  @diff_capability CapabilityNames.repo_diff()
+  @commit_capability CapabilityNames.repo_commit()
+  @push_capability CapabilityNames.repo_push()
 
   @spec tool_specs(map()) :: [map()]
   def tool_specs(repo) when is_map(repo) do
@@ -154,11 +160,11 @@ defmodule SymphonyElixir.Repo.ToolExecutor do
       "name" => name,
       "description" => description,
       "inputSchema" => input_schema,
-      "schemaVersion" => @schema_version,
-      "sideEffect" => side_effect,
-      "riskFlags" => risk_flags,
-      "workflowCapability" => capability,
-      "sourceKind" => "repo",
+      @metadata_schema_version_key => @schema_version,
+      @metadata_side_effect_key => side_effect,
+      @metadata_risk_flags_key => risk_flags,
+      @metadata_workflow_capability_key => capability,
+      @metadata_source_kind_key => "repo",
       "repoPath" => Context.path(repo)
     }
   end

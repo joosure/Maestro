@@ -1,13 +1,15 @@
 defmodule SymphonyWorkerDaemon.Session.Filters do
   @moduledoc false
 
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+
   @type t :: map() | keyword()
 
   @filter_keys [
-    {"owner", :owner},
-    {"tenant_id", :tenant_id},
-    {"run_id", :run_id},
-    {"status", :status}
+    {ProtocolFields.owner(), :owner},
+    {ProtocolFields.tenant_id(), :tenant_id},
+    {ProtocolFields.run_id(), :run_id},
+    {ProtocolFields.status(), :status}
   ]
 
   @spec matches?(map(), t()) :: boolean()

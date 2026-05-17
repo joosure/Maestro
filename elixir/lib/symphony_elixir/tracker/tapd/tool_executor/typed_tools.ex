@@ -1,14 +1,23 @@
 defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.DynamicTool.MetadataContract
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Tracker
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Tapd.Client
+  alias SymphonyElixir.Tracker.Tapd.Client.Paths
   alias SymphonyElixir.Tracker.Tapd.Client.Response
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @source_kind "tapd"
+  @source_kind Kinds.tapd()
   @schema_version "1"
   @risk_flags ["external_network", "secret_access", "privileged_api"]
+  @metadata_schema_version_key MetadataContract.schema_version()
+  @metadata_side_effect_key MetadataContract.side_effect()
+  @metadata_risk_flags_key MetadataContract.risk_flags()
+  @metadata_workflow_capability_key MetadataContract.workflow_capability()
+  @metadata_source_kind_key MetadataContract.source_kind()
 
   @issue_snapshot_tool "tapd_issue_snapshot"
   @move_issue_tool "tapd_move_issue"
@@ -22,17 +31,17 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   @save_story_dependency_tool "tapd_save_story_dependency"
   @provider_diagnostics_tool "tapd_provider_diagnostics"
 
-  @issue_snapshot_capability "tracker.issue_snapshot"
-  @move_issue_capability "tracker.move_issue"
-  @upsert_workpad_capability "tracker.upsert_workpad"
-  @attach_change_proposal_capability "tracker.attach_change_proposal"
-  @upsert_comment_capability "tracker.upsert_comment"
-  @create_follow_up_issue_capability "tracker.create_follow_up_issue"
-  @read_issue_relations_capability "tracker.read_issue_relations"
-  @add_issue_relation_capability "tracker.add_issue_relation"
-  @read_issue_dependencies_capability "tracker.read_issue_dependencies"
-  @save_issue_dependency_capability "tracker.save_issue_dependency"
-  @provider_diagnostics_capability "tracker.provider_diagnostics"
+  @issue_snapshot_capability CapabilityNames.tracker_issue_snapshot()
+  @move_issue_capability CapabilityNames.tracker_move_issue()
+  @upsert_workpad_capability CapabilityNames.tracker_upsert_workpad()
+  @attach_change_proposal_capability CapabilityNames.tracker_attach_change_proposal()
+  @upsert_comment_capability CapabilityNames.tracker_upsert_comment()
+  @create_follow_up_issue_capability CapabilityNames.tracker_create_follow_up_issue()
+  @read_issue_relations_capability CapabilityNames.tracker_read_issue_relations()
+  @add_issue_relation_capability CapabilityNames.tracker_add_issue_relation()
+  @read_issue_dependencies_capability CapabilityNames.tracker_read_issue_dependencies()
+  @save_issue_dependency_capability CapabilityNames.tracker_save_issue_dependency()
+  @provider_diagnostics_capability CapabilityNames.tracker_provider_diagnostics()
 
   @default_comment_limit 50
   @default_workpad_heading "TAPD Workpad"
@@ -254,11 +263,11 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
       "name" => name,
       "description" => description,
       "inputSchema" => input_schema,
-      "schemaVersion" => @schema_version,
-      "sideEffect" => side_effect,
-      "riskFlags" => @risk_flags,
-      "workflowCapability" => capability,
-      "sourceKind" => @source_kind
+      @metadata_schema_version_key => @schema_version,
+      @metadata_side_effect_key => side_effect,
+      @metadata_risk_flags_key => @risk_flags,
+      @metadata_workflow_capability_key => capability,
+      @metadata_source_kind_key => @source_kind
     }
   end
 
@@ -330,8 +339,8 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
 
   defp create_follow_up_story(tracker, arguments, opts) do
     with {:ok, args} <- create_follow_up_story_args(arguments),
-         {:ok, response} <- request(tracker, "POST", "/stories", follow_up_story_params(args), opts),
-         {:ok, data} <- Response.decode_success_envelope("/stories", response),
+         {:ok, response} <- request(tracker, "POST", Paths.stories(), follow_up_story_params(args), opts),
+         {:ok, data} <- Response.decode_success_envelope(Paths.stories(), response),
          {:ok, story} <- response_story(data, args) do
       {:success, success_payload(%{"story" => story})}
     else
@@ -341,9 +350,9 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
 
   defp read_story_relations(tracker, arguments, opts) do
     with {:ok, issue_id} <- required_issue_id_args(arguments),
-         {:ok, response} <- request(tracker, "GET", "/stories/get_link_stories", %{"story_id" => normalize_issue_id(issue_id)}, opts),
-         {:ok, data} <- Response.decode_success_envelope("/stories/get_link_stories", response),
-         {:ok, relations} <- normalize_relation_list(data, "/stories/get_link_stories") do
+         {:ok, response} <- request(tracker, "GET", Paths.story_link_relations(), %{"story_id" => normalize_issue_id(issue_id)}, opts),
+         {:ok, data} <- Response.decode_success_envelope(Paths.story_link_relations(), response),
+         {:ok, relations} <- normalize_relation_list(data, Paths.story_link_relations()) do
       {:success, success_payload(%{"issueId" => normalize_issue_id(issue_id), "relations" => relations})}
     else
       {:error, reason} -> typed_failure(reason)
@@ -356,14 +365,14 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
            request(
              tracker,
              "POST",
-             "/stories/add_story_link_relations",
+             Paths.add_story_link_relations(),
              %{
                "src_story_id" => args.source_issue_id,
                "target_story_id" => args.target_issue_id
              },
              opts
            ),
-         {:ok, data} <- Response.decode_success_envelope("/stories/add_story_link_relations", response) do
+         {:ok, data} <- Response.decode_success_envelope(Paths.add_story_link_relations(), response) do
       {:success,
        success_payload(%{
          "relation" => %{
@@ -380,9 +389,9 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   defp read_story_dependencies(tracker, arguments, opts) do
     with {:ok, issue_id} <- required_issue_id_args(arguments),
          normalized_issue_id <- normalize_issue_id(issue_id),
-         {:ok, response} <- request(tracker, "GET", "/stories/get_time_relative_stories", %{"story_id" => normalized_issue_id}, opts),
-         {:ok, data} <- Response.decode_success_envelope("/stories/get_time_relative_stories", response),
-         {:ok, dependencies} <- normalize_relation_list(data, "/stories/get_time_relative_stories") do
+         {:ok, response} <- request(tracker, "GET", Paths.story_time_relations(), %{"story_id" => normalized_issue_id}, opts),
+         {:ok, data} <- Response.decode_success_envelope(Paths.story_time_relations(), response),
+         {:ok, dependencies} <- normalize_relation_list(data, Paths.story_time_relations()) do
       {:success,
        success_payload(%{
          "issueId" => normalized_issue_id,
@@ -396,8 +405,8 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
 
   defp save_story_dependency(tracker, arguments, opts) do
     with {:ok, args} <- story_dependency_args(arguments),
-         {:ok, response} <- request(tracker, "POST", "/stories/save_time_relations", dependency_relation_params(args), opts),
-         {:ok, data} <- Response.decode_success_envelope("/stories/save_time_relations", response) do
+         {:ok, response} <- request(tracker, "POST", Paths.save_story_time_relations(), dependency_relation_params(args), opts),
+         {:ok, data} <- Response.decode_success_envelope(Paths.save_story_time_relations(), response) do
       {:success,
        success_payload(%{
          "dependency" => %{
@@ -415,7 +424,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
 
   defp provider_diagnostics(tracker, arguments, opts) do
     with :ok <- validate_empty_args(arguments),
-         {:ok, response} <- request(tracker, "GET", "/quickstart/testauth", %{}, opts) do
+         {:ok, response} <- request(tracker, "GET", Paths.quickstart_testauth(), %{}, opts) do
       {:success,
        success_payload(%{
          "workspace" => %{
@@ -456,7 +465,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
            request(
              tracker,
              "GET",
-             "/comments",
+             Paths.comments(),
              %{
                "entry_type" => "stories",
                "entry_id" => normalize_issue_id(issue_id),
@@ -465,7 +474,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
              },
              opts
            ),
-         {:ok, data} <- Response.decode_success_envelope("/comments", body),
+         {:ok, data} <- Response.decode_success_envelope(Paths.comments(), body),
          {:ok, comments} <- normalize_comments(data, body) do
       {:ok, comments}
     end
@@ -485,7 +494,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   defp commit_story_move(tracker, %Issue{id: issue_id} = issue, target_status, opts) do
     case Client.request(
            "POST",
-           "/stories",
+           Paths.stories(),
            %{"id" => issue_id, "status" => target_status},
            tracker: tracker,
            request_fun: Keyword.get(opts, :request_fun, &Client.Request.default_request/1)
@@ -563,7 +572,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
     with {:ok, response} <-
            Client.request(
              "POST",
-             "/comments",
+             Paths.comments(),
              %{"entry_type" => "stories", "entry_id" => normalize_issue_id(issue_id), "description" => body},
              tracker: tracker,
              request_fun: Keyword.get(opts, :request_fun, &Client.Request.default_request/1)
@@ -577,7 +586,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
     with {:ok, response} <-
            Client.request(
              "POST",
-             "/comments",
+             Paths.comments(),
              %{"id" => comment_id, "description" => body},
              tracker: tracker,
              request_fun: Keyword.get(opts, :request_fun, &Client.Request.default_request/1)
@@ -830,7 +839,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
        }
        |> drop_nil_values()}
     else
-      {:error, {:unexpected_tapd_payload, "/stories", data}}
+      {:error, {:unexpected_tapd_payload, Paths.stories(), data}}
     end
   end
 
@@ -956,12 +965,12 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
     |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
       case normalize_comment_entry(entry) do
         {:ok, comment} -> {:cont, {:ok, acc ++ [comment]}}
-        :error -> {:halt, {:error, {:unexpected_tapd_payload, "/comments", body}}}
+        :error -> {:halt, {:error, {:unexpected_tapd_payload, Paths.comments(), body}}}
       end
     end)
   end
 
-  defp normalize_comments(_data, body), do: {:error, {:unexpected_tapd_payload, "/comments", body}}
+  defp normalize_comments(_data, body), do: {:error, {:unexpected_tapd_payload, Paths.comments(), body}}
 
   defp normalize_comment_entry(%{"Comment" => %{} = comment}), do: normalize_comment_entry(comment)
   defp normalize_comment_entry(%{Comment: %{} = comment}), do: normalize_comment_entry(comment)
@@ -1013,7 +1022,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   end
 
   defp response_comment(response, fallback_body, fallback_id \\ nil) do
-    with {:ok, data} <- Response.decode_success_envelope("/comments", response),
+    with {:ok, data} <- Response.decode_success_envelope(Paths.comments(), response),
          {:ok, comment} <- response_comment_data(data, fallback_body, fallback_id) do
       {:ok, comment}
     end
@@ -1035,7 +1044,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
          "body" => candidate["description"] || candidate["body"] || fallback_body
        }}
     else
-      {:error, {:unexpected_tapd_payload, "/comments", data}}
+      {:error, {:unexpected_tapd_payload, Paths.comments(), data}}
     end
   end
 

@@ -4,8 +4,8 @@ defmodule SymphonyElixir.Repo.Branch do
   """
 
   alias SymphonyElixir.Repo.Error
+  alias SymphonyElixir.Repo.RuntimeEnv
 
-  @default_work_prefix "symphony"
   @max_component_length 96
 
   @type result(t) :: {:ok, t} | {:error, Error.t()}
@@ -36,17 +36,17 @@ defmodule SymphonyElixir.Repo.Branch do
     |> Keyword.get(:work_prefix)
     |> present_string()
     |> case do
-      nil -> System.get_env("SYMPHONY_REPO_BRANCH_WORK_PREFIX")
+      nil -> RuntimeEnv.branch_work_prefix()
       value -> value
     end
     |> present_string()
     |> case do
-      nil -> @default_work_prefix
+      nil -> RuntimeEnv.default_work_prefix()
       value -> value
     end
     |> normalize_prefix()
     |> case do
-      nil -> @default_work_prefix
+      nil -> RuntimeEnv.default_work_prefix()
       value -> value
     end
   end

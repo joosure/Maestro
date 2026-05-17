@@ -1,6 +1,8 @@
 defmodule SymphonyElixir.Agent.Credential.Accounts.Options do
   @moduledoc false
 
+  alias SymphonyElixir.AgentProvider.OpenCode.CredentialEnv, as: OpenCodeCredentialEnv
+
   @spec attrs(keyword(), keyword()) :: keyword()
   def attrs(opts, extra_attrs) do
     opts
@@ -39,7 +41,7 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Options do
 
     cond do
       env_name == "" -> :missing
-      Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_]*$/, env_name) -> {:ok, env_name}
+      OpenCodeCredentialEnv.valid_env_name?(env_name) -> {:ok, env_name}
       true -> {:error, {:invalid_opencode_env_name, env_name}}
     end
   end

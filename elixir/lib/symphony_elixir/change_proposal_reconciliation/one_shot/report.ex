@@ -4,6 +4,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot.Report do
   alias SymphonyElixir.ChangeProposalReconciliation.Contract
   alias SymphonyElixir.ChangeProposalReconciliation.OneShot.Fields
   alias SymphonyElixir.Issue
+  alias SymphonyElixir.Smoke.ResultStatus
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Config, as: ReconciliationConfig
@@ -115,19 +116,19 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot.Report do
   end
 
   defp text_header(report) do
-    status = if report.ok, do: "passed", else: "failed"
+    status = ResultStatus.report_status(report.ok)
 
-    "change proposal one-shot #{status} issue=#{report.issue_id || "unknown"} mode=#{report.mode} " <>
-      "tracker=#{report.tracker_kind || "unknown"} repo_provider=#{report.repo_provider_kind || "unknown"} " <>
-      "before=#{report.before_state || "unknown"} after=#{report.after_state || "unknown"}"
+    "change proposal one-shot #{status} issue=#{report.issue_id || ResultStatus.unknown()} mode=#{report.mode} " <>
+      "tracker=#{report.tracker_kind || ResultStatus.unknown()} repo_provider=#{report.repo_provider_kind || ResultStatus.unknown()} " <>
+      "before=#{report.before_state || ResultStatus.unknown()} after=#{report.after_state || ResultStatus.unknown()}"
   end
 
   defp decision_text_line(nil), do: []
 
   defp decision_text_line(decision) when is_map(decision) do
     [
-      "decision=#{Map.get(decision, Fields.decision()) || "unknown"} reason=#{Map.get(decision, Fields.reason()) || "unknown"} " <>
-        "target_route=#{Map.get(decision, Fields.target_route()) || "none"}"
+      "decision=#{Map.get(decision, Fields.decision()) || ResultStatus.unknown()} reason=#{Map.get(decision, Fields.reason()) || ResultStatus.unknown()} " <>
+        "target_route=#{Map.get(decision, Fields.target_route()) || ResultStatus.none()}"
     ]
   end
 
@@ -135,14 +136,14 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot.Report do
 
   defp transition_text_line(transition) when is_map(transition) do
     [
-      "transition=#{Map.get(transition, Fields.event()) || "unknown"} " <>
-        "skip_reason=#{Map.get(transition, Fields.skip_reason()) || "none"} target_state=#{Map.get(transition, Fields.target_state()) || "unknown"}"
+      "transition=#{Map.get(transition, Fields.event()) || ResultStatus.unknown()} " <>
+        "skip_reason=#{Map.get(transition, Fields.skip_reason()) || ResultStatus.none()} target_state=#{Map.get(transition, Fields.target_state()) || ResultStatus.unknown()}"
     ]
   end
 
   defp probe_text_lines(probes) when is_list(probes) do
     Enum.map(probes, fn probe ->
-      status = if probe.ok, do: "ok", else: "fail"
+      status = ResultStatus.line_status(probe.ok)
       detail = if probe.error, do: "#{probe.summary}: #{probe.error}", else: probe.summary
       "- [#{status}] #{probe.id} #{detail} (#{probe.duration_ms}ms)"
     end)

@@ -4,11 +4,13 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.AppServer.Launcher do
   alias SymphonyElixir.Agent.DynamicTool.Context, as: DynamicToolContext
   alias SymphonyElixir.Agent.Runtime.{CommandSpec, DynamicToolBridge, Environment, Target}
   alias SymphonyElixir.AgentProvider.ClaudeCode.{Settings, Tooling}
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.PathSafety
   alias SymphonyElixir.RepoProvider
   alias SymphonyElixir.Workspace.AutomationPack
 
   @port_line_bytes 1_048_576
+  @provider_kind Kinds.claude_code()
 
   @spec validate_runtime_placement(keyword()) :: :ok | {:error, term()}
   def validate_runtime_placement(_opts), do: :ok
@@ -132,7 +134,7 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.AppServer.Launcher do
   end
 
   defp runtime_env(%Settings{} = settings, workspace, opts) do
-    with {:ok, env} <- Environment.current_env("claude_code", settings.telemetry, Keyword.put(opts, :include_dynamic_tool_env, false)),
+    with {:ok, env} <- Environment.current_env(@provider_kind, settings.telemetry, Keyword.put(opts, :include_dynamic_tool_env, false)),
          {:ok, bridge_env} <- DynamicToolBridge.runtime_env(opts) do
       provider_env =
         RepoProvider.runtime_env()

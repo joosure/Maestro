@@ -16,7 +16,11 @@ defmodule SymphonyElixir.RepoProvider.Error do
     * `:retryable?` — hint for callers about transient failures
   """
 
+  alias SymphonyElixir.RepoProvider.CNB.RuntimeEnv, as: CNBRuntimeEnv
   alias SymphonyElixir.RepoProvider.Config, as: RepoConfig
+  alias SymphonyElixir.RepoProvider.Kinds
+
+  @cnb_kind Kinds.cnb()
 
   defstruct [:code, :message, :details, :provider, :operation, exit_code: 1, retryable?: false]
 
@@ -168,10 +172,10 @@ defmodule SymphonyElixir.RepoProvider.Error do
   defp retryable_reason?({:cnb_api_status, _, _, _, _}), do: true
   defp retryable_reason?(_reason), do: false
 
-  defp normalized_reason("cnb", :missing_cnb_token),
-    do: runtime_failure(:missing_cnb_token, "CNB provider requires CNB_TOKEN")
+  defp normalized_reason(@cnb_kind, :missing_cnb_token),
+    do: runtime_failure(:missing_cnb_token, "CNB provider requires #{CNBRuntimeEnv.token_env()}")
 
-  defp normalized_reason("cnb", :missing_cnb_repository_slug),
+  defp normalized_reason(@cnb_kind, :missing_cnb_repository_slug),
     do: runtime_failure(:missing_cnb_repository_slug, "CNB provider requires a repository slug")
 
   defp normalized_reason(provider, {:unsupported_repo_provider_kind, kind}) do
@@ -209,13 +213,13 @@ defmodule SymphonyElixir.RepoProvider.Error do
   defp error_message(reason) when is_binary(reason), do: reason
   defp error_message(reason), do: "Repo provider operation failed: #{inspect(reason)}"
 
-  defp unsupported_option_message(kind, :required_pr_label) do
-    "repo.provider.options.required_pr_label requires repo.provider.kind to be github; current provider: #{kind}"
+  defp unsupported_option_message(kind, option) do
+    "Repo provider #{kind || "unknown"} does not support option #{option_path(option)}"
   end
 
-  defp unsupported_option_message(kind, option) do
-    "Repo provider #{kind || "unknown"} does not support option #{option}"
-  end
+  defp option_path(:required_pr_label), do: "repo.provider.options.required_pr_label"
+  defp option_path(:change_proposal_body_generator), do: "repo.provider.options.change_proposal_body_generator"
+  defp option_path(option), do: "repo.provider.options.#{option}"
 
   defp to_provider(%{} = provider_or_repo) do
     case RepoConfig.kind(provider_or_repo) || Map.get(provider_or_repo, :kind) || Map.get(provider_or_repo, "kind") do

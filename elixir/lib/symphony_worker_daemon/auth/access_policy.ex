@@ -1,9 +1,13 @@
 defmodule SymphonyWorkerDaemon.Auth.AccessPolicy do
   @moduledoc false
 
-  alias SymphonyWorkerDaemon.Auth.Values
+  alias SymphonyWorkerDaemon.Auth.{Defaults, Values}
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
 
-  @admin_role "admin"
+  @admin_role Defaults.admin_role()
+  @caller_key ProtocolFields.caller()
+  @owner_key ProtocolFields.owner()
+  @tenant_id_key ProtocolFields.tenant_id()
 
   @spec authorize_create(map(), map()) :: :ok | {:error, :session_forbidden}
   def authorize_create(principal, request) when is_map(principal) and is_map(request) do
@@ -55,8 +59,8 @@ defmodule SymphonyWorkerDaemon.Auth.AccessPolicy do
   end
 
   defp authorize_owner_filter(principal, filters) do
-    requested_owner = filters |> Map.get("owner") |> Values.normalize_optional_string()
-    requested_tenant_id = filters |> Map.get("tenant_id") |> Values.normalize_optional_string()
+    requested_owner = filters |> Map.get(@owner_key) |> Values.normalize_optional_string()
+    requested_tenant_id = filters |> Map.get(@tenant_id_key) |> Values.normalize_optional_string()
     principal_owner = Map.fetch!(principal, :owner)
     principal_tenant_id = Map.get(principal, :tenant_id)
 
@@ -70,8 +74,8 @@ defmodule SymphonyWorkerDaemon.Auth.AccessPolicy do
       true ->
         {:ok,
          filters
-         |> Map.put("owner", principal_owner)
-         |> Values.maybe_put_string("tenant_id", principal_tenant_id)}
+         |> Map.put(@owner_key, principal_owner)
+         |> Values.maybe_put_string(@tenant_id_key, principal_tenant_id)}
     end
   end
 
@@ -83,10 +87,10 @@ defmodule SymphonyWorkerDaemon.Auth.AccessPolicy do
 
   defp admin?(principal) when is_map(principal), do: @admin_role in Map.get(principal, :roles, [])
 
-  defp caller_identity(%{"caller" => caller}) when is_map(caller) do
+  defp caller_identity(%{@caller_key => caller}) when is_map(caller) do
     %{
-      owner: caller |> Map.get("owner") |> Values.normalize_optional_string(),
-      tenant_id: caller |> Map.get("tenant_id") |> Values.normalize_optional_string()
+      owner: caller |> Map.get(@owner_key) |> Values.normalize_optional_string(),
+      tenant_id: caller |> Map.get(@tenant_id_key) |> Values.normalize_optional_string()
     }
     |> Values.compact_map()
   end
@@ -95,8 +99,8 @@ defmodule SymphonyWorkerDaemon.Auth.AccessPolicy do
 
   defp session_identity(summary) when is_map(summary) do
     %{
-      owner: summary |> Values.known_value("owner", :owner) |> Values.normalize_optional_string(),
-      tenant_id: summary |> Values.known_value("tenant_id", :tenant_id) |> Values.normalize_optional_string()
+      owner: summary |> Values.known_value(@owner_key, :owner) |> Values.normalize_optional_string(),
+      tenant_id: summary |> Values.known_value(@tenant_id_key, :tenant_id) |> Values.normalize_optional_string()
     }
     |> Values.compact_map()
   end

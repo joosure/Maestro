@@ -10,6 +10,8 @@ defmodule SymphonyElixir.RepoProvider.Smoke.ProbeRunner do
   called directly by application code.
   """
 
+  alias SymphonyElixir.Smoke.ResultStatus
+
   # ── Probe Construction ─────────────────────────────────────────────
 
   @doc """
@@ -153,12 +155,11 @@ defmodule SymphonyElixir.RepoProvider.Smoke.ProbeRunner do
   def blank_to_nil(value), do: value
 
   @spec status_label(boolean()) :: String.t()
-  def status_label(true), do: "ok"
-  def status_label(false), do: "failed"
+  def status_label(true), do: ResultStatus.line_status(true)
+  def status_label(false), do: ResultStatus.failed()
 
   @spec probe_status_label(boolean()) :: String.t()
-  def probe_status_label(true), do: "PASS"
-  def probe_status_label(false), do: "FAIL"
+  def probe_status_label(status), do: ResultStatus.upper_probe_status(status)
 
   # ── Private ────────────────────────────────────────────────────────
 

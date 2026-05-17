@@ -4,6 +4,7 @@ defmodule SymphonyWorkerDaemon.OrphanSweeper do
   alias SymphonyElixir.Platform.Process, as: PlatformProcess
   alias SymphonyWorkerDaemon.OrphanSweeper.{LedgerRecorder, ProcessControl, Result, SessionCandidate}
   alias SymphonyWorkerDaemon.Session.Ledger
+  alias SymphonyWorkerDaemon.Session.Status
 
   @default_grace_ms 500
   @default_kill_wait_ms 500
@@ -41,7 +42,7 @@ defmodule SymphonyWorkerDaemon.OrphanSweeper do
     workspace_roots = Keyword.get(opts, :workspace_roots, [])
     process_module = Keyword.get(opts, :process_module, PlatformProcess)
 
-    case Ledger.list_sessions(ledger, status: "lost") do
+    case Ledger.list_sessions(ledger, status: Status.lost()) do
       {:ok, sessions} ->
         sessions
         |> Enum.filter(&SessionCandidate.restart_orphan?/1)

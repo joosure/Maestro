@@ -3,6 +3,10 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Verification do
 
   alias SymphonyElixir.Agent.Credential.Accounts.{Command, Environment, ProviderCallbacks}
   alias SymphonyElixir.Agent.Credential.Store
+  alias SymphonyElixir.AgentProvider.Kinds
+
+  @claude_code_kind Kinds.claude_code()
+  @opencode_kind Kinds.opencode()
 
   @spec verify(Store.account(), keyword(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}
   def verify(account, opts, store_opts) do
@@ -30,10 +34,10 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Verification do
     end
   end
 
-  defp verify_args("claude_code"), do: {:ok, ["auth", "status", "--json"]}
-  defp verify_args("opencode"), do: {:ok, ["--version"]}
+  defp verify_args(@claude_code_kind), do: {:ok, ["auth", "status", "--json"]}
+  defp verify_args(@opencode_kind), do: {:ok, ["--version"]}
   defp verify_args(provider), do: {:error, {:unsupported_account_verify_provider, provider}}
 
-  defp default_provider_command("claude_code"), do: "claude"
+  defp default_provider_command(@claude_code_kind), do: "claude"
   defp default_provider_command(provider), do: provider
 end

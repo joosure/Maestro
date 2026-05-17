@@ -2,7 +2,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.WorkitemTypeScope do
   @moduledoc false
 
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
-  alias SymphonyElixir.Tracker.Tapd.Client.{Fields, Request, Response}
+  alias SymphonyElixir.Tracker.Tapd.Client.{Fields, Paths, Request, Response}
   alias SymphonyElixir.Tracker.Tapd.WorkflowConfig
 
   @spec resolve([map()], map()) :: {:ok, [map()], [String.t()]}
@@ -76,11 +76,11 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.WorkitemTypeScope do
     params = %{"workitem_type_id" => workitem_type_id, "type" => type, "system" => "story"}
 
     with {:ok, body} <-
-           Request.request("GET", "/workflows/last_steps", params,
+           Request.request("GET", Paths.workflow_last_steps(), params,
              tracker: tracker,
              request_fun: request_fun
            ),
-         {:ok, data} <- Response.decode_success_envelope("/workflows/last_steps", body),
+         {:ok, data} <- Response.decode_success_envelope(Paths.workflow_last_steps(), body),
          {:ok, last_steps} <- decode_last_steps(data, type, body) do
       {:ok, last_steps}
     else
@@ -102,7 +102,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.WorkitemTypeScope do
       case decode_last_step_entry(entry, type) do
         {:ok, nil} -> {:cont, {:ok, acc}}
         {:ok, value} -> {:cont, {:ok, [value | acc]}}
-        :error -> {:halt, {:error, {:unexpected_tapd_payload, "/workflows/last_steps", body}}}
+        :error -> {:halt, {:error, {:unexpected_tapd_payload, Paths.workflow_last_steps(), body}}}
       end
     end)
     |> case do
@@ -112,7 +112,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.WorkitemTypeScope do
   end
 
   defp decode_last_steps(_data, _type, body),
-    do: {:error, {:unexpected_tapd_payload, "/workflows/last_steps", body}}
+    do: {:error, {:unexpected_tapd_payload, Paths.workflow_last_steps(), body}}
 
   defp decode_last_step_entry(%{"WorkflowStep" => %{} = step}, type),
     do: decode_last_step_entry(step, type)

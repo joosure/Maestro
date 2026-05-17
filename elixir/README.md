@@ -211,9 +211,14 @@ Important configuration notes:
 - TAPD workflows can use `tracker.lifecycle.raw_state_by_route_key` to map
   Maestro route keys such as `review` to raw TAPD API statuses such as
   `status_5`.
-- `repo.provider.kind` defaults to `github`; the bundled repo-provider helper
-  supports `github` and `cnb`.
-- `agent_provider.kind` defaults to `codex`.
+- `tracker.kind` built-ins are `linear`, `tapd`, and `memory`; canonical
+  tracker kind strings are owned by `SymphonyElixir.Tracker.Kinds`.
+- `repo.provider.kind` defaults to `github`; bundled repo-provider kinds are
+  `github`, `cnb`, and local/test `memory`. Canonical repo-provider kind
+  strings and labels are owned by `SymphonyElixir.RepoProvider.Kinds`, while
+  defaults are owned by `SymphonyElixir.RepoProvider.Defaults`.
+- `agent_provider.kind` defaults to `codex`. Canonical agent provider kind
+  strings and supported aliases are owned by `SymphonyElixir.AgentProvider.Kinds`.
 - `workspace.bootstrap_automation_from` is optional and overrides the bundled
   workspace automation source when you need a custom skill pack.
 - `server.port` or CLI `--port` enables the Phoenix LiveView dashboard and JSON

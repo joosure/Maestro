@@ -8,7 +8,26 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
   attempts remain `raw` and must be rejected before source execution.
   """
 
-  alias SymphonyElixir.Agent.DynamicTool.Context
+  alias SymphonyElixir.Agent.DynamicTool.{Context, MetadataContract}
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
+
+  @success_key Response.success_key()
+  @payload_key Response.payload_key()
+  @error_key Response.error_key()
+  @code_key Response.code_key()
+  @message_key Response.message_key()
+  @workflow_capability_key MetadataContract.workflow_capability()
+  @side_effect_key MetadataContract.side_effect()
+  @source_kind_key MetadataContract.source_kind()
+  @schema_version_key MetadataContract.schema_version()
+  @deprecated_key MetadataContract.deprecated()
+  @operator_only_key MetadataContract.operator_only()
+  @reason_key MetadataContract.reason()
+  @description_key MetadataContract.description()
+  @typed_usage_kind MetadataContract.typed_usage_kind()
+  @raw_usage_kind MetadataContract.raw_usage_kind()
+  @fallback_usage_kind MetadataContract.fallback_usage_kind()
+  @provider_capability_unavailable_reason MetadataContract.provider_capability_unavailable_reason()
 
   @type classification :: %{
           required(:usage_kind) => String.t(),
@@ -35,17 +54,17 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
     base = %{
       usage_kind: usage_kind(metadata, fallback),
       tool_name: tool,
-      side_effect: string_field(metadata, "sideEffect"),
-      source_kind: string_field(metadata, "sourceKind") || Context.source_kind(tool_context),
-      schema_version: string_field(metadata, "schemaVersion"),
-      deprecated?: Map.get(metadata, "deprecated", false) == true,
-      operator_only?: Map.get(metadata, "operatorOnly", false) == true
+      side_effect: string_field(metadata, @side_effect_key),
+      source_kind: string_field(metadata, @source_kind_key) || Context.source_kind(tool_context),
+      schema_version: string_field(metadata, @schema_version_key),
+      deprecated?: Map.get(metadata, @deprecated_key, false) == true,
+      operator_only?: Map.get(metadata, @operator_only_key, false) == true
     }
 
     base
     |> put_optional(
       :workflow_capability,
-      string_field(metadata, "workflowCapability") || fallback_capability(fallback)
+      string_field(metadata, @workflow_capability_key) || fallback_capability(fallback)
     )
     |> put_optional(:exposure, exposure(tool_context))
     |> put_optional(:fallback_reason, fallback_reason(fallback))
@@ -54,7 +73,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
 
   def classify(tool_context, tool, _opts) do
     %{
-      usage_kind: "raw",
+      usage_kind: @raw_usage_kind,
       tool_name: tool
     }
     |> put_optional(:exposure, exposure(tool_context))
@@ -80,10 +99,10 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
   end
 
   @spec failure_reason(term()) :: String.t() | nil
-  def failure_reason(%{"success" => true}), do: nil
+  def failure_reason(%{@success_key => true}), do: nil
   def failure_reason(%{success: true}), do: nil
 
-  def failure_reason(%{"payload" => payload}), do: error_reason(payload)
+  def failure_reason(%{@payload_key => payload}), do: error_reason(payload)
   def failure_reason(%{payload: payload}), do: error_reason(payload)
 
   def failure_reason(%{"output" => output}) when is_binary(output) do
@@ -110,11 +129,11 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
     |> Enum.reverse()
   end
 
-  defp usage_kind(%{"workflowCapability" => capability}, _fallback) when is_binary(capability),
-    do: "typed"
+  defp usage_kind(%{@workflow_capability_key => capability}, _fallback) when is_binary(capability),
+    do: @typed_usage_kind
 
-  defp usage_kind(_metadata, %{tool: tool}) when is_binary(tool), do: "fallback"
-  defp usage_kind(_metadata, _fallback), do: "raw"
+  defp usage_kind(_metadata, %{tool: tool}) when is_binary(tool), do: @fallback_usage_kind
+  defp usage_kind(_metadata, _fallback), do: @raw_usage_kind
 
   defp metadata_for(tool_context, tool) do
     metadata =
@@ -176,10 +195,10 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
   end
 
   defp normalize_fallback(fallback) when is_map(fallback) do
-    with {:ok, tool} <- fallback |> string_field("tool") |> normalize_string() do
+    with {:ok, tool} <- fallback |> string_field(MetadataContract.tool()) |> normalize_string() do
       reason =
         fallback
-        |> string_field("reason")
+        |> string_field(@reason_key)
         |> normalize_string()
         |> case do
           {:ok, value} -> value
@@ -205,17 +224,17 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
   defp exposure(%{"tool_plan" => %{"exposure" => exposure}}) when is_binary(exposure), do: exposure
   defp exposure(_tool_context), do: nil
 
-  defp error_reason(%{"error" => %{"code" => code}}) when is_binary(code) and code != "", do: code
+  defp error_reason(%{@error_key => %{@code_key => code}}) when is_binary(code) and code != "", do: code
 
-  defp error_reason(%{"error" => %{"message" => message}})
+  defp error_reason(%{@error_key => %{@message_key => message}})
        when is_binary(message) and message != "", do: message
 
-  defp error_reason(%{error: error}), do: error_reason(%{"error" => error})
+  defp error_reason(%{error: error}), do: error_reason(%{@error_key => error})
   defp error_reason(_payload), do: nil
 
   defp count_provider_capability_unavailable(%{} = payload) do
     Enum.reduce(payload, 0, fn
-      {_key, "provider_capability_not_available"}, total ->
+      {_key, @provider_capability_unavailable_reason}, total ->
         total + 1
 
       {_key, value}, total ->
@@ -229,7 +248,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
     end)
   end
 
-  defp count_provider_capability_unavailable("provider_capability_not_available"), do: 1
+  defp count_provider_capability_unavailable(@provider_capability_unavailable_reason), do: 1
   defp count_provider_capability_unavailable(_value), do: 0
 
   defp collect_provider_capability_unavailable(%{} = payload, acc) do
@@ -252,42 +271,23 @@ defmodule SymphonyElixir.Agent.DynamicTool.Usage do
   defp collect_provider_capability_unavailable(_value, acc), do: acc
 
   defp provider_capability_unavailable?(payload) when is_map(payload) do
-    string_field(payload, "reason") == "provider_capability_not_available"
+    string_field(payload, @reason_key) == @provider_capability_unavailable_reason
   end
 
   defp provider_capability_detail(payload) when is_map(payload) do
     %{
-      "workflowCapability" => string_field(payload, "workflowCapability"),
-      "description" => string_field(payload, "description"),
-      "reason" => "provider_capability_not_available"
+      @workflow_capability_key => string_field(payload, @workflow_capability_key),
+      @description_key => string_field(payload, @description_key),
+      @reason_key => @provider_capability_unavailable_reason
     }
     |> drop_nil_values()
   end
 
   defp string_field(map, key) when is_map(map) and is_binary(key) do
-    Map.get(map, key) || Map.get(map, snake_key(key)) || Map.get(map, atom_key(key))
+    MetadataContract.field_value(map, key)
   end
 
   defp string_field(_map, _key), do: nil
-
-  defp snake_key("workflowCapability"), do: "workflow_capability"
-  defp snake_key("sideEffect"), do: "side_effect"
-  defp snake_key("sourceKind"), do: "source_kind"
-  defp snake_key("schemaVersion"), do: "schema_version"
-  defp snake_key(key), do: key
-
-  defp atom_key("workflowCapability"), do: :workflowCapability
-  defp atom_key("sideEffect"), do: :sideEffect
-  defp atom_key("sourceKind"), do: :sourceKind
-  defp atom_key("schemaVersion"), do: :schemaVersion
-  defp atom_key("tool"), do: :tool
-  defp atom_key("reason"), do: :reason
-
-  defp atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
-  end
 
   defp normalize_string(value) when is_binary(value) do
     case String.trim(value) do

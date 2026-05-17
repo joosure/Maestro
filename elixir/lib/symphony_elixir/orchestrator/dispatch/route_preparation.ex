@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
   alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Facts, as: ChangeProposalFacts
   alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.Readiness
+  alias SymphonyElixir.Workflow.ReadinessContract
   alias SymphonyElixir.Workflow.RouteFacts
   alias SymphonyElixir.Workflow.RoutePolicy, as: WorkflowRoutePolicy
 
@@ -196,7 +197,7 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
     facts = readiness_facts(issue, settings, available_capabilities)
     {facts, prepared_issue} = maybe_enrich_readiness_facts(issue, context, opts, facts)
 
-    gate = Map.get(facts, "gate", %{})
+    gate = Map.get(facts, ReadinessContract.gate_key(), %{})
 
     if readiness_gate_blocks_dispatch?(gate) do
       emit_readiness_gate(Keyword.get(opts, :emit_readiness_gate), issue, facts)
@@ -245,8 +246,12 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
     end
   end
 
-  defp merge_gate?(%{"gate" => %{"gate" => "merge"}}), do: true
-  defp merge_gate?(_facts), do: false
+  defp merge_gate?(facts) when is_map(facts) do
+    facts
+    |> Map.get(ReadinessContract.gate_key(), %{})
+    |> ReadinessContract.gate()
+    |> Kernel.==(ReadinessContract.merge_gate())
+  end
 
   defp readiness_evidence(%Issue{} = issue, context, facts, opts) do
     cond do
@@ -385,15 +390,16 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
     }
   end
 
-  defp readiness_gate_blocks_dispatch?(%{"status" => "blocked", "gate" => gate})
-       when gate in ["merge", "capability"],
-       do: true
+  defp readiness_gate_blocks_dispatch?(gate) when is_map(gate) do
+    ReadinessContract.status(gate) == ReadinessContract.blocked() and
+      ReadinessContract.gate(gate) in [ReadinessContract.merge_gate(), ReadinessContract.capability_gate()]
+  end
 
   defp readiness_gate_blocks_dispatch?(_gate), do: false
 
   defp emit_readiness_gate(readiness_gate_emitter, %Issue{} = issue, facts)
        when is_function(readiness_gate_emitter, 3) and is_map(facts) do
-    readiness_gate_emitter.(issue, Map.get(facts, "gate", %{}), facts)
+    readiness_gate_emitter.(issue, Map.get(facts, ReadinessContract.gate_key(), %{}), facts)
   end
 
   defp emit_readiness_gate(_readiness_gate_emitter, _issue, _facts), do: :ok

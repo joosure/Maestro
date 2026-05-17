@@ -106,6 +106,7 @@ defmodule SymphonyElixir.RepoArchitectureTest do
 
   @codex_provider_allowlist [
     "lib/symphony_elixir/agent_provider/defaults.ex",
+    "lib/symphony_elixir/agent_provider/kinds.ex",
     "lib/symphony_elixir/agent_provider/registry.ex"
   ]
 
@@ -312,6 +313,8 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     {"lib/symphony_elixir/repo_provider/cnb/normalizer", "SymphonyElixir.RepoProvider.CNB.Normalizer"},
     {"lib/symphony_elixir/repo_provider/cnb/pull_request_handler", "SymphonyElixir.RepoProvider.CNB.PullRequestHandler"},
     {"lib/symphony_elixir/repo_provider/github", "SymphonyElixir.RepoProvider.GitHub"},
+    {"lib/symphony_elixir/repo_provider/cli", "SymphonyElixir.RepoProvider.CLI"},
+    {"lib/symphony_elixir/repo_provider/command", "SymphonyElixir.RepoProvider.Command"},
     {"lib/symphony_elixir/repo_provider/invocation", "SymphonyElixir.RepoProvider.Invocation"},
     {"lib/symphony_elixir/repo_provider/land_watch", "SymphonyElixir.RepoProvider.LandWatch"},
     {"lib/symphony_elixir/repo_provider/smoke", "SymphonyElixir.RepoProvider.Smoke"},
@@ -331,6 +334,7 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     {"lib/symphony_elixir/agent_provider/open_code/app_server", "SymphonyElixir.AgentProvider.OpenCode.AppServer"},
     {"lib/symphony_elixir/agent_provider/open_code/tooling", "SymphonyElixir.AgentProvider.OpenCode.Tooling"},
     {"lib/symphony_elixir/agent_provider/open_code/tooling/planned_tool_plugin", "SymphonyElixir.AgentProvider.OpenCode.Tooling.PlannedToolPlugin"},
+    {"lib/symphony_elixir_web/observability", "SymphonyElixirWeb.Observability"},
     {"lib/symphony_worker_daemon", "SymphonyWorkerDaemon"},
     {"lib/symphony_worker_daemon/api", "SymphonyWorkerDaemon.Api"},
     {"lib/symphony_worker_daemon/protocol", "SymphonyWorkerDaemon.Protocol"},

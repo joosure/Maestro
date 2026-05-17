@@ -5,6 +5,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.Launcher do
   alias SymphonyElixir.AgentProvider.Codex.Credential, as: CodexCredential
   alias SymphonyElixir.AgentProvider.Codex.Settings, as: CodexSettings
   alias SymphonyElixir.AgentProvider.Codex.Tooling
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.PathSafety
   alias SymphonyElixir.RepoProvider
   alias SymphonyElixir.Workspace.AutomationPack
@@ -13,6 +14,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.Launcher do
 
   @port_line_bytes 1_048_576
   @env_name_pattern ~r/^[A-Za-z_][A-Za-z0-9_]*$/
+  @provider_kind Kinds.codex()
 
   @spec validate_workspace_cwd(Path.t(), String.t() | nil, map()) :: {:ok, Path.t()} | {:error, term()}
   def validate_workspace_cwd(workspace, nil, runtime_context) when is_binary(workspace) do
@@ -255,7 +257,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.Launcher do
   end
 
   defp provider_process_env(opts) when is_list(opts) do
-    Environment.current_env("codex", %{}, Keyword.put(opts, :include_dynamic_tool_env, false))
+    Environment.current_env(@provider_kind, %{}, Keyword.put(opts, :include_dynamic_tool_env, false))
   end
 
   defp codex_session_env(workspace) when is_binary(workspace) do

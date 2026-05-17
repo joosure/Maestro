@@ -1,10 +1,16 @@
 defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
   @moduledoc false
 
+  alias SymphonyElixir.RepoProvider.LandWatch.RuntimeEnv
+
+  @default_review_request_token RuntimeEnv.default_review_request_token()
+  @default_reply_prefix RuntimeEnv.default_reply_prefix()
+  @default_review_heading RuntimeEnv.default_review_heading()
+
   defstruct agent_review_bots: MapSet.new(),
-            request_token: "@agent review",
-            reply_prefix: "[agent]",
-            review_heading: "## Agent Review"
+            request_token: @default_review_request_token,
+            reply_prefix: @default_reply_prefix,
+            review_heading: @default_review_heading
 
   @type settings :: %__MODULE__{
           agent_review_bots: MapSet.t(String.t()),
@@ -22,15 +28,15 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
     %__MODULE__{
       agent_review_bots:
         env
-        |> Map.get("SYMPHONY_AGENT_REVIEW_BOTS", "")
+        |> RuntimeEnv.agent_review_bots()
         |> to_string()
         |> String.split(",", trim: true)
         |> Enum.map(&String.trim/1)
         |> Enum.reject(&(&1 == ""))
         |> MapSet.new(),
-      request_token: env_value(env, "SYMPHONY_AGENT_REVIEW_REQUEST_TOKEN", "@agent review"),
-      reply_prefix: env_value(env, "SYMPHONY_AGENT_REPLY_PREFIX", "[agent]"),
-      review_heading: env_value(env, "SYMPHONY_AGENT_REVIEW_HEADING", "## Agent Review")
+      request_token: RuntimeEnv.review_request_token(env),
+      reply_prefix: RuntimeEnv.reply_prefix(env),
+      review_heading: RuntimeEnv.review_heading(env)
     }
   end
 
@@ -60,7 +66,13 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
 
       bot_comments != [] ->
         latest = Enum.max_by(bot_comments, &comment_sort_time/1, &later_or_equal?/2)
-        body = latest |> field_value("body") |> to_string() |> sanitize_terminal_output() |> String.trim()
+
+        body =
+          latest
+          |> field_value("body")
+          |> to_string()
+          |> sanitize_terminal_output()
+          |> String.trim()
 
         if body == "" do
           :ok
@@ -105,8 +117,12 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
 
         threaded_comment?(comment) ->
           thread_root = thread_root_id(comment)
-          last_reply = if is_nil(thread_root), do: nil, else: Map.get(latest_agent_reply, thread_root)
-          is_nil(last_reply) or after_time?(created_time, last_reply) or DateTime.compare(created_time, last_reply) == :eq
+
+          last_reply =
+            if is_nil(thread_root), do: nil, else: Map.get(latest_agent_reply, thread_root)
+
+          is_nil(last_reply) or after_time?(created_time, last_reply) or
+            DateTime.compare(created_time, last_reply) == :eq
 
         not is_nil(latest_issue_ack) ->
           after_time?(created_time, latest_issue_ack)
@@ -127,18 +143,31 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
       created_time = comment_time(comment)
 
       cond do
-        bot_user?(user, settings) -> false
-        agent_reply_body?(body, settings) -> false
-        agent_review_body?(body, settings) -> false
-        String.contains?(body, settings.request_token) -> false
-        not is_nil(latest_ack) and not is_nil(created_time) and not after_time?(created_time, latest_ack) -> false
-        true -> true
+        bot_user?(user, settings) ->
+          false
+
+        agent_reply_body?(body, settings) ->
+          false
+
+        agent_review_body?(body, settings) ->
+          false
+
+        String.contains?(body, settings.request_token) ->
+          false
+
+        not is_nil(latest_ack) and not is_nil(created_time) and
+            not after_time?(created_time, latest_ack) ->
+          false
+
+        true ->
+          true
       end
     end)
   end
 
   @spec filter_agent_review_issue_comments([map()], settings()) :: [map()]
-  def filter_agent_review_issue_comments(comments, %__MODULE__{} = settings) when is_list(comments) do
+  def filter_agent_review_issue_comments(comments, %__MODULE__{} = settings)
+      when is_list(comments) do
     latest_ack = latest_agent_issue_reply_time(comments, settings)
 
     Enum.filter(comments, fn comment ->
@@ -149,7 +178,8 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
         not agent_review_body?(body, settings) ->
           false
 
-        not is_nil(latest_ack) and not is_nil(created_time) and not after_time?(created_time, latest_ack) ->
+        not is_nil(latest_ack) and not is_nil(created_time) and
+            not after_time?(created_time, latest_ack) ->
           false
 
         true ->
@@ -167,13 +197,23 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
       body = comment |> field_value("body") |> to_string() |> String.trim()
       thread_root = thread_root_id(comment)
       created_time = comment_time(comment)
-      last_agent_reply = if is_nil(thread_root), do: nil, else: Map.get(latest_agent_reply, thread_root)
+
+      last_agent_reply =
+        if is_nil(thread_root), do: nil, else: Map.get(latest_agent_reply, thread_root)
 
       cond do
-        bot_user?(user, settings) -> false
-        agent_reply_body?(body, settings) -> false
-        not is_nil(last_agent_reply) and not is_nil(created_time) and not after_time?(created_time, last_agent_reply) -> false
-        true -> true
+        bot_user?(user, settings) ->
+          false
+
+        agent_reply_body?(body, settings) ->
+          false
+
+        not is_nil(last_agent_reply) and not is_nil(created_time) and
+            not after_time?(created_time, last_agent_reply) ->
+          false
+
+        true ->
+          true
       end
     end)
   end
@@ -187,7 +227,8 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
   end
 
   @spec sanitize_terminal_output(String.t()) :: String.t()
-  def sanitize_terminal_output(value) when is_binary(value), do: Regex.replace(@control_chars, value, "")
+  def sanitize_terminal_output(value) when is_binary(value),
+    do: Regex.replace(@control_chars, value, "")
 
   defp blocking_comments?(issue_comments, review_comments, settings) do
     filter_human_issue_comments(issue_comments, settings) != [] or
@@ -213,7 +254,8 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
       thread_root = thread_root_id(comment)
       created_time = comment_time(comment)
 
-      if agent_reply_body?(body, settings) and not is_nil(thread_root) and not is_nil(created_time) do
+      if agent_reply_body?(body, settings) and not is_nil(thread_root) and
+           not is_nil(created_time) do
         Map.update(latest, thread_root, created_time, fn existing ->
           if after_time?(created_time, existing), do: created_time, else: existing
         end)
@@ -323,10 +365,12 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
   defp later_or_equal?(left, right), do: DateTime.compare(left, right) != :lt
 
   defp threaded_comment?(comment) do
-    present?(field_value(comment, "in_reply_to_id")) or present?(field_value(comment, "pull_request_review_id"))
+    present?(field_value(comment, "in_reply_to_id")) or
+      present?(field_value(comment, "pull_request_review_id"))
   end
 
-  defp thread_root_id(comment), do: field_value(comment, "in_reply_to_id") || field_value(comment, "id")
+  defp thread_root_id(comment),
+    do: field_value(comment, "in_reply_to_id") || field_value(comment, "id")
 
   defp agent_review_bot_user?(user, settings) do
     MapSet.member?(settings.agent_review_bots, user_login(user))
@@ -346,13 +390,6 @@ defmodule SymphonyElixir.RepoProvider.LandWatch.Reviews do
   defp agent_review_body?(body, settings), do: String.starts_with?(body, settings.review_heading)
 
   defp present?(value), do: value not in [nil, ""]
-
-  defp env_value(env, key, default) do
-    case Map.get(env, key) do
-      value when is_binary(value) and value != "" -> value
-      _other -> default
-    end
-  end
 
   defp field_value(map, key) when is_map(map) and is_binary(key) do
     Map.get(map, key) || map_get_existing_atom(map, key)

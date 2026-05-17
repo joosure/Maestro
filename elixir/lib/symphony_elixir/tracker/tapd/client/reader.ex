@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Reader do
 
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
-  alias SymphonyElixir.Tracker.Tapd.Client.{Errors, Fields, Request, StoryPayload, StoryRelations, WorkitemTypeScope}
+  alias SymphonyElixir.Tracker.Tapd.Client.{Errors, Fields, Paths, Request, StoryPayload, StoryRelations, WorkitemTypeScope}
   alias SymphonyElixir.Tracker.Tapd.WorkflowConfig
 
   @page_limit 100
@@ -102,12 +102,12 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Reader do
 
   @spec fetch_story_by_id(String.t(), map(), function()) :: {:ok, [Issue.t()]} | {:error, term()}
   defp fetch_story_by_id(issue_id, tracker, request_fun) do
-    case Request.request("GET", "/stories", %{"id" => issue_id},
+    case Request.request("GET", Paths.stories(), %{"id" => issue_id},
            tracker: tracker,
            request_fun: request_fun
          ) do
       {:ok, body} ->
-        case StoryPayload.decode("/stories", body, tracker, request_fun, validate_workitem_types?: false) do
+        case StoryPayload.decode(Paths.stories(), body, tracker, request_fun, validate_workitem_types?: false) do
           {:ok, issues, _raw_count, _observed_workitem_type_ids} -> {:ok, issues}
           {:error, reason} -> {:error, reason}
         end
@@ -134,9 +134,9 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Reader do
       |> maybe_put_workitem_type_id(WorkflowConfig.request_workitem_type_id(tracker))
 
     with {:ok, body} <-
-           Request.request("GET", "/stories", params, tracker: tracker, request_fun: request_fun),
+           Request.request("GET", Paths.stories(), params, tracker: tracker, request_fun: request_fun),
          {:ok, issues, raw_count, page_workitem_type_ids} <-
-           StoryPayload.decode("/stories", body, tracker, request_fun, validate_workitem_types?: false) do
+           StoryPayload.decode(Paths.stories(), body, tracker, request_fun, validate_workitem_types?: false) do
       updated_acc = acc ++ issues
 
       updated_workitem_type_ids =

@@ -6,12 +6,17 @@ defmodule SymphonyElixir.RepoProvider.GitHub.ApiHandler do
   expansion. Called by `GitHub.Adapter` for the `api/2` callback.
   """
 
+  alias SymphonyElixir.RepoProvider.CommandNames
   alias SymphonyElixir.RepoProvider.Error
   alias SymphonyElixir.RepoProvider.GitHub.CLI
   alias SymphonyElixir.RepoProvider.GitHub.Normalizer
 
   @type repo_config :: map()
   @default_comments_per_page 100
+  @api_command CommandNames.api()
+  @pr_issue_comments_command CommandNames.pr_issue_comments()
+  @pr_reviews_command CommandNames.pr_reviews()
+  @pr_review_comments_command CommandNames.pr_review_comments()
 
   # ── Public API ───────────────────────────────────────────────────
 
@@ -19,7 +24,7 @@ defmodule SymphonyElixir.RepoProvider.GitHub.ApiHandler do
   def api(repo, opts) do
     with {:ok, endpoint} <- expand_api_endpoint(opts[:endpoint], repo, opts) do
       args =
-        ["api", endpoint, "--method", opts[:method] || "GET"]
+        [@api_command, endpoint, "--method", opts[:method] || "GET"]
         |> append_api_fields(opts[:fields] || %{})
 
       case CLI.run_command("gh", args, opts) do
@@ -45,7 +50,7 @@ defmodule SymphonyElixir.RepoProvider.GitHub.ApiHandler do
          {:ok, comments} <-
            list_comments(
              repo,
-             "pr-issue-comments",
+             @pr_issue_comments_command,
              "repos/{owner}/{repo}/issues/#{number}/comments",
              opts
            ) do
@@ -88,7 +93,7 @@ defmodule SymphonyElixir.RepoProvider.GitHub.ApiHandler do
          {:ok, reviews} <-
            list_reviews(
              repo,
-             "pr-reviews",
+             @pr_reviews_command,
              "repos/{owner}/{repo}/pulls/#{number}/reviews",
              opts
            ) do
@@ -131,7 +136,7 @@ defmodule SymphonyElixir.RepoProvider.GitHub.ApiHandler do
          {:ok, comments} <-
            list_comments(
              repo,
-             "pr-review-comments",
+             @pr_review_comments_command,
              "repos/{owner}/{repo}/pulls/#{number}/comments",
              opts
            ) do

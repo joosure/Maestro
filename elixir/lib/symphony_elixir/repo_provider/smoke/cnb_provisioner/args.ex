@@ -1,7 +1,10 @@
 defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Args do
   @moduledoc false
 
+  alias SymphonyElixir.RepoProvider.CommandNames
   alias SymphonyElixir.RepoProvider.Smoke.ProbeRunner
+
+  @pr_create_command CommandNames.pr_create()
 
   @spec provider_argv(nil | String.t(), [String.t()]) :: [String.t()]
   def provider_argv(nil, argv), do: argv
@@ -9,7 +12,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Args do
 
   @spec destructive_create_argv(String.t(), String.t(), String.t() | nil, String.t() | nil) :: [String.t()]
   def destructive_create_argv(title, body, base, head) do
-    ["pr-create", "--title", title, "--body", body]
+    [@pr_create_command, "--title", title, "--body", body]
     |> maybe_append_option("--base", base)
     |> maybe_append_option("--head", head)
   end

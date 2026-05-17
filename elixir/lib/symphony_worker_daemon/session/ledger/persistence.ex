@@ -3,7 +3,10 @@ defmodule SymphonyWorkerDaemon.Session.Ledger.Persistence do
 
   require Logger
 
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
   alias SymphonyWorkerDaemon.Session.Ledger.{Health, Summary}
+
+  @session_id_key ProtocolFields.session_id()
 
   @spec normalize_path(term()) :: String.t() | nil
   def normalize_path(nil), do: nil
@@ -63,8 +66,8 @@ defmodule SymphonyWorkerDaemon.Session.Ledger.Persistence do
           sessions
           |> Enum.filter(&is_map/1)
           |> Enum.map(&Summary.normalize/1)
-          |> Enum.filter(&Map.has_key?(&1, "session_id"))
-          |> Map.new(fn summary -> {Map.fetch!(summary, "session_id"), summary} end)
+          |> Enum.filter(&Map.has_key?(&1, @session_id_key))
+          |> Map.new(fn summary -> {Map.fetch!(summary, @session_id_key), summary} end)
 
         {loaded_sessions, Health.ready(path)}
 

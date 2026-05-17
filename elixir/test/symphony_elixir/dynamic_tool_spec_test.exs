@@ -21,6 +21,9 @@ defmodule SymphonyElixir.Agent.DynamicTool.SpecTest do
     assert BridgeContract.local_transport() == "local_http"
     assert BridgeContract.ssh_tunnel_transport() == "ssh_tunnel_http"
     assert BridgeContract.worker_daemon_transport() == "worker_daemon_http"
+    assert BridgeContract.response_success(%{"ok" => true}) == %{"success" => true, "payload" => %{"ok" => true}}
+    assert BridgeContract.response_error("bad") == %{"success" => false, "payload" => %{"error" => %{"message" => "bad"}}}
+    assert BridgeContract.response_error_payload("invalid", "bad") == %{"error" => %{"code" => "invalid", "message" => "bad"}}
   end
 
   defmodule RepoSource do

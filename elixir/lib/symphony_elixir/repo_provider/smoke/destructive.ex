@@ -4,14 +4,22 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Destructive do
   import SymphonyElixir.RepoProvider.Smoke.ProbeRunner,
     only: [blank_to_nil: 1, probe: 2, probe: 3, run_destructive_probe: 4, run_probe: 3, synthetic_failure_probe: 2]
 
+  alias SymphonyElixir.RepoProvider.CommandNames
   alias SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Args
+
+  @current_kind_command CommandNames.current_kind()
+  @auth_status_command CommandNames.auth_status()
+  @pr_create_command CommandNames.pr_create()
+  @pr_view_command CommandNames.pr_view()
+  @pr_edit_command CommandNames.pr_edit()
+  @pr_close_command CommandNames.pr_close()
 
   @spec run(keyword(), nil | String.t(), map(), map()) :: [map()]
   def run(opts, provider_override, cli_deps, deps) do
     preflight_results =
       [
-        probe("current-kind", Args.provider_argv(provider_override, ["current-kind"])),
-        probe("auth-status", Args.provider_argv(provider_override, ["auth-status"]))
+        probe(@current_kind_command, Args.provider_argv(provider_override, [@current_kind_command])),
+        probe(@auth_status_command, Args.provider_argv(provider_override, [@auth_status_command]))
       ]
       |> Enum.map(&run_probe(&1, cli_deps, deps))
 
@@ -31,7 +39,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Destructive do
 
     create_probe =
       probe(
-        "pr-create",
+        @pr_create_command,
         Args.provider_argv(
           provider_override,
           Args.destructive_create_argv(title, create_body, base, head)
@@ -47,7 +55,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Destructive do
         |> run_destructive_probe(
           probe(
             "pr-view-created",
-            Args.provider_argv(provider_override, ["pr-view", pr_number, "--json", "url", "-q", ".url"]),
+            Args.provider_argv(provider_override, [@pr_view_command, pr_number, "--json", "url", "-q", ".url"]),
             expect_stdout: pr_url
           ),
           cli_deps,
@@ -55,8 +63,8 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Destructive do
         )
         |> run_destructive_probe(
           probe(
-            "pr-edit",
-            Args.provider_argv(provider_override, ["pr-edit", pr_number, "--body", edited_body])
+            @pr_edit_command,
+            Args.provider_argv(provider_override, [@pr_edit_command, pr_number, "--body", edited_body])
           ),
           cli_deps,
           deps
@@ -64,7 +72,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Destructive do
         |> run_destructive_probe(
           probe(
             "pr-view-edited",
-            Args.provider_argv(provider_override, ["pr-view", pr_number, "--json", "body", "-q", ".body"]),
+            Args.provider_argv(provider_override, [@pr_view_command, pr_number, "--json", "body", "-q", ".body"]),
             expect_stdout: edited_body
           ),
           cli_deps,
@@ -80,7 +88,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Destructive do
   defp run_close_sequence(acc, provider_override, pr_number, cli_deps, deps) do
     close_result =
       run_probe(
-        probe("pr-close", Args.provider_argv(provider_override, ["pr-close", pr_number])),
+        probe(@pr_close_command, Args.provider_argv(provider_override, [@pr_close_command, pr_number])),
         cli_deps,
         deps
       )
@@ -93,7 +101,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Destructive do
           run_probe(
             probe(
               "pr-view-closed",
-              Args.provider_argv(provider_override, ["pr-view", pr_number, "--json", "state", "-q", ".state"]),
+              Args.provider_argv(provider_override, [@pr_view_command, pr_number, "--json", "state", "-q", ".state"]),
               expect_stdout: "CLOSED"
             ),
             cli_deps,

@@ -1,15 +1,18 @@
 defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.Context do
   @moduledoc false
 
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.AgentProvider.OpenCode.AppServer.Diagnostics
   alias SymphonyElixir.AgentProvider.OpenCode.Settings
+
+  @provider_kind Kinds.opencode()
 
   @spec startup(Path.t(), Settings.t(), map(), String.t() | nil) :: map()
   def startup(workspace, %Settings{} = settings, metadata, run_id) when is_map(metadata) do
     metadata
     |> Map.take([:agent_process_pid])
     |> Map.merge(%{
-      agent_provider_kind: "opencode",
+      agent_provider_kind: @provider_kind,
       workspace: workspace,
       agent: settings.agent,
       model: settings.model,
@@ -28,7 +31,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.Context do
     session.metadata
     |> Map.take([:agent_process_pid])
     |> Map.merge(%{
-      agent_provider_kind: "opencode",
+      agent_provider_kind: @provider_kind,
       workspace: session.workspace,
       base_url: session.base_url,
       session_id: session.session_id,

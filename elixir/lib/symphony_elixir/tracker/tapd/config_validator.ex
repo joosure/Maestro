@@ -11,10 +11,13 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
 
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Tapd.WorkflowConfig
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
   alias SymphonyElixir.Workflow.Validator, as: WorkflowValidator
+
+  @provider_kind Kinds.tapd()
 
   @workflow_by_type_fields MapSet.new([
                              "active_states",
@@ -321,7 +324,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
 
   defp config_error(source_reason, code, message) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: :validate_config,
       code: code,
       message: message,

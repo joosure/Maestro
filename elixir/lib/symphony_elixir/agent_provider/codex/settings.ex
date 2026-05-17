@@ -5,11 +5,13 @@ defmodule SymphonyElixir.AgentProvider.Codex.Settings do
 
   import Ecto.Changeset
 
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Config
   alias SymphonyElixir.Config.InputNormalizer
   alias SymphonyElixir.Config.Schema
 
   @primary_key false
+  @provider Kinds.codex()
   @supported_options ~w(command command_argv prompt_transport approval_policy thread_sandbox turn_sandbox_policy credential_ref turn_timeout_ms read_timeout_ms stall_timeout_ms)
   @invalid_command_chars ["\n", "\r", <<0>>]
 
@@ -272,7 +274,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.Settings do
 
     case unknown_options do
       [] -> :ok
-      _ -> {:error, {:unsupported_agent_provider_options, "codex", Enum.sort(unknown_options)}}
+      _ -> {:error, {:unsupported_agent_provider_options, @provider, Enum.sort(unknown_options)}}
     end
   end
 

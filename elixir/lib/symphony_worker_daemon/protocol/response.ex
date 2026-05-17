@@ -2,23 +2,57 @@ defmodule SymphonyWorkerDaemon.Protocol.Response do
   @moduledoc false
 
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+  alias SymphonyWorkerDaemon.Session.Status
 
-  @terminal_statuses MapSet.new(["exited", "failed", "lost", "cleaned", "stopped"])
+  @status_key ProtocolFields.status()
+  @protocol_version_key ProtocolFields.protocol_version()
+  @daemon_version_key ProtocolFields.daemon_version()
+  @daemon_software_version_key ProtocolFields.daemon_software_version()
+  @worker_id_key ProtocolFields.worker_id()
+  @daemon_instance_id_key ProtocolFields.daemon_instance_id()
+  @worker_profile_version_key ProtocolFields.worker_profile_version()
+  @capacity_key ProtocolFields.capacity()
+  @features_key ProtocolFields.features()
+  @capabilities_key ProtocolFields.capabilities()
+  @session_id_key ProtocolFields.session_id()
+  @lease_id_key ProtocolFields.lease_id()
+  @metadata_key ProtocolFields.metadata()
+  @sessions_key ProtocolFields.sessions()
+  @events_key ProtocolFields.events()
+  @run_id_key ProtocolFields.run_id()
+  @owner_key ProtocolFields.owner()
+  @tenant_id_key ProtocolFields.tenant_id()
+  @provider_kind_key ProtocolFields.provider_kind()
+  @worker_pool_key ProtocolFields.worker_pool()
+  @cwd_key ProtocolFields.cwd()
+  @os_pid_key ProtocolFields.os_pid()
+  @exit_status_key ProtocolFields.exit_status()
+  @started_at_ms_key ProtocolFields.started_at_ms()
+  @updated_at_ms_key ProtocolFields.updated_at_ms()
+  @event_id_key ProtocolFields.event_id()
+  @type_key ProtocolFields.type()
+  @stream_key ProtocolFields.stream()
+  @data_key ProtocolFields.data()
+  @timestamp_ms_key ProtocolFields.timestamp_ms()
+  @code_key ProtocolFields.code()
+  @safe_error_keys ProtocolFields.safe_error_keys()
+  @terminal_statuses MapSet.new(Status.terminal_statuses())
 
   @spec normalize_health_response(term()) :: {:ok, map()} | {:error, term()}
-  def normalize_health_response(%{"status" => status, "protocol_version" => protocol_version} = payload)
+  def normalize_health_response(%{@status_key => status, @protocol_version_key => protocol_version} = payload)
       when is_binary(status) and is_binary(protocol_version) do
     {:ok,
      %{
        status: status,
        protocol_version: protocol_version,
-       daemon_version: optional_string(payload["daemon_version"] || payload["daemon_software_version"]),
-       worker_id: optional_string(payload["worker_id"]),
-       daemon_instance_id: optional_string(payload["daemon_instance_id"]),
-       worker_profile_version: optional_string(payload["worker_profile_version"]),
-       capacity: normalize_map(payload["capacity"]),
-       features: string_list(payload["features"]),
-       capabilities: normalize_capabilities(payload["capabilities"])
+       daemon_version: optional_string(Map.get(payload, @daemon_version_key) || Map.get(payload, @daemon_software_version_key)),
+       worker_id: optional_string(Map.get(payload, @worker_id_key)),
+       daemon_instance_id: optional_string(Map.get(payload, @daemon_instance_id_key)),
+       worker_profile_version: optional_string(Map.get(payload, @worker_profile_version_key)),
+       capacity: normalize_map(Map.get(payload, @capacity_key)),
+       features: string_list(Map.get(payload, @features_key)),
+       capabilities: normalize_capabilities(Map.get(payload, @capabilities_key))
      }
      |> compact_map()}
   end
@@ -32,15 +66,15 @@ defmodule SymphonyWorkerDaemon.Protocol.Response do
   def normalize_health_response(payload), do: {:error, {:worker_daemon_invalid_health_response, payload_summary(payload)}}
 
   @spec normalize_create_response(term()) :: {:ok, map()} | {:error, term()}
-  def normalize_create_response(%{"session_id" => session_id} = payload) when is_binary(session_id) do
+  def normalize_create_response(%{@session_id_key => session_id} = payload) when is_binary(session_id) do
     {:ok,
      %{
        session_id: session_id,
-       worker_id: optional_string(payload["worker_id"]),
-       daemon_instance_id: optional_string(payload["daemon_instance_id"]),
-       lease_id: optional_string(payload["lease_id"]),
-       status: optional_string(payload["status"]),
-       metadata: normalize_map(payload["metadata"])
+       worker_id: optional_string(Map.get(payload, @worker_id_key)),
+       daemon_instance_id: optional_string(Map.get(payload, @daemon_instance_id_key)),
+       lease_id: optional_string(Map.get(payload, @lease_id_key)),
+       status: optional_string(Map.get(payload, @status_key)),
+       metadata: normalize_map(Map.get(payload, @metadata_key))
      }
      |> compact_map()}
   end
@@ -54,28 +88,28 @@ defmodule SymphonyWorkerDaemon.Protocol.Response do
   def normalize_create_response(payload), do: {:error, {:worker_daemon_invalid_create_response, payload_summary(payload)}}
 
   @spec normalize_status(term()) :: {:ok, String.t()} | {:error, term()}
-  def normalize_status(%{"status" => status}) when is_binary(status), do: {:ok, status}
+  def normalize_status(%{@status_key => status}) when is_binary(status), do: {:ok, status}
   def normalize_status(%{status: status}) when is_binary(status), do: {:ok, status}
   def normalize_status(payload), do: {:error, {:worker_daemon_invalid_status_response, payload_summary(payload)}}
 
   @spec normalize_session_list_response(term()) :: {:ok, [map()]} | {:error, term()}
-  def normalize_session_list_response(%{"sessions" => sessions}) when is_list(sessions) do
+  def normalize_session_list_response(%{@sessions_key => sessions}) when is_list(sessions) do
     {:ok, Enum.flat_map(sessions, &normalize_session_summary/1)}
   end
 
   def normalize_session_list_response(%{sessions: sessions}) when is_list(sessions) do
-    normalize_session_list_response(%{"sessions" => sessions})
+    normalize_session_list_response(%{@sessions_key => sessions})
   end
 
   def normalize_session_list_response(payload), do: {:error, {:worker_daemon_invalid_session_list_response, payload_summary(payload)}}
 
   @spec normalize_session_events_response(term()) :: {:ok, [map()]} | {:error, term()}
-  def normalize_session_events_response(%{"events" => events}) when is_list(events) do
+  def normalize_session_events_response(%{@events_key => events}) when is_list(events) do
     {:ok, Enum.flat_map(events, &normalize_session_event/1)}
   end
 
   def normalize_session_events_response(%{events: events}) when is_list(events) do
-    normalize_session_events_response(%{"events" => events})
+    normalize_session_events_response(%{@events_key => events})
   end
 
   def normalize_session_events_response(payload), do: {:error, {:worker_daemon_invalid_session_events_response, payload_summary(payload)}}
@@ -84,7 +118,7 @@ defmodule SymphonyWorkerDaemon.Protocol.Response do
   def terminal_status?(status) when is_binary(status), do: MapSet.member?(@terminal_statuses, status)
 
   @spec error_reason(atom(), pos_integer() | nil, term()) :: term()
-  def error_reason(operation, status, %{"code" => code} = payload) when is_binary(code) do
+  def error_reason(operation, status, %{@code_key => code} = payload) when is_binary(code) do
     {:worker_daemon_error, operation, status, code, safe_error_payload(payload)}
   end
 
@@ -139,21 +173,21 @@ defmodule SymphonyWorkerDaemon.Protocol.Response do
     Map.new(payload, fn {key, value} -> {to_string(key), value} end)
   end
 
-  defp normalize_session_summary(%{"session_id" => session_id} = payload) when is_binary(session_id) do
+  defp normalize_session_summary(%{@session_id_key => session_id} = payload) when is_binary(session_id) do
     [
       session_id: session_id,
-      status: optional_string(payload["status"]),
-      run_id: optional_string(payload["run_id"]),
-      owner: optional_string(payload["owner"]),
-      tenant_id: optional_string(payload["tenant_id"]),
-      provider_kind: optional_string(payload["provider_kind"]),
-      worker_pool: optional_string(payload["worker_pool"]),
-      lease_id: optional_string(payload["lease_id"]),
-      cwd: optional_string(payload["cwd"]),
-      os_pid: optional_integer(payload["os_pid"]),
-      exit_status: optional_integer(payload["exit_status"]),
-      started_at_ms: optional_integer(payload["started_at_ms"]),
-      updated_at_ms: optional_integer(payload["updated_at_ms"])
+      status: optional_string(Map.get(payload, @status_key)),
+      run_id: optional_string(Map.get(payload, @run_id_key)),
+      owner: optional_string(Map.get(payload, @owner_key)),
+      tenant_id: optional_string(Map.get(payload, @tenant_id_key)),
+      provider_kind: optional_string(Map.get(payload, @provider_kind_key)),
+      worker_pool: optional_string(Map.get(payload, @worker_pool_key)),
+      lease_id: optional_string(Map.get(payload, @lease_id_key)),
+      cwd: optional_string(Map.get(payload, @cwd_key)),
+      os_pid: optional_integer(Map.get(payload, @os_pid_key)),
+      exit_status: optional_integer(Map.get(payload, @exit_status_key)),
+      started_at_ms: optional_integer(Map.get(payload, @started_at_ms_key)),
+      updated_at_ms: optional_integer(Map.get(payload, @updated_at_ms_key))
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
@@ -168,14 +202,14 @@ defmodule SymphonyWorkerDaemon.Protocol.Response do
 
   defp normalize_session_summary(_payload), do: []
 
-  defp normalize_session_event(%{"event_id" => event_id, "type" => type} = payload)
+  defp normalize_session_event(%{@event_id_key => event_id, @type_key => type} = payload)
        when is_integer(event_id) and is_binary(type) do
     [
       event_id: event_id,
       type: type,
-      stream: optional_string(payload["stream"]),
-      data: optional_binary(payload["data"]),
-      timestamp_ms: optional_integer(payload["timestamp_ms"])
+      stream: optional_string(Map.get(payload, @stream_key)),
+      data: optional_binary(Map.get(payload, @data_key)),
+      timestamp_ms: optional_integer(Map.get(payload, @timestamp_ms_key))
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
@@ -198,7 +232,7 @@ defmodule SymphonyWorkerDaemon.Protocol.Response do
     |> Enum.reduce(%{}, fn {key, value}, acc ->
       string_key = to_string(key)
 
-      if string_key in ["code", "message", "retryable", "retryable?", "details"] do
+      if string_key in @safe_error_keys do
         Map.put(acc, string_key, value)
       else
         acc

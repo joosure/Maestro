@@ -16,30 +16,34 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
 
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Linear.{Client, ConfigValidator, ToolExecutor}
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Tracker.StatePrecondition
+  alias SymphonyElixir.Workflow.CapabilityNames
+
+  @provider_kind Kinds.linear()
 
   # ── Required callbacks ───────────────────────────────────────────
 
   @spec kind() :: String.t()
-  def kind, do: "linear"
+  def kind, do: @provider_kind
 
   @spec capabilities() :: [String.t()]
   def capabilities do
     [
-      "tracker.issue.read",
-      "tracker.issue.update",
-      "tracker.comment.read",
-      "tracker.comment.write",
-      "tracker.comment.update",
-      "tracker.state.update",
-      "tracker.relation.read",
-      "tracker.relation.write",
-      "tracker.issue_snapshot",
-      "tracker.move_issue",
-      "tracker.upsert_workpad",
-      "tracker.attach_change_proposal"
+      CapabilityNames.tracker_issue_read(),
+      CapabilityNames.tracker_issue_update(),
+      CapabilityNames.tracker_comment_read(),
+      CapabilityNames.tracker_comment_write(),
+      CapabilityNames.tracker_comment_update(),
+      CapabilityNames.tracker_state_update(),
+      CapabilityNames.tracker_relation_read(),
+      CapabilityNames.tracker_relation_write(),
+      CapabilityNames.tracker_issue_snapshot(),
+      CapabilityNames.tracker_move_issue(),
+      CapabilityNames.tracker_upsert_workpad(),
+      CapabilityNames.tracker_attach_change_proposal()
     ]
   end
 

@@ -27,13 +27,15 @@ defmodule SymphonyElixir.RepoProvider.Memory do
   @behaviour SymphonyElixir.RepoProvider.Adapter
 
   alias SymphonyElixir.RepoProvider.ConfigValidator
+  alias SymphonyElixir.RepoProvider.Kinds
 
   # ── Required ─────────────────────────────────────────────────────
   @capabilities SymphonyElixir.RepoProvider.Adapter.all_capabilities()
+  @provider_kind Kinds.memory()
 
   @impl true
   @spec kind() :: String.t()
-  def kind, do: "memory"
+  def kind, do: @provider_kind
 
   @impl true
   @spec defaults() :: map()

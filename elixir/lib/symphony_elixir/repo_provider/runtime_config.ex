@@ -2,31 +2,33 @@ defmodule SymphonyElixir.RepoProvider.RuntimeConfig do
   @moduledoc false
 
   alias SymphonyElixir.RepoProvider.Config
+  alias SymphonyElixir.RepoProvider.Defaults
+  alias SymphonyElixir.RepoProvider.RuntimeEnv
 
-  @default_kind "github"
+  @default_kind Defaults.default_kind()
 
   @spec from_env(map() | [{String.t(), String.t()}]) :: Config.t()
   def from_env(env) when is_map(env) do
     %Config{
-      path: blank_to_nil(Map.get(env, "SYMPHONY_REPO_PATH")),
-      base_branch: blank_to_nil(env_value(env, "SYMPHONY_REPO_BASE_BRANCH", "SOURCE_REPO_BASE_BRANCH")),
+      path: RuntimeEnv.repo_path(env),
+      base_branch: RuntimeEnv.repo_base_branch(env),
       remote: %{
-        name: blank_to_nil(Map.get(env, "SYMPHONY_REPO_REMOTE")),
-        url: blank_to_nil(env_value(env, "SYMPHONY_REPO_REMOTE_URL", "SOURCE_REPO_URL"))
+        name: RuntimeEnv.repo_remote(env),
+        url: RuntimeEnv.repo_remote_url(env)
       },
       branch: %{
-        work_prefix: blank_to_nil(Map.get(env, "SYMPHONY_REPO_BRANCH_WORK_PREFIX"))
+        work_prefix: RuntimeEnv.repo_branch_work_prefix(env)
       },
       provider: %{
-        kind: env_value(env, "SYMPHONY_REPO_PROVIDER_KIND", "SOURCE_REPO_PROVIDER_KIND") || @default_kind,
-        repository: blank_to_nil(env_value(env, "SYMPHONY_REPO_PROVIDER_REPOSITORY", "SOURCE_REPO_PROVIDER_REPOSITORY")),
-        api_base_url: blank_to_nil(Map.get(env, "SYMPHONY_REPO_PROVIDER_API_BASE_URL")),
-        web_base_url: blank_to_nil(Map.get(env, "SYMPHONY_REPO_PROVIDER_WEB_BASE_URL"))
+        kind: RuntimeEnv.provider_kind(env) || @default_kind,
+        repository: RuntimeEnv.provider_repository(env),
+        api_base_url: RuntimeEnv.provider_api_base_url(env),
+        web_base_url: RuntimeEnv.provider_web_base_url(env)
       },
       runtime: %{
-        http_timeout_seconds: blank_to_nil(Map.get(env, "SYMPHONY_REPO_PROVIDER_HTTP_TIMEOUT_SECONDS")),
-        max_http_retries: blank_to_nil(Map.get(env, "SYMPHONY_REPO_PROVIDER_MAX_HTTP_RETRIES")),
-        retry_backoff_seconds: blank_to_nil(Map.get(env, "SYMPHONY_REPO_PROVIDER_RETRY_BACKOFF_SECONDS"))
+        http_timeout_seconds: RuntimeEnv.provider_http_timeout_seconds(env),
+        max_http_retries: RuntimeEnv.provider_max_http_retries(env),
+        retry_backoff_seconds: RuntimeEnv.provider_retry_backoff_seconds(env)
       }
     }
   end
@@ -40,23 +42,23 @@ defmodule SymphonyElixir.RepoProvider.RuntimeConfig do
   @spec to_env(map()) :: [{String.t(), String.t()}]
   def to_env(repo) when is_map(repo) do
     [
-      {"SYMPHONY_REPO_PATH", Config.path(repo)},
-      {"SYMPHONY_REPO_REMOTE", Config.remote_name(repo)},
-      {"SYMPHONY_REPO_REMOTE_URL", Config.remote_url(repo)},
-      {"SYMPHONY_REPO_BASE_BRANCH", Config.base_branch(repo)},
-      {"SYMPHONY_REPO_BRANCH_WORK_PREFIX", Config.branch_work_prefix(repo)},
-      {"SYMPHONY_REPO_PROVIDER_KIND", current_kind(repo)},
-      {"SYMPHONY_REPO_PROVIDER_REPOSITORY", Config.repository(repo)},
-      {"SYMPHONY_REPO_PROVIDER_API_BASE_URL", Config.api_base_url(repo)},
-      {"SYMPHONY_REPO_PROVIDER_WEB_BASE_URL", Config.web_base_url(repo)},
-      {"SYMPHONY_REPO_PROVIDER_HTTP_TIMEOUT_SECONDS", Config.runtime_http_timeout_seconds(repo)},
-      {"SYMPHONY_REPO_PROVIDER_MAX_HTTP_RETRIES", Config.runtime_max_http_retries(repo)},
-      {"SYMPHONY_REPO_PROVIDER_RETRY_BACKOFF_SECONDS", Config.runtime_retry_backoff_seconds(repo)}
+      {RuntimeEnv.repo_path_env(), Config.path(repo)},
+      {RuntimeEnv.repo_remote_env(), Config.remote_name(repo)},
+      {RuntimeEnv.repo_remote_url_env(), Config.remote_url(repo)},
+      {RuntimeEnv.repo_base_branch_env(), Config.base_branch(repo)},
+      {RuntimeEnv.repo_branch_work_prefix_env(), Config.branch_work_prefix(repo)},
+      {RuntimeEnv.provider_kind_env(), current_kind(repo)},
+      {RuntimeEnv.provider_repository_env(), Config.repository(repo)},
+      {RuntimeEnv.provider_api_base_url_env(), Config.api_base_url(repo)},
+      {RuntimeEnv.provider_web_base_url_env(), Config.web_base_url(repo)},
+      {RuntimeEnv.provider_http_timeout_seconds_env(), Config.runtime_http_timeout_seconds(repo)},
+      {RuntimeEnv.provider_max_http_retries_env(), Config.runtime_max_http_retries(repo)},
+      {RuntimeEnv.provider_retry_backoff_seconds_env(), Config.runtime_retry_backoff_seconds(repo)}
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
   end
 
-  def to_env(_repo), do: [{"SYMPHONY_REPO_PROVIDER_KIND", @default_kind}]
+  def to_env(_repo), do: [{RuntimeEnv.provider_kind_env(), @default_kind}]
 
   @spec apply_provider_override(map(), nil | String.t()) :: map()
   def apply_provider_override(repo, nil) when is_map(repo), do: repo
@@ -74,15 +76,4 @@ defmodule SymphonyElixir.RepoProvider.RuntimeConfig do
   end
 
   def current_kind(_repo), do: @default_kind
-
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
-
-  defp env_value(env, primary, secondary) when is_map(env) do
-    case blank_to_nil(Map.get(env, primary)) do
-      nil -> blank_to_nil(Map.get(env, secondary))
-      value -> value
-    end
-  end
 end

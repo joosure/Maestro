@@ -6,9 +6,11 @@ defmodule SymphonyElixir.Agent.Quota do
   alias SymphonyElixir.AgentProvider.{Config, Error}
   alias SymphonyElixir.Config, as: RuntimeConfig
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationStatus
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @probe_capability "agent.quota.probe"
+  @probe_capability CapabilityNames.agent_quota_probe()
 
   @spec preflight(Config.t(), module(), [String.t()], keyword()) :: {:ok, keyword()} | {:error, Error.t()}
   def preflight(%Config{} = config, adapter, capabilities, opts \\ [])
@@ -205,7 +207,7 @@ defmodule SymphonyElixir.Agent.Quota do
       :info,
       :agent_quota_probe_started,
       quota_event_fields(config, policy, opts, %{
-        status: "started"
+        status: OperationStatus.started()
       })
     )
   end
@@ -215,7 +217,7 @@ defmodule SymphonyElixir.Agent.Quota do
       :info,
       :agent_quota_probe_completed,
       quota_event_fields(config, policy, opts, %{
-        status: "completed",
+        status: OperationStatus.completed(),
         quota_status: Atom.to_string(snapshot.status)
       })
     )
@@ -226,7 +228,7 @@ defmodule SymphonyElixir.Agent.Quota do
       :error,
       :agent_quota_probe_failed,
       quota_event_fields(config, policy, opts, %{
-        status: "failed",
+        status: OperationStatus.failed(),
         quota_status: Map.get(error.details, :quota_status, "unsupported"),
         error_code: error.code,
         retryable: error.retryable?,

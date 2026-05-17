@@ -5,10 +5,12 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Request do
   alias SymphonyElixir.Observability.Redaction
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Tapd.Client.{Errors, Response}
   alias SymphonyElixir.Tracker.Tapd.CommentCodec
 
   @request_timeout_ms 30_000
+  @provider_kind Kinds.tapd()
   @retryable_http_statuses [408, 429, 500, 502, 503, 504]
   @transient_retry_delays_ms [1_000, 2_000, 5_000]
 
@@ -68,7 +70,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Request do
           :tracker_request_failed,
           %{
             component: "tracker.tapd.client",
-            tracker_kind: Map.get(tracker, :kind, "tapd"),
+            tracker_kind: Map.get(tracker, :kind, @provider_kind),
             http_method: method,
             http_path: path,
             payload_summary: Redaction.summarize(normalized_params),
@@ -223,7 +225,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Request do
   defp tracker_request_fields(tracker, method, path, params) do
     %{
       component: "tracker.tapd.client",
-      tracker_kind: Map.get(tracker, :kind, "tapd"),
+      tracker_kind: Map.get(tracker, :kind, @provider_kind),
       http_method: method,
       http_path: path,
       issue_id: request_issue_id(params),

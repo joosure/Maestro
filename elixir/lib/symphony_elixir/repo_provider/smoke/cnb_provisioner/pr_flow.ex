@@ -4,7 +4,13 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.PRFlow do
   import SymphonyElixir.RepoProvider.Smoke.ProbeRunner,
     only: [probe: 2, probe: 3, run_probe: 3, run_destructive_probe: 4, synthetic_failure_probe: 2]
 
+  alias SymphonyElixir.RepoProvider.CommandNames
   alias SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.{Args, Git, Runs}
+
+  @pr_create_command CommandNames.pr_create()
+  @pr_view_command CommandNames.pr_view()
+  @pr_edit_command CommandNames.pr_edit()
+  @pr_close_command CommandNames.pr_close()
 
   @spec run_pr_flow(map(), nil | String.t(), map(), map(), [map()]) :: [map()]
   def run_pr_flow(context, provider_override, cli_deps, deps, acc) do
@@ -35,7 +41,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.PRFlow do
   defp create_pr(context, provider_override, cli_deps, deps) do
     run_probe(
       probe(
-        "pr-create",
+        @pr_create_command,
         Args.provider_argv(
           provider_override,
           Args.destructive_create_argv(context.title, context.body, context.base, context.head)
@@ -52,7 +58,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.PRFlow do
       |> run_destructive_probe(
         probe(
           "pr-view-created",
-          Args.provider_argv(provider_override, ["pr-view", context.pr_number, "--json", "url", "-q", ".url"]),
+          Args.provider_argv(provider_override, [@pr_view_command, context.pr_number, "--json", "url", "-q", ".url"]),
           expect_stdout: context.pr_url
         ),
         cli_deps,
@@ -60,8 +66,8 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.PRFlow do
       )
       |> run_destructive_probe(
         probe(
-          "pr-edit",
-          Args.provider_argv(provider_override, ["pr-edit", context.pr_number, "--body", context.edited_body])
+          @pr_edit_command,
+          Args.provider_argv(provider_override, [@pr_edit_command, context.pr_number, "--body", context.edited_body])
         ),
         cli_deps,
         deps
@@ -69,7 +75,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.PRFlow do
       |> run_destructive_probe(
         probe(
           "pr-view-edited",
-          Args.provider_argv(provider_override, ["pr-view", context.pr_number, "--json", "body", "-q", ".body"]),
+          Args.provider_argv(provider_override, [@pr_view_command, context.pr_number, "--json", "body", "-q", ".body"]),
           expect_stdout: context.edited_body
         ),
         cli_deps,
@@ -96,7 +102,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.PRFlow do
       if is_binary(context.pr_number) do
         acc
         |> run_destructive_probe(
-          probe("pr-close", Args.provider_argv(provider_override, ["pr-close", context.pr_number])),
+          probe(@pr_close_command, Args.provider_argv(provider_override, [@pr_close_command, context.pr_number])),
           cli_deps,
           deps
         )
@@ -110,13 +116,13 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.PRFlow do
 
   defp maybe_verify_closed_pr(acc, provider_override, pr_number, cli_deps, deps) do
     case List.last(acc) do
-      %{id: "pr-close", ok: true} ->
+      %{id: @pr_close_command, ok: true} ->
         acc ++
           [
             run_probe(
               probe(
                 "pr-view-closed",
-                Args.provider_argv(provider_override, ["pr-view", pr_number, "--json", "state", "-q", ".state"]),
+                Args.provider_argv(provider_override, [@pr_view_command, pr_number, "--json", "state", "-q", ".state"]),
                 expect_stdout: "CLOSED"
               ),
               cli_deps,

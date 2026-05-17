@@ -7,11 +7,17 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
   validator reports which contract checks are satisfied.
   """
 
+  alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.ProfileRegistry
+  alias SymphonyElixir.Workflow.ReadinessContract
 
   @coding_profile "coding_pr_delivery"
-  @merge_capabilities MapSet.new(["repo_provider.merge", "repo.merge_change_proposal"])
+  @merge_capabilities MapSet.new(CapabilityNames.merge_gate())
+  @passing_check_statuses ["passing", "passed", "success", "successful"]
+  @approved_review_statuses ["approved", "approval", "passed"]
+  @truthy_strings ["true", "yes", "passed", "passing"]
+  @tracker_merging_states ["Merging", "merging"]
 
   @type validation_status :: String.t()
   @type validation_result :: %{
@@ -30,14 +36,24 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
 
     if profile_context.kind == @coding_profile do
       checks = [
-        check("change_proposal_exists", change_proposal_exists?(evidence), "linked change proposal exists", observed_change_proposal(evidence)),
+        check(
+          "change_proposal_exists",
+          change_proposal_exists?(evidence),
+          "linked change proposal exists",
+          observed_change_proposal(evidence)
+        ),
         check(
           "change_proposal_linked_to_tracker",
           change_proposal_linked_to_tracker?(evidence),
           "change proposal is attached or linked to the tracker issue",
           observed_tracker_link(evidence)
         ),
-        check("commit_or_diff_exists", commit_or_diff_exists?(evidence), "commit or diff evidence exists", observed_repo_change(evidence)),
+        check(
+          "commit_or_diff_exists",
+          commit_or_diff_exists?(evidence),
+          "commit or diff evidence exists",
+          observed_repo_change(evidence)
+        ),
         check(
           "checks_read_and_recorded",
           checks_read_and_recorded?(evidence),
@@ -58,24 +74,16 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
         )
       ]
 
-      %{
-        "status" => result_status(checks),
-        "profile" => profile_context.kind,
-        "route" => route_key,
-        "allowed_completion_routes" => allowed_routes,
-        "checks" => checks,
-        "missing_evidence" => missing_evidence(checks),
-        "observed_evidence" => observed_evidence(checks)
-      }
+      validation_result(profile_context.kind, route_key, allowed_routes, checks)
     else
       %{
-        "status" => "skipped",
-        "profile" => profile_context.kind,
-        "route" => route_key,
-        "allowed_completion_routes" => allowed_routes,
-        "checks" => [],
-        "missing_evidence" => [],
-        "observed_evidence" => []
+        ReadinessContract.status_key() => ReadinessContract.skipped(),
+        ReadinessContract.profile_key() => profile_context.kind,
+        ReadinessContract.route_key() => route_key,
+        ReadinessContract.allowed_completion_routes_key() => allowed_routes,
+        ReadinessContract.checks_key() => [],
+        ReadinessContract.missing_evidence_key() => [],
+        ReadinessContract.observed_evidence_key() => []
       }
     end
   end
@@ -87,14 +95,24 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
 
   def merge_gate(evidence, capabilities) when is_map(evidence) and is_map(capabilities) do
     checks = [
-      check("change_proposal_exists", change_proposal_exists?(evidence), "linked change proposal exists", observed_change_proposal(evidence)),
+      check(
+        "change_proposal_exists",
+        change_proposal_exists?(evidence),
+        "linked change proposal exists",
+        observed_change_proposal(evidence)
+      ),
       check(
         "change_proposal_approved",
         change_proposal_approved?(evidence),
         "required human approval is present",
         observed_approval(evidence)
       ),
-      check("checks_passing", checks_passing?(evidence), "required CI/checks passed", observed_checks(evidence)),
+      check(
+        "checks_passing",
+        checks_passing?(evidence),
+        "required CI/checks passed",
+        observed_checks(evidence)
+      ),
       check(
         "merge_capability_available",
         merge_capability_available?(capabilities),
@@ -110,59 +128,75 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
     ]
 
     %{
-      "status" => result_status(checks),
-      "checks" => checks,
-      "missing_evidence" => missing_evidence(checks),
-      "observed_evidence" => observed_evidence(checks)
+      ReadinessContract.status_key() => result_status(checks),
+      ReadinessContract.checks_key() => checks,
+      ReadinessContract.missing_evidence_key() => missing_evidence(checks),
+      ReadinessContract.observed_evidence_key() => observed_evidence(checks)
     }
   end
 
-  def merge_gate(_evidence, capabilities) when is_map(capabilities), do: merge_gate(%{}, capabilities)
+  def merge_gate(_evidence, capabilities) when is_map(capabilities),
+    do: merge_gate(%{}, capabilities)
+
   def merge_gate(evidence, _capabilities) when is_map(evidence), do: merge_gate(evidence, %{})
   def merge_gate(_evidence, _capabilities), do: merge_gate(%{}, %{})
 
   defp check(key, true, required_evidence, observed_evidence) do
     %{
-      "key" => key,
-      "status" => "passed",
-      "required_evidence" => required_evidence,
-      "observed_evidence" => observed_evidence
+      ReadinessContract.key_key() => key,
+      ReadinessContract.status_key() => ReadinessContract.passed(),
+      ReadinessContract.required_evidence_key() => required_evidence,
+      ReadinessContract.observed_evidence_key() => observed_evidence
     }
   end
 
   defp check(key, _passed?, required_evidence, observed_evidence) do
     %{
-      "key" => key,
-      "status" => "failed",
-      "required_evidence" => required_evidence,
-      "observed_evidence" => observed_evidence
+      ReadinessContract.key_key() => key,
+      ReadinessContract.status_key() => ReadinessContract.failed(),
+      ReadinessContract.required_evidence_key() => required_evidence,
+      ReadinessContract.observed_evidence_key() => observed_evidence
     }
   end
 
   defp result_status(checks) do
-    if Enum.all?(checks, &(Map.get(&1, "status") == "passed")) do
-      "passed"
+    if Enum.all?(checks, &ReadinessContract.passed?/1) do
+      ReadinessContract.passed()
     else
-      "failed"
+      ReadinessContract.failed()
     end
   end
 
   defp missing_evidence(checks) do
     checks
-    |> Enum.reject(&(Map.get(&1, "status") == "passed"))
-    |> Enum.map(&Map.fetch!(&1, "required_evidence"))
+    |> Enum.reject(&ReadinessContract.passed?/1)
+    |> Enum.map(&Map.fetch!(&1, ReadinessContract.required_evidence_key()))
   end
 
   defp observed_evidence(checks) do
     checks
-    |> Enum.flat_map(&List.wrap(Map.get(&1, "observed_evidence")))
+    |> Enum.flat_map(&List.wrap(Map.get(&1, ReadinessContract.observed_evidence_key())))
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
   end
 
+  defp validation_result(profile, route, allowed_routes, checks) do
+    %{
+      ReadinessContract.status_key() => result_status(checks),
+      ReadinessContract.profile_key() => profile,
+      ReadinessContract.route_key() => route,
+      ReadinessContract.allowed_completion_routes_key() => allowed_routes,
+      ReadinessContract.checks_key() => checks,
+      ReadinessContract.missing_evidence_key() => missing_evidence(checks),
+      ReadinessContract.observed_evidence_key() => observed_evidence(checks)
+    }
+  end
+
   defp profile_context(issue, opts) do
     issue_profile = issue |> workflow_value(:profile) |> normalize_map()
-    settings_profile = opts |> opt(:settings) |> map_field(:workflow) |> map_field(:profile) |> normalize_map()
+
+    settings_profile =
+      opts |> opt(:settings) |> map_field(:workflow) |> map_field(:profile) |> normalize_map()
 
     profile_config =
       cond do
@@ -179,8 +213,11 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
 
   defp completion_contract(issue, profile_context) do
     case workflow_value(issue, :completion_contract) do
-      contract when is_map(contract) -> contract
-      _contract -> ProfileRegistry.completion_contract(profile_context.module, profile_context.options)
+      contract when is_map(contract) ->
+        contract
+
+      _contract ->
+        ProfileRegistry.completion_contract(profile_context.module, profile_context.options)
     end
   end
 
@@ -200,8 +237,9 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
     end
   end
 
-  defp route_allowed?(route_key, allowed_routes) when is_binary(route_key) and is_list(allowed_routes),
-    do: route_key in allowed_routes
+  defp route_allowed?(route_key, allowed_routes)
+       when is_binary(route_key) and is_list(allowed_routes),
+       do: route_key in allowed_routes
 
   defp route_allowed?(_route_key, _allowed_routes), do: false
 
@@ -264,9 +302,9 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
   defp checks_passing?(evidence) do
     checks = checks_map(evidence)
 
-    map_field(checks, :status) in ["passing", "passed", "success", "successful"] or
-      map_field(checks, :summary) in ["passing", "passed", "success", "successful"] or
-      map_field(checks, :check_summary) == "passing" or
+    map_field(checks, :status) in @passing_check_statuses or
+      map_field(checks, :summary) in @passing_check_statuses or
+      map_field(checks, :check_summary) in @passing_check_statuses or
       truthy?(map_field(checks, :passing))
   end
 
@@ -306,9 +344,9 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
         evidence |> map_field(:changeProposal) |> map_field(:review)
       ])
 
-    map_field(review, :status) in ["approved", "approval", "passed"] or
-      map_field(review, :summary) == "approved" or
-      map_field(review, :review_summary) == "approved" or
+    map_field(review, :status) in @approved_review_statuses or
+      map_field(review, :summary) in @approved_review_statuses or
+      map_field(review, :review_summary) in @approved_review_statuses or
       truthy?(map_field(review, :approved))
   end
 
@@ -337,17 +375,26 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
     route_value(route, :key) == "merging" or
       route_value(route, :current) == "merging" or
       route_value(route, :target) == "merging" or
-      map_field(tracker, :state) in ["Merging", "merging"] or
+      map_field(tracker, :state) in @tracker_merging_states or
       truthy?(map_field(tracker, :merge_approved))
   end
 
   defp observed_change_proposal(evidence) do
     cond do
-      present_string?(deep_field(evidence, [:change_proposal, :url])) -> ["change_proposal.url"]
-      present_string?(deep_field(evidence, [:changeProposal, :url])) -> ["changeProposal.url"]
-      present_string?(deep_field(evidence, [:data, :changeProposal, :url])) -> ["data.changeProposal.url"]
-      change_proposal_exists?(evidence) -> ["change_proposal"]
-      true -> []
+      present_string?(deep_field(evidence, [:change_proposal, :url])) ->
+        ["change_proposal.url"]
+
+      present_string?(deep_field(evidence, [:changeProposal, :url])) ->
+        ["changeProposal.url"]
+
+      present_string?(deep_field(evidence, [:data, :changeProposal, :url])) ->
+        ["data.changeProposal.url"]
+
+      change_proposal_exists?(evidence) ->
+        ["change_proposal"]
+
+      true ->
+        []
     end
   end
 
@@ -425,10 +472,7 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
   defp non_empty_list?(_values), do: false
 
   defp truthy?(true), do: true
-  defp truthy?("true"), do: true
-  defp truthy?("yes"), do: true
-  defp truthy?("passed"), do: true
-  defp truthy?("passing"), do: true
+  defp truthy?(value) when is_binary(value), do: value in @truthy_strings
   defp truthy?(1), do: true
   defp truthy?(_value), do: false
 
@@ -475,8 +519,13 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
   end
 
   defp opt(opts, key, default \\ nil)
-  defp opt(opts, key, default) when is_list(opts) and is_atom(key), do: Keyword.get(opts, key, default)
-  defp opt(opts, key, default) when is_map(opts) and is_atom(key), do: map_field(opts, key) || default
+
+  defp opt(opts, key, default) when is_list(opts) and is_atom(key),
+    do: Keyword.get(opts, key, default)
+
+  defp opt(opts, key, default) when is_map(opts) and is_atom(key),
+    do: map_field(opts, key) || default
+
   defp opt(_opts, _key, default), do: default
 
   defp map_field(map, key) when is_map(map) and is_atom(key) do
@@ -495,7 +544,9 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
     end
   end
 
-  defp normalize_string(value) when is_atom(value) and not is_boolean(value), do: Atom.to_string(value)
+  defp normalize_string(value) when is_atom(value) and not is_boolean(value),
+    do: Atom.to_string(value)
+
   defp normalize_string(value) when is_integer(value), do: Integer.to_string(value)
   defp normalize_string(_value), do: nil
 end

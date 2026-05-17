@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Repo do
   alias SymphonyElixir.Repo.Error
   alias SymphonyElixir.Repo.Git
   alias SymphonyElixir.Repo.Preflight
+  alias SymphonyElixir.Repo.RuntimeEnv
   alias SymphonyElixir.Repo.Status
 
   @type result(t) :: {:ok, t} | {:error, Error.t()}
@@ -74,11 +75,11 @@ defmodule SymphonyElixir.Repo do
     configured =
       map_field(repo_config, :base_branch) ||
         Keyword.get(opts, :base_branch) ||
-        System.get_env("SYMPHONY_REPO_BASE_BRANCH")
+        RuntimeEnv.base_branch()
 
     case present_string(configured) do
       branch when is_binary(branch) -> branch
-      nil -> optional_remote_default_branch(opts) || "main"
+      nil -> optional_remote_default_branch(opts) || RuntimeEnv.default_base_branch()
     end
   end
 

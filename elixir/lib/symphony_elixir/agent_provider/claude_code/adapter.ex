@@ -7,10 +7,23 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Adapter do
 
   alias SymphonyElixir.Agent.Credential.{Lease, Material}
   alias SymphonyElixir.Agent.Quota.Snapshot
-  alias SymphonyElixir.AgentProvider.ClaudeCode.{AppServer, Error, EventSummaryMapper, RateLimitProbe, Settings, Tooling}
-  alias SymphonyElixir.AgentProvider.{Config, Session, TurnResult}
 
-  @provider_kind "claude_code"
+  alias SymphonyElixir.AgentProvider.ClaudeCode.{
+    AppServer,
+    CredentialEnv,
+    Error,
+    EventSummaryMapper,
+    RateLimitProbe,
+    Settings,
+    Tooling
+  }
+
+  alias SymphonyElixir.AgentProvider.{Config, Kinds, Session, TurnResult}
+  alias SymphonyElixir.Workflow.CapabilityNames
+
+  @provider_kind Kinds.claude_code()
+  @oauth_token_credential_kind CredentialEnv.oauth_token_credential_kind()
+  @config_credential_kind CredentialEnv.config_credential_kind()
 
   @impl true
   def kind, do: @provider_kind
@@ -21,13 +34,13 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Adapter do
   @impl true
   def capabilities do
     [
-      "agent.turn.run",
-      "agent.session.stateful",
-      "agent.events.streaming",
-      "agent.usage.metrics",
-      "agent.runtime.remote_worker",
-      "agent.credentials.managed",
-      "agent.quota.probe"
+      CapabilityNames.agent_turn_run(),
+      CapabilityNames.agent_session_stateful(),
+      CapabilityNames.agent_events_streaming(),
+      CapabilityNames.agent_usage_metrics(),
+      CapabilityNames.agent_runtime_remote_worker(),
+      CapabilityNames.agent_credentials_managed(),
+      CapabilityNames.agent_quota_probe()
     ]
   end
 
@@ -48,31 +61,24 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Adapter do
   @spec materialize_credential(Config.t(), Lease.t(), keyword()) :: {:ok, Material.t()} | {:error, term()}
   def materialize_credential(%Config{}, %Lease{} = lease, _opts \\ []) do
     case lease.metadata[:account] || lease.metadata["account"] do
-      %{credential_kind: "claude_oauth_token"} = account ->
+      %{credential_kind: @oauth_token_credential_kind} = account ->
         with {:ok, token} <- read_oauth_token(account) do
           {:ok,
            Material.new(%{
-             env: %{
-               "CLAUDE_CODE_OAUTH_TOKEN" => token,
-               "CLAUDE_CONFIG_DIR" => account.auth_dir,
-               "ANTHROPIC_API_KEY" => ""
-             },
+             env: CredentialEnv.materialized_oauth_token_env(token, account.auth_dir),
              summary: %{
-               credential_kind: "claude_oauth_token",
+               credential_kind: @oauth_token_credential_kind,
                account_id_summary: lease.account_id
              }
            })}
         end
 
-      %{credential_kind: "claude_config"} = account ->
+      %{credential_kind: @config_credential_kind} = account ->
         {:ok,
          Material.new(%{
-           env: %{
-             "CLAUDE_CONFIG_DIR" => account.auth_dir,
-             "ANTHROPIC_API_KEY" => ""
-           },
+           env: CredentialEnv.materialized_config_env(account.auth_dir),
            summary: %{
-             credential_kind: "claude_config",
+             credential_kind: @config_credential_kind,
              account_id_summary: lease.account_id
            }
          })}

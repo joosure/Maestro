@@ -3,14 +3,17 @@ defmodule SymphonyElixir.AgentProvider.TurnResult do
   Provider-neutral result for one completed agent turn.
   """
 
-  @type status :: :completed | :failed | :cancelled | :input_required | :timeout
+  alias SymphonyElixir.AgentProvider.TurnStatus
+  alias SymphonyElixir.AgentProvider.Usage
+
+  @type status :: TurnStatus.status()
 
   @type t :: %__MODULE__{
           status: status(),
           session_id: String.t() | nil,
           thread_id: String.t() | nil,
           turn_id: String.t() | nil,
-          usage: map(),
+          usage: Usage.t(),
           metadata: map()
         }
 
@@ -38,17 +41,7 @@ defmodule SymphonyElixir.AgentProvider.TurnResult do
 
   def new(_result), do: %__MODULE__{}
 
-  defp normalize_status(status)
-       when status in [:completed, :failed, :cancelled, :input_required, :timeout],
-       do: status
-
-  defp normalize_status("completed"), do: :completed
-  defp normalize_status("failed"), do: :failed
-  defp normalize_status("cancelled"), do: :cancelled
-  defp normalize_status("input_required"), do: :input_required
-  defp normalize_status("timeout"), do: :timeout
-  defp normalize_status(nil), do: :completed
-  defp normalize_status(_status), do: :failed
+  defp normalize_status(status), do: TurnStatus.normalize_atom(status, default: :completed, unknown: :failed)
 
   defp normalize_map(value) when is_map(value), do: value
   defp normalize_map(_value), do: %{}

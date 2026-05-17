@@ -22,14 +22,16 @@ defmodule SymphonyElixir.RepoProvider.GitHub.Adapter do
   alias SymphonyElixir.RepoProvider.GitHub.CLI
   alias SymphonyElixir.RepoProvider.GitHub.PullRequestHandler
   alias SymphonyElixir.RepoProvider.GitHub.RunHandler
+  alias SymphonyElixir.RepoProvider.Kinds
 
   @type repo_config :: map()
   @capabilities SymphonyElixir.RepoProvider.Adapter.all_capabilities()
+  @provider_kind Kinds.github()
 
   # ── Required ─────────────────────────────────────────────────────
 
   @impl true
-  def kind, do: "github"
+  def kind, do: @provider_kind
 
   @impl true
   def defaults, do: %{}

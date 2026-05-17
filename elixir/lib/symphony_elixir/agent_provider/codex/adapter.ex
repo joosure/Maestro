@@ -9,10 +9,12 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
   alias SymphonyElixir.Agent.Credential.{Lease, Material}
   alias SymphonyElixir.Agent.Credential.Store
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyElixir.Workflow.CapabilityNames
 
   alias SymphonyElixir.AgentProvider.Codex.{
     AppServer,
     Credential,
+    CredentialEnv,
     Error,
     EventSummaryMapper,
     FailureClassifier,
@@ -20,9 +22,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
     Tooling
   }
 
-  alias SymphonyElixir.AgentProvider.{Config, Session, TurnResult}
+  alias SymphonyElixir.AgentProvider.{Config, Kinds, Session, TurnResult}
 
-  @provider_kind "codex"
+  @provider_kind Kinds.codex()
+  @api_key_credential_kind CredentialEnv.api_key_credential_kind()
   @secret_mode 0o600
 
   @impl true
@@ -34,13 +37,13 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
   @impl true
   def capabilities do
     [
-      "agent.turn.run",
-      "agent.session.stateful",
-      "agent.events.streaming",
-      "agent.usage.metrics",
-      "agent.tools.dynamic",
-      "agent.runtime.remote_worker",
-      "agent.credentials.managed"
+      CapabilityNames.agent_turn_run(),
+      CapabilityNames.agent_session_stateful(),
+      CapabilityNames.agent_events_streaming(),
+      CapabilityNames.agent_usage_metrics(),
+      CapabilityNames.agent_tools_dynamic(),
+      CapabilityNames.agent_runtime_remote_worker(),
+      CapabilityNames.agent_credentials_managed()
     ]
   end
 
@@ -64,7 +67,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
   @spec account_login(String.t(), keyword(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}
   def account_login(id, opts, store_opts) when is_binary(id) and is_list(opts) do
     with {:ok, api_key} <- codex_api_key(opts) do
-      attrs = account_attrs(opts, credential_kind: "codex_api_key")
+      attrs = account_attrs(opts, credential_kind: @api_key_credential_kind)
 
       with {:ok, account} <- Store.create_or_update(@provider_kind, id, attrs, store_opts),
            :ok <- write_secret(account.secret_file, api_key),
@@ -76,7 +79,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
 
   @impl true
   @spec account_verify(map(), keyword(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}
-  def account_verify(%{credential_kind: "codex_api_key"} = account, opts, _store_opts) when is_list(opts) do
+  def account_verify(%{credential_kind: @api_key_credential_kind} = account, opts, _store_opts) when is_list(opts) do
     command = Keyword.get(opts, :command) || @provider_kind
 
     with {:ok, material} <- materialize_verify_account(account, opts) do
@@ -101,7 +104,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
   @spec materialize_credential(Config.t(), Lease.t(), keyword()) :: {:ok, Material.t()} | {:error, term()}
   def materialize_credential(%Config{}, %Lease{} = lease, opts \\ []) do
     case lease.metadata[:account] || lease.metadata["account"] do
-      %{credential_kind: "codex_api_key"} = account ->
+      %{credential_kind: @api_key_credential_kind} = account ->
         Credential.materialize_api_key(account, lease, opts)
 
       nil ->

@@ -3,7 +3,18 @@ defmodule SymphonyWorkerDaemon.Session.Supervisor do
 
   use DynamicSupervisor
 
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
   alias SymphonyWorkerDaemon.Session.{Filters, Ledger, Server}
+
+  @session_id_key ProtocolFields.session_id()
+  @request_id_key ProtocolFields.request_id()
+  @worker_id_key ProtocolFields.worker_id()
+  @daemon_instance_id_key ProtocolFields.daemon_instance_id()
+  @lease_id_key ProtocolFields.lease_id()
+  @status_key ProtocolFields.status()
+  @metadata_key ProtocolFields.metadata()
+  @run_id_key ProtocolFields.run_id()
+  @cwd_key ProtocolFields.cwd()
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) when is_list(opts) do
@@ -75,9 +86,9 @@ defmodule SymphonyWorkerDaemon.Session.Supervisor do
     sessions =
       ledger_sessions
       |> Kernel.++(live_sessions)
-      |> Map.new(fn summary -> {Map.get(summary, "session_id"), summary} end)
+      |> Map.new(fn summary -> {Map.get(summary, @session_id_key), summary} end)
       |> Map.values()
-      |> Enum.sort_by(&(Map.get(&1, "updated_at_ms") || Map.get(&1, "started_at_ms", 0)), :desc)
+      |> Enum.sort_by(&(Map.get(&1, ProtocolFields.updated_at_ms()) || Map.get(&1, ProtocolFields.started_at_ms(), 0)), :desc)
 
     {:ok, sessions}
   end
@@ -103,8 +114,8 @@ defmodule SymphonyWorkerDaemon.Session.Supervisor do
     DynamicSupervisor.init(strategy: :one_for_one)
   end
 
-  defp session_id(%{"session_id" => session_id}) when is_binary(session_id) and session_id != "", do: session_id
-  defp session_id(%{"request_id" => request_id}) when is_binary(request_id) and request_id != "", do: "session-" <> request_id
+  defp session_id(%{@session_id_key => session_id}) when is_binary(session_id) and session_id != "", do: session_id
+  defp session_id(%{@request_id_key => request_id}) when is_binary(request_id) and request_id != "", do: "session-" <> request_id
   defp session_id(_request), do: Ecto.UUID.generate()
 
   defp request_matches?(pid, request) when is_pid(pid) and is_map(request) do
@@ -117,14 +128,14 @@ defmodule SymphonyWorkerDaemon.Session.Supervisor do
     status = Server.status(pid)
 
     %{
-      "session_id" => session_id,
-      "worker_id" => Keyword.get(opts, :worker_id),
-      "daemon_instance_id" => Keyword.get(opts, :daemon_instance_id),
-      "lease_id" => status["lease_id"],
-      "status" => status["status"],
-      "metadata" => %{
-        "run_id" => request["run_id"],
-        "cwd" => status["cwd"]
+      @session_id_key => session_id,
+      @worker_id_key => Keyword.get(opts, :worker_id),
+      @daemon_instance_id_key => Keyword.get(opts, :daemon_instance_id),
+      @lease_id_key => Map.get(status, @lease_id_key),
+      @status_key => Map.get(status, @status_key),
+      @metadata_key => %{
+        @run_id_key => Map.get(request, @run_id_key),
+        @cwd_key => Map.get(status, @cwd_key)
       }
     }
     |> compact_map()

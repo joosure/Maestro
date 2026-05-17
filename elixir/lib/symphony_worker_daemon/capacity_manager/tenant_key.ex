@@ -1,11 +1,17 @@
 defmodule SymphonyWorkerDaemon.CapacityManager.TenantKey do
   @moduledoc false
 
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+
+  @caller_key ProtocolFields.caller()
+  @owner_key ProtocolFields.owner()
+  @tenant_id_key ProtocolFields.tenant_id()
+
   @spec from_attrs(map()) :: String.t()
   def from_attrs(attrs) when is_map(attrs) do
-    caller = Map.get(attrs, :caller) || Map.get(attrs, "caller") || %{}
-    owner = caller_value(caller, "owner") || "unknown_owner"
-    tenant_id = caller_value(caller, "tenant_id") || "default_tenant"
+    caller = Map.get(attrs, :caller) || Map.get(attrs, @caller_key) || %{}
+    owner = caller_value(caller, @owner_key) || "unknown_owner"
+    tenant_id = caller_value(caller, @tenant_id_key) || "default_tenant"
     tenant_id <> ":" <> owner
   end
 
@@ -15,8 +21,8 @@ defmodule SymphonyWorkerDaemon.CapacityManager.TenantKey do
 
   defp caller_value(_caller, _key), do: nil
 
-  defp caller_atom_value(caller, "owner"), do: Map.get(caller, :owner)
-  defp caller_atom_value(caller, "tenant_id"), do: Map.get(caller, :tenant_id)
+  defp caller_atom_value(caller, @owner_key), do: Map.get(caller, :owner)
+  defp caller_atom_value(caller, @tenant_id_key), do: Map.get(caller, :tenant_id)
   defp caller_atom_value(_caller, _key), do: nil
 
   defp normalize_optional_string(nil), do: nil

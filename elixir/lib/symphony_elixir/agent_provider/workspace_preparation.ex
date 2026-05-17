@@ -5,6 +5,7 @@ defmodule SymphonyElixir.AgentProvider.WorkspacePreparation do
   alias SymphonyElixir.AgentProvider.EventFields
   alias SymphonyElixir.AgentProvider.WorkspacePreparation.ToolContext
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationStatus
 
   @spec prepare_workspace(Path.t(), keyword()) :: :ok | {:error, term()}
   def prepare_workspace(workspace, opts \\ []) when is_binary(workspace) and is_list(opts) do
@@ -33,7 +34,7 @@ defmodule SymphonyElixir.AgentProvider.WorkspacePreparation do
       :agent_provider_workspace_prepared,
       EventFields.workspace(config, workspace, opts, %{
         operation: "prepare_workspace",
-        status: "prepared",
+        status: OperationStatus.prepared(),
         duration_ms: EventFields.elapsed_ms(started_at_ms)
       })
     )
@@ -62,7 +63,7 @@ defmodule SymphonyElixir.AgentProvider.WorkspacePreparation do
         opts,
         %{
           operation: "prepare_workspace",
-          status: "failed",
+          status: OperationStatus.failed(),
           duration_ms: EventFields.elapsed_ms(started_at_ms)
         }
         |> Map.merge(EventFields.error(reason))

@@ -5,8 +5,16 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.SessionCreate do
   alias SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.{Connection, Filters, Health, Session, SessionRequest, Transport}
   alias SymphonyElixir.Agent.Runtime.WorkerDaemon.{EventStreamSupervisor, SessionHandle}
   alias SymphonyWorkerDaemon.Protocol
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
 
   @public_client Module.concat(["SymphonyElixir", "Agent", "Runtime", "WorkerDaemon", "Client"])
+  @request_id_key ProtocolFields.request_id()
+  @session_id_key ProtocolFields.session_id()
+  @run_id_key ProtocolFields.run_id()
+  @lease_id_key ProtocolFields.lease_id()
+  @worker_id_key ProtocolFields.worker_id()
+  @daemon_instance_id_key ProtocolFields.daemon_instance_id()
+  @status_key ProtocolFields.status()
 
   @spec create_session(CommandSpec.t(), Target.t(), keyword()) :: {:ok, SessionHandle.t()} | {:error, term()}
   def create_session(%CommandSpec{} = command_spec, %Target{} = target, opts \\ []) do
@@ -121,7 +129,7 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.SessionCreate do
     filters =
       target
       |> Filters.session_filters(opts)
-      |> Filters.put_optional_filter("run_id", request["run_id"])
+      |> Filters.put_optional_filter(@run_id_key, Map.get(request, @run_id_key))
 
     with {:ok, payload} <- Transport.request(:get, endpoint, Protocol.sessions_path(filters), token, nil, opts),
          {:ok, summaries} <- Protocol.normalize_session_list_response(payload),
@@ -134,16 +142,16 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.SessionCreate do
   end
 
   defp session_attrs_from_status(payload, expected_session_id) when is_map(payload) do
-    status = normalize_response_string(payload, "status")
-    session_id = normalize_response_string(payload, "session_id") || expected_session_id
+    status = normalize_response_string(payload, @status_key)
+    session_id = normalize_response_string(payload, @session_id_key) || expected_session_id
 
     if is_binary(status) and is_binary(session_id) do
       {:ok,
        %{
          session_id: session_id,
-         lease_id: normalize_response_string(payload, "lease_id"),
-         worker_id: normalize_response_string(payload, "worker_id"),
-         daemon_instance_id: normalize_response_string(payload, "daemon_instance_id"),
+         lease_id: normalize_response_string(payload, @lease_id_key),
+         worker_id: normalize_response_string(payload, @worker_id_key),
+         daemon_instance_id: normalize_response_string(payload, @daemon_instance_id_key),
          status: status,
          metadata: %{
            worker_daemon_status: status,
@@ -182,8 +190,8 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.SessionCreate do
     Map.put(session_attrs, :metadata, metadata)
   end
 
-  defp expected_session_id(%{"session_id" => session_id}) when is_binary(session_id) and session_id != "", do: session_id
-  defp expected_session_id(%{"request_id" => request_id}) when is_binary(request_id) and request_id != "", do: "session-" <> request_id
+  defp expected_session_id(%{@session_id_key => session_id}) when is_binary(session_id) and session_id != "", do: session_id
+  defp expected_session_id(%{@request_id_key => request_id}) when is_binary(request_id) and request_id != "", do: "session-" <> request_id
   defp expected_session_id(_request), do: nil
 
   defp maybe_start_event_stream(%SessionHandle{} = handle, opts) do
@@ -222,11 +230,11 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.SessionCreate do
     |> normalize_optional_string()
   end
 
-  defp response_value(map, "session_id"), do: known_key_value(map, "session_id", :session_id)
-  defp response_value(map, "lease_id"), do: known_key_value(map, "lease_id", :lease_id)
-  defp response_value(map, "worker_id"), do: known_key_value(map, "worker_id", :worker_id)
-  defp response_value(map, "daemon_instance_id"), do: known_key_value(map, "daemon_instance_id", :daemon_instance_id)
-  defp response_value(map, "status"), do: known_key_value(map, "status", :status)
+  defp response_value(map, @session_id_key), do: known_key_value(map, @session_id_key, :session_id)
+  defp response_value(map, @lease_id_key), do: known_key_value(map, @lease_id_key, :lease_id)
+  defp response_value(map, @worker_id_key), do: known_key_value(map, @worker_id_key, :worker_id)
+  defp response_value(map, @daemon_instance_id_key), do: known_key_value(map, @daemon_instance_id_key, :daemon_instance_id)
+  defp response_value(map, @status_key), do: known_key_value(map, @status_key, :status)
   defp response_value(map, key), do: Map.get(map, key)
 
   defp known_key_value(map, string_key, atom_key) do

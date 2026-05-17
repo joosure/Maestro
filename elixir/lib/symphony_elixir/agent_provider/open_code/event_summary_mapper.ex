@@ -3,8 +3,9 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.EventSummaryMapper do
 
   alias SymphonyElixir.AgentProvider.EventSummary
   alias SymphonyElixir.AgentProvider.EventSummaryMapper.{Access, Text}
+  alias SymphonyElixir.AgentProvider.Kinds
 
-  @provider_kind "opencode"
+  @provider_kind Kinds.opencode()
 
   @spec summarize(term()) :: EventSummary.t()
   def summarize(message) do

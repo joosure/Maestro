@@ -5,6 +5,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
 
   alias SymphonyElixir.Agent.Runtime.DynamicToolBridge
   alias SymphonyElixir.AgentProvider.AppServer.{Messages, PortMetadata}
+  alias SymphonyElixir.AgentProvider.Kinds
 
   alias SymphonyElixir.AgentProvider.OpenCode.AppServer.{
     Context,
@@ -20,6 +21,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
   alias SymphonyElixir.AgentProvider.OpenCode.{Settings, Tooling}
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
 
+  @provider_kind Kinds.opencode()
   @poll_interval_ms 250
   @post_message_listener_drain_ms 100
 
@@ -64,7 +66,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
     case Launcher.start_port(expanded_workspace, settings, start_opts) do
       {:ok, port} ->
         bridge_metadata = DynamicToolBridge.metadata(bridge_runtime)
-        metadata = PortMetadata.metadata("opencode", port, worker_host, run_id) |> Map.merge(bridge_metadata)
+        metadata = PortMetadata.metadata(@provider_kind, port, worker_host, run_id) |> Map.merge(bridge_metadata)
         start_started_port(expanded_workspace, settings, port, metadata, worker_host, run_id, bridge_runtime)
 
       {:error, reason} ->
@@ -96,7 +98,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
 
       {:ok,
        %{
-         agent_provider_kind: "opencode",
+         agent_provider_kind: @provider_kind,
          port: port,
          request: request,
          base_url: base_url,

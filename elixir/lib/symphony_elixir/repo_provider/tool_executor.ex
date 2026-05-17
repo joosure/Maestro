@@ -3,13 +3,22 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
   Executes repo-provider typed workflow tools through the RepoProvider facade.
   """
 
-  alias SymphonyElixir.Agent.DynamicTool.Serializer
+  alias SymphonyElixir.Agent.DynamicTool.{EventContract, MetadataContract, Serializer}
   alias SymphonyElixir.RepoProvider
   alias SymphonyElixir.RepoProvider.ChangeProposalBody
   alias SymphonyElixir.RepoProvider.Error
+  alias SymphonyElixir.Workflow.CapabilityNames
 
   @schema_version "1"
   @risk_flags ["external_network", "secret_access", "external_process", "privileged_api"]
+  @metadata_schema_version_key MetadataContract.schema_version()
+  @metadata_side_effect_key MetadataContract.side_effect()
+  @metadata_risk_flags_key MetadataContract.risk_flags()
+  @metadata_workflow_capability_key MetadataContract.workflow_capability()
+  @metadata_source_kind_key MetadataContract.source_kind()
+  @metadata_reason_key MetadataContract.reason()
+  @metadata_description_key MetadataContract.description()
+  @provider_capability_unavailable_reason MetadataContract.provider_capability_unavailable_reason()
 
   @snapshot_tool "repo_change_proposal_snapshot"
   @create_or_update_tool "repo_create_or_update_change_proposal"
@@ -21,15 +30,15 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
   @merge_tool "repo_merge_change_proposal"
   @close_tool "repo_close_change_proposal"
 
-  @snapshot_capability "repo.change_proposal_snapshot"
-  @create_or_update_capability "repo.create_or_update_change_proposal"
-  @discussion_capability "repo.read_change_proposal_discussion"
-  @add_comment_capability "repo.add_change_proposal_comment"
-  @submit_review_capability "repo.submit_change_proposal_review"
-  @reply_review_comment_capability "repo.reply_change_proposal_review_comment"
-  @checks_capability "repo.read_change_proposal_checks"
-  @merge_capability "repo.merge_change_proposal"
-  @close_capability "repo.close_change_proposal"
+  @snapshot_capability CapabilityNames.repo_change_proposal_snapshot()
+  @create_or_update_capability CapabilityNames.repo_create_or_update_change_proposal()
+  @discussion_capability CapabilityNames.repo_read_change_proposal_discussion()
+  @add_comment_capability CapabilityNames.repo_add_change_proposal_comment()
+  @submit_review_capability CapabilityNames.repo_submit_change_proposal_review()
+  @reply_review_comment_capability CapabilityNames.repo_reply_change_proposal_review_comment()
+  @checks_capability CapabilityNames.repo_read_change_proposal_checks()
+  @merge_capability CapabilityNames.repo_merge_change_proposal()
+  @close_capability CapabilityNames.repo_close_change_proposal()
 
   @tool_requirements %{
     @snapshot_tool => [:pr_view],
@@ -459,11 +468,11 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
       "name" => name,
       "description" => description,
       "inputSchema" => input_schema,
-      "schemaVersion" => @schema_version,
-      "sideEffect" => side_effect,
-      "riskFlags" => @risk_flags,
-      "workflowCapability" => capability,
-      "sourceKind" => RepoProvider.current_kind(repo)
+      @metadata_schema_version_key => @schema_version,
+      @metadata_side_effect_key => side_effect,
+      @metadata_risk_flags_key => @risk_flags,
+      @metadata_workflow_capability_key => capability,
+      @metadata_source_kind_key => RepoProvider.current_kind(repo)
     }
   end
 
@@ -1352,8 +1361,8 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
       %{
         "supported" => true,
         "tool" => tool,
-        "workflowCapability" => capability,
-        "description" => description,
+        @metadata_workflow_capability_key => capability,
+        @metadata_description_key => description,
         "prefilledArguments" => response_arguments(args, extra_arguments),
         "requiredArguments" => required_arguments
       }
@@ -1361,9 +1370,9 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
     else
       %{
         "supported" => false,
-        "workflowCapability" => capability,
-        "reason" => "provider_capability_not_available",
-        "description" => description
+        @metadata_workflow_capability_key => capability,
+        @metadata_reason_key => @provider_capability_unavailable_reason,
+        @metadata_description_key => description
       }
     end
   end
@@ -1372,7 +1381,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
     if supported?(repo, tool) do
       %{
         "tool" => tool,
-        "workflowCapability" => capability,
+        @metadata_workflow_capability_key => capability,
         "prefilledArguments" => response_arguments(args, extra_arguments),
         "requiredArguments" => required_arguments
       }
@@ -1793,9 +1802,9 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
     {:failure,
      %{
        "error" => %{
-         "code" => "unsupported_tool",
+         "code" => EventContract.unsupported_tool(),
          "message" => "Unsupported repo-provider dynamic tool.",
-         "supportedTools" => supported_tool_names(repo)
+         EventContract.supported_tools_key() => supported_tool_names(repo)
        }
      }}
   end

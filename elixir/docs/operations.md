@@ -22,6 +22,12 @@ Workspace sessions and bundled helpers also rely on standard host tooling:
   bundled workspace helpers
 - `CNB_TOKEN` for CNB-backed repository operations
 
+These environment names are maintained as explicit runtime contracts in code,
+not repeated ad hoc across callers. Repo-core variables are owned by
+`SymphonyElixir.Repo.RuntimeEnv`, repo-provider variables by
+`SymphonyElixir.RepoProvider.RuntimeEnv`, and CNB-specific variables by
+`SymphonyElixir.RepoProvider.CNB.RuntimeEnv`.
+
 For provider-specific runtime requirements, see
 [`agent_providers/`](./agent_providers/).
 
@@ -54,6 +60,18 @@ Important workflow fields:
 - `agent_provider.kind`: agent provider, such as `codex`, `claude_code`,
   `opencode`, or `mock`
 - `agent_provider.options`: provider-native options
+
+Agent provider kind strings and supported aliases are owned by
+`SymphonyElixir.AgentProvider.Kinds`. The registry, config resolver, provider
+metadata, and managed-credential code should use that owner instead of
+duplicating provider-kind literals.
+
+Tracker kind strings are owned by `SymphonyElixir.Tracker.Kinds`.
+Repo-provider kind strings and labels are owned by
+`SymphonyElixir.RepoProvider.Kinds`, while the default repo provider is owned by
+`SymphonyElixir.RepoProvider.Defaults`. Operator docs, workflow templates, and
+runtime validation should use those owners as the implementation source of
+truth.
 
 Environment-backed fields can be supplied as `$VAR`, for example:
 

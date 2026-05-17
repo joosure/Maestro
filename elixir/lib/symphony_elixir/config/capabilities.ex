@@ -7,24 +7,21 @@ defmodule SymphonyElixir.Config.Capabilities do
   registered or configured.
   """
 
+  alias SymphonyElixir.Agent.DynamicTool.MetadataContract
   alias SymphonyElixir.AgentProvider
   alias SymphonyElixir.RepoProvider
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Workflow.Capabilities, as: WorkflowCapabilities
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @repo_capabilities [
-    "repo.checkout",
-    "repo.diff",
-    "repo.commit",
-    "repo.push"
-  ]
+  @repo_capabilities CapabilityNames.repo_core()
 
   @repo_provider_capability_map %{
-    pr_create: "repo_provider.change_proposal.create",
-    pr_view: "repo_provider.change_proposal.read",
-    pr_reviews: "repo_provider.review.read",
-    pr_checks: "repo_provider.check.read",
-    pr_merge: "repo_provider.merge"
+    pr_create: CapabilityNames.repo_provider_change_proposal_create(),
+    pr_view: CapabilityNames.repo_provider_change_proposal_read(),
+    pr_reviews: CapabilityNames.repo_provider_review_read(),
+    pr_checks: CapabilityNames.repo_provider_check_read(),
+    pr_merge: CapabilityNames.repo_provider_merge()
   }
 
   @spec available_capabilities(map()) :: MapSet.t(WorkflowCapabilities.capability())
@@ -102,8 +99,13 @@ defmodule SymphonyElixir.Config.Capabilities do
     end
   end
 
-  defp typed_tool_capability(%{"workflowCapability" => capability}) when is_binary(capability), do: [capability]
-  defp typed_tool_capability(%{workflowCapability: capability}) when is_binary(capability), do: [capability]
+  defp typed_tool_capability(tool) when is_map(tool) do
+    case MetadataContract.field_value(tool, MetadataContract.workflow_capability()) do
+      capability when is_binary(capability) -> [capability]
+      _capability -> []
+    end
+  end
+
   defp typed_tool_capability(_tool), do: []
 
   defp tracker_kind(tracker) when is_map(tracker), do: map_field(tracker, :kind)

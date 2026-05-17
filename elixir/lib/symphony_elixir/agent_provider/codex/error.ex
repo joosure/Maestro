@@ -2,9 +2,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.Error do
   @moduledoc false
 
   alias SymphonyElixir.AgentProvider.Error
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Observability.Redaction
 
-  @provider "codex"
+  @provider Kinds.codex()
 
   @spec normalize(term(), atom()) :: Error.t()
   def normalize(%Error{} = error, _operation), do: error

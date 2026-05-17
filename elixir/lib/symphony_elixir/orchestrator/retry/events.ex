@@ -1,6 +1,9 @@
 defmodule SymphonyElixir.Orchestrator.Retry.Events do
   @moduledoc false
 
+  alias SymphonyElixir.Orchestrator.Retry.ResultSummary
+  alias SymphonyElixir.Orchestrator.Retry.Status
+
   @spec scheduled(term(), map(), map(), map(), integer(), String.t()) :: :ok
   def scheduled(emit_event, state, metadata, retry_entry, delay_ms, issue_id)
       when is_map(state) and is_map(metadata) and is_map(retry_entry) and is_integer(delay_ms) and
@@ -49,7 +52,7 @@ defmodule SymphonyElixir.Orchestrator.Retry.Events do
         worker_host: metadata[:worker_host],
         workspace_path: metadata[:workspace_path],
         failure_class: metadata[:failure_class],
-        result_summary: "retry_started",
+        result_summary: ResultSummary.retry_started(),
         message: "issue_retry_started issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id} attempt=#{attempt}"
       }
     )
@@ -77,7 +80,7 @@ defmodule SymphonyElixir.Orchestrator.Retry.Events do
         workspace_path: metadata[:workspace_path],
         failure_class: metadata[:failure_class],
         skip_reason: cancel_reason,
-        result_summary: "retry_cancelled",
+        result_summary: ResultSummary.retry_cancelled(),
         message: "issue_retry_cancelled issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id} attempt=#{metadata[:attempt]} reason=#{cancel_reason}"
       }
     )
@@ -132,8 +135,8 @@ defmodule SymphonyElixir.Orchestrator.Retry.Events do
         duration_ms: delay_ms,
         retry_delay_ms: delay_ms,
         retry_policy: "orchestrator_backoff",
-        status: "retry_scheduled",
-        result_summary: "retry_scheduled",
+        status: Status.retry_scheduled(),
+        result_summary: ResultSummary.retry_scheduled(),
         error: retry_entry.error,
         agent_provider_kind: retry_entry.agent_provider_kind,
         worker_host: retry_entry.worker_host,

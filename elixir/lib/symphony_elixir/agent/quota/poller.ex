@@ -12,9 +12,11 @@ defmodule SymphonyElixir.Agent.Quota.Poller do
   alias SymphonyElixir.AgentProvider.Registry
   alias SymphonyElixir.Config
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationStatus
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @quota_capability "agent.quota.probe"
-  @credential_capability "agent.credentials.managed"
+  @quota_capability CapabilityNames.agent_quota_probe()
+  @credential_capability CapabilityNames.agent_credentials_managed()
   @startup_delay_ms 5_000
   @idle_reschedule_ms 300_000
 
@@ -94,7 +96,7 @@ defmodule SymphonyElixir.Agent.Quota.Poller do
       component: "agent_quota",
       operation: "poll",
       preflight: "poller",
-      status: "started",
+      status: OperationStatus.started(),
       agent_provider_kind: provider_kind
     })
 
@@ -142,7 +144,7 @@ defmodule SymphonyElixir.Agent.Quota.Poller do
       component: "agent_quota",
       operation: "poll",
       preflight: "poller",
-      status: "completed",
+      status: OperationStatus.completed(),
       agent_provider_kind: provider_kind,
       quota_status: Atom.to_string(snapshot.status)
     })
@@ -153,7 +155,7 @@ defmodule SymphonyElixir.Agent.Quota.Poller do
       component: "agent_quota",
       operation: "poll",
       preflight: "poller",
-      status: "completed",
+      status: OperationStatus.completed(),
       agent_provider_kind: provider_kind,
       quota_status: "unsupported"
     })
@@ -164,7 +166,7 @@ defmodule SymphonyElixir.Agent.Quota.Poller do
       component: "agent_quota",
       operation: "poll",
       preflight: "poller",
-      status: "failed",
+      status: OperationStatus.failed(),
       agent_provider_kind: provider_kind,
       quota_status: "unknown",
       error: inspect(reason)

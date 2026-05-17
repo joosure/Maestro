@@ -3,7 +3,7 @@ defmodule SymphonyElixir.CLI.RepoProvider do
 
   alias SymphonyElixir.CLI.RepoProviderSmoke
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
-  alias SymphonyElixir.RepoProvider.CommandEvaluator
+  alias SymphonyElixir.RepoProvider.CLI.Evaluator
 
   @type deps :: %{
           required(:env) => (-> %{optional(String.t()) => String.t()} | [{String.t(), String.t()}]),
@@ -47,7 +47,7 @@ defmodule SymphonyElixir.CLI.RepoProvider do
   end
 
   def evaluate(argv, deps) do
-    CommandEvaluator.evaluate(argv, evaluator_deps(deps))
+    Evaluator.evaluate(argv, evaluator_deps(deps))
   end
 
   defp runtime_deps do
@@ -124,7 +124,7 @@ defmodule SymphonyElixir.CLI.RepoProvider do
     %{
       env: deps.env,
       command_opts: fn -> command_opts(deps) end,
-      cli_evaluate: &CommandEvaluator.evaluate/2,
+      cli_evaluate: &Evaluator.evaluate/2,
       monotonic_time_ms: fn -> System.monotonic_time(:millisecond) end,
       emit_event: &ObservabilityLogger.emit/3
     }

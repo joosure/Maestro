@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementRefinement do
 
   @behaviour SymphonyElixir.Workflow.Profile
 
+  alias SymphonyElixir.Workflow.CapabilityNames, as: Capabilities
   alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
 
   @route_keys [:draft, :refining, :needs_decision, :review, :ready, :rejected]
@@ -59,19 +60,19 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementRefinement do
   }
 
   @required_capabilities [
-    "tracker.issue.read",
-    "tracker.issue.update",
-    "tracker.comment.read",
-    "tracker.comment.write",
-    "tracker.state.update",
-    "agent.turn.run"
+    Capabilities.tracker_issue_read(),
+    Capabilities.tracker_issue_update(),
+    Capabilities.tracker_comment_read(),
+    Capabilities.tracker_comment_write(),
+    Capabilities.tracker_state_update(),
+    Capabilities.agent_turn_run()
   ]
 
   @optional_capabilities [
-    "tracker.comment.update",
-    "tracker.relation.read",
-    "tracker.relation.write",
-    "repo.diff"
+    Capabilities.tracker_comment_update(),
+    Capabilities.tracker_relation_read(),
+    Capabilities.tracker_relation_write(),
+    Capabilities.repo_diff()
   ]
 
   @impl true

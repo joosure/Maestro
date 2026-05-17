@@ -4,18 +4,23 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Runs do
   import SymphonyElixir.RepoProvider.Smoke.ProbeRunner,
     only: [blank_to_nil: 1, probe_result: 9, summarize_output: 2]
 
+  alias SymphonyElixir.RepoProvider.CommandNames
   alias SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.{Args, Runtime, Settings}
+
+  @run_list_command CommandNames.run_list()
+  @run_view_command CommandNames.run_view()
+  @run_view_log_probe CommandNames.run_view_log()
 
   @spec wait_for_runs(nil | String.t(), map(), map(), map()) :: {map(), String.t() | nil}
   def wait_for_runs(provider_override, context, cli_deps, deps) do
     started_at_ms = deps.monotonic_time_ms.()
-    argv = Args.provider_argv(provider_override, ["run-list", "--branch", context.head, "--json", "id,event,status,url"])
+    argv = Args.provider_argv(provider_override, [@run_list_command, "--branch", context.head, "--json", "id,event,status,url"])
     do_wait_for_runs(argv, context, cli_deps, deps, started_at_ms)
   end
 
   @spec run_view_log(nil | String.t(), String.t(), map(), map()) :: map()
   def run_view_log(provider_override, run_id, cli_deps, deps) do
-    argv = Args.provider_argv(provider_override, ["run-view", run_id, "--log"])
+    argv = Args.provider_argv(provider_override, [@run_view_command, run_id, "--log"])
     started_at_ms = deps.monotonic_time_ms.()
     expected = "repo-provider probe pull_request"
     do_wait_for_run_view_log(argv, run_id, expected, cli_deps, deps, started_at_ms)
@@ -26,7 +31,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Runs do
 
     cond do
       exit_code != 0 ->
-        {probe_result("run-list", argv, started_at_ms, deps, false, exit_code, stdout, stderr, summarize_output(stdout, stderr)), nil}
+        {probe_result(@run_list_command, argv, started_at_ms, deps, false, exit_code, stdout, stderr, summarize_output(stdout, stderr)), nil}
 
       true ->
         case Jason.decode(stdout) do
@@ -35,11 +40,11 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Runs do
 
           {:ok, _other} ->
             summary = "Expected run-list to return a JSON array"
-            {probe_result("run-list", argv, started_at_ms, deps, false, 1, stdout, stderr, summary), nil}
+            {probe_result(@run_list_command, argv, started_at_ms, deps, false, 1, stdout, stderr, summary), nil}
 
           {:error, reason} ->
             summary = "Failed to decode run-list JSON: #{Exception.message(reason)}"
-            {probe_result("run-list", argv, started_at_ms, deps, false, 1, stdout, stderr, summary), nil}
+            {probe_result(@run_list_command, argv, started_at_ms, deps, false, 1, stdout, stderr, summary), nil}
         end
     end
   end
@@ -48,14 +53,14 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Runs do
     case select_pull_request_run(runs) do
       {:ok, run_id, events} ->
         summary = "observed events=#{Enum.join(events, ",")} selected_run=#{run_id}"
-        {probe_result("run-list", argv, started_at_ms, deps, true, 0, stdout, stderr, summary), run_id}
+        {probe_result(@run_list_command, argv, started_at_ms, deps, true, 0, stdout, stderr, summary), run_id}
 
       {:wait, events} ->
         if deps.monotonic_time_ms.() - started_at_ms >= Settings.timeout_ms() do
           summary =
             "Timed out waiting for CNB push and pull_request runs for #{context.head}; observed events=#{Enum.join(events, ",")}"
 
-          {probe_result("run-list", argv, started_at_ms, deps, false, 1, stdout, stderr, summary), nil}
+          {probe_result(@run_list_command, argv, started_at_ms, deps, false, 1, stdout, stderr, summary), nil}
         else
           Runtime.sleep_ms(deps, Settings.poll_interval_ms())
           do_wait_for_runs(argv, context, cli_deps, deps, started_at_ms)
@@ -69,7 +74,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Runs do
     cond do
       exit_code != 0 ->
         probe_result(
-          "run-view-log",
+          @run_view_log_probe,
           argv,
           started_at_ms,
           deps,
@@ -81,11 +86,11 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Runs do
         )
 
       String.contains?(stdout, expected) ->
-        probe_result("run-view-log", argv, started_at_ms, deps, true, 0, stdout, stderr, "validated CNB stage logs for #{run_id}")
+        probe_result(@run_view_log_probe, argv, started_at_ms, deps, true, 0, stdout, stderr, "validated CNB stage logs for #{run_id}")
 
       deps.monotonic_time_ms.() - started_at_ms >= Settings.timeout_ms() ->
         probe_result(
-          "run-view-log",
+          @run_view_log_probe,
           argv,
           started_at_ms,
           deps,

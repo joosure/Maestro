@@ -3,6 +3,11 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Import do
 
   alias SymphonyElixir.Agent.Credential.Accounts.{Options, Secret}
   alias SymphonyElixir.Agent.Credential.Store
+  alias SymphonyElixir.AgentProvider.ClaudeCode.CredentialEnv, as: ClaudeCredentialEnv
+  alias SymphonyElixir.AgentProvider.Kinds
+
+  @claude_code_kind Kinds.claude_code()
+  @claude_config_credential_kind ClaudeCredentialEnv.config_credential_kind()
 
   @claude_import_files [
     ".claude.json",
@@ -15,15 +20,15 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Import do
 
   @spec import_account(String.t(), String.t(), keyword(), keyword() | map() | nil) ::
           {:ok, Store.account()} | {:error, term()}
-  def import_account("claude_code", id, opts, store_opts), do: import_claude_code_account(id, opts, store_opts)
+  def import_account(@claude_code_kind, id, opts, store_opts), do: import_claude_code_account(id, opts, store_opts)
   def import_account(provider, _id, _opts, _store_opts), do: {:error, {:unsupported_account_import_provider, provider}}
 
   defp import_claude_code_account(id, opts, store_opts) do
-    attrs = Options.attrs(opts, credential_kind: "claude_config")
+    attrs = Options.attrs(opts, credential_kind: @claude_config_credential_kind)
 
-    with {:ok, account} <- Store.create_or_update("claude_code", id, attrs, store_opts),
+    with {:ok, account} <- Store.create_or_update(@claude_code_kind, id, attrs, store_opts),
          :ok <- import_claude_config_files(account, opts),
-         {:ok, account} <- Store.get("claude_code", id, store_opts) do
+         {:ok, account} <- Store.get(@claude_code_kind, id, store_opts) do
       {:ok, account}
     end
   end
@@ -53,9 +58,9 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Import do
         Path.expand(source)
 
       _source ->
-        case System.get_env("CLAUDE_CONFIG_DIR") do
+        case System.get_env(ClaudeCredentialEnv.config_dir_env()) do
           source when is_binary(source) and source != "" -> Path.expand(source)
-          _env -> Path.expand("~/.claude")
+          _env -> Path.expand(ClaudeCredentialEnv.default_config_dir())
         end
     end
   end
@@ -76,7 +81,11 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Import do
       end
 
     source_local = Path.join(source_dir, ".claude.json")
-    default_global = if Path.expand(source_dir) == Path.expand("~/.claude"), do: [Path.expand("~/.claude.json")], else: []
+
+    default_global =
+      if Path.expand(source_dir) == Path.expand(ClaudeCredentialEnv.default_config_dir()),
+        do: [Path.expand("~/.claude.json")],
+        else: []
 
     (default_global ++ [source_local] ++ configured)
     |> Enum.uniq()

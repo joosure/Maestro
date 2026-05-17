@@ -3,16 +3,21 @@ defmodule SymphonyWorkerDaemon.ProcessRunner do
 
   alias SymphonyElixir.Platform.Process, as: PlatformProcess
   alias SymphonyWorkerDaemon.ProcessRunner.{Environment, StopOptions}
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+
+  @mode_key ProtocolFields.mode()
+  @argv_key ProtocolFields.argv()
+  @command_key ProtocolFields.command()
 
   @spec start(map(), Path.t(), map(), keyword()) :: {:ok, port()} | {:error, term()}
   def start(command, cwd, env \\ %{}, opts \\ [])
 
-  def start(%{"mode" => "argv", "argv" => [_command | _args] = argv}, cwd, env, opts)
+  def start(%{@mode_key => "argv", @argv_key => [_command | _args] = argv}, cwd, env, opts)
       when is_binary(cwd) and is_map(env) and is_list(opts) do
     PlatformProcess.start_argv(argv, cwd: cwd, env: Environment.stringify(env), line: Keyword.get(opts, :line))
   end
 
-  def start(%{"mode" => "shell", "command" => command}, cwd, env, opts)
+  def start(%{@mode_key => "shell", @command_key => command}, cwd, env, opts)
       when is_binary(command) and is_binary(cwd) and is_map(env) and is_list(opts) do
     if Keyword.get(opts, :allow_shell?, false) do
       PlatformProcess.start_shell(command, cwd: cwd, env: Environment.stringify(env), line: Keyword.get(opts, :line))
@@ -21,7 +26,7 @@ defmodule SymphonyWorkerDaemon.ProcessRunner do
     end
   end
 
-  def start(%{"mode" => "unset"}, _cwd, _env, _opts), do: {:error, :command_unset}
+  def start(%{@mode_key => "unset"}, _cwd, _env, _opts), do: {:error, :command_unset}
   def start(_command, _cwd, _env, _opts), do: {:error, :command_invalid}
 
   @spec stop(term(), keyword()) :: :ok

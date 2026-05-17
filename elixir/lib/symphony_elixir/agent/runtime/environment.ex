@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Agent.Runtime.Environment do
 
   alias SymphonyElixir.Agent.Credential
   alias SymphonyElixir.Agent.Runtime.DynamicToolBridge.Environment, as: DynamicToolBridgeEnvironment
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Config.InputNormalizer
 
   @supported_telemetry_options ~w(
@@ -22,6 +23,7 @@ defmodule SymphonyElixir.Agent.Runtime.Environment do
     otlp_logs_protocol
     resource_attributes
   )
+  @claude_code_kind Kinds.claude_code()
   @boolean_telemetry_options ~w(enabled include_traces include_metrics include_logs log_user_prompts log_tool_details)
   @string_telemetry_options ~w(
     otlp_endpoint
@@ -263,7 +265,7 @@ defmodule SymphonyElixir.Agent.Runtime.Environment do
   defp maybe_put_env(env, _key, value) when value in [nil, ""], do: env
   defp maybe_put_env(env, key, value) when is_binary(key), do: Map.put(env, key, to_string(value))
 
-  defp maybe_put_claude_code_flags(env, "claude_code", telemetry) do
+  defp maybe_put_claude_code_flags(env, @claude_code_kind, telemetry) do
     env
     |> Map.put("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
     |> maybe_put_flag("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", Map.get(telemetry, "include_traces", true))

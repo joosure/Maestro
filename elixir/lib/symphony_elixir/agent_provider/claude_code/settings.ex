@@ -5,11 +5,12 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Settings do
 
   import Ecto.Changeset
 
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.AgentProvider.SettingsNormalizer
   alias SymphonyElixir.Config.InputNormalizer
 
   @primary_key false
-  @provider "claude_code"
+  @provider Kinds.claude_code()
   @supported_options ~w(command command_argv env prompt_transport model effort permission_mode telemetry credential_ref quota_probe turn_timeout_ms read_timeout_ms stall_timeout_ms)
   @supported_efforts ~w(low medium high xhigh max)
   @permission_modes ~w(acceptEdits auto bypassPermissions default dontAsk plan)

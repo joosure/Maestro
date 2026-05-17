@@ -16,7 +16,10 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.AppServer do
   }
 
   alias SymphonyElixir.AgentProvider.ClaudeCode.Settings
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+
+  @provider_kind Kinds.claude_code()
 
   @type session :: %{
           agent_provider_kind: String.t(),
@@ -169,7 +172,7 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.AppServer do
       case Launcher.start_port(expanded_workspace, settings, session_id, start_opts) do
         {:ok, port} ->
           bridge_metadata = DynamicToolBridge.metadata(bridge_runtime)
-          metadata = PortMetadata.metadata("claude_code", port, worker_host, run_id) |> Map.merge(bridge_metadata)
+          metadata = PortMetadata.metadata(@provider_kind, port, worker_host, run_id) |> Map.merge(bridge_metadata)
 
           ObsLogger.emit(
             :info,
@@ -192,7 +195,7 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.AppServer do
 
           {:ok,
            %{
-             agent_provider_kind: "claude_code",
+             agent_provider_kind: @provider_kind,
              port: port,
              metadata: metadata,
              session_id: session_id,

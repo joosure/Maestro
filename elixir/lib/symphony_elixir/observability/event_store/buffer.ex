@@ -1,6 +1,6 @@
-defmodule SymphonyElixir.Observability.EventBuffer do
+defmodule SymphonyElixir.Observability.EventStore.Buffer do
   @moduledoc """
-  Small bounded FIFO buffer used by in-memory observability projections.
+  Small bounded FIFO buffer used by the in-memory event store projection.
   """
 
   defstruct limit: 0, entries: :queue.new()

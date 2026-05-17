@@ -11,8 +11,9 @@ defmodule SymphonyElixir.AgentProvider.RuntimeStart do
   alias SymphonyElixir.AgentProvider.Error
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @remote_worker_capability "agent.runtime.remote_worker"
+  @remote_worker_capability CapabilityNames.agent_runtime_remote_worker()
 
   @spec provider_start_opts(Config.t(), Path.t(), keyword()) :: {:ok, keyword()} | {:error, term()}
   def provider_start_opts(%Config{} = config, workspace, opts) when is_list(opts) do

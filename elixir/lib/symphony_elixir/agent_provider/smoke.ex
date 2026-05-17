@@ -13,10 +13,12 @@ defmodule SymphonyElixir.AgentProvider.Smoke do
   alias SymphonyElixir.AgentProvider
   alias SymphonyElixir.AgentProvider.{Config, Error, Session, TurnResult}
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyElixir.Smoke.ResultStatus
   alias SymphonyElixir.Workflow
+  alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.Templates
 
-  @turn_capability "agent.turn.run"
+  @turn_capability CapabilityNames.agent_turn_run()
   @default_prompt """
   This is a Symphony agent-provider smoke check in a temporary empty workspace.
   Reply with one short sentence confirming the provider turn completed.
@@ -106,15 +108,15 @@ defmodule SymphonyElixir.AgentProvider.Smoke do
 
   @spec format_text(report()) :: String.t()
   def format_text(report) when is_map(report) do
-    status = if report.ok, do: "passed", else: "failed"
+    status = ResultStatus.report_status(report.ok)
 
     header =
-      "agent-provider smoke #{status} provider=#{report.agent_provider_kind || "unknown"} " <>
+      "agent-provider smoke #{status} provider=#{report.agent_provider_kind || ResultStatus.unknown()} " <>
         "mode=#{report.smoke_mode} probes=#{report.probe_count} passed=#{report.passed_count} failed=#{report.failed_count}"
 
     probe_lines =
       Enum.map(report.probes, fn probe ->
-        status = if probe.ok, do: "ok", else: "fail"
+        status = ResultStatus.line_status(probe.ok)
         detail = if probe.error, do: "#{probe.summary}: #{probe.error}", else: probe.summary
         "- [#{status}] #{probe.id} #{detail} (#{probe.duration_ms}ms)"
       end)
@@ -442,7 +444,7 @@ defmodule SymphonyElixir.AgentProvider.Smoke do
              id: id,
              ok: false,
              duration_ms: deps.monotonic_time_ms.() - started_at_ms,
-             summary: "failed",
+             summary: ResultStatus.failed(),
              error: format_reason(reason)
            }, {:error, reason}}
       end
@@ -452,14 +454,14 @@ defmodule SymphonyElixir.AgentProvider.Smoke do
            id: id,
            ok: false,
            duration_ms: deps.monotonic_time_ms.() - started_at_ms,
-           summary: "failed",
+           summary: ResultStatus.failed(),
            error: exception |> Exception.message() |> Redaction.redact_string()
          }, {:error, exception}}
     end
   end
 
   defp failed_probe(id, reason) do
-    %{id: id, ok: false, duration_ms: 0, summary: "failed", error: format_reason(reason)}
+    %{id: id, ok: false, duration_ms: 0, summary: ResultStatus.failed(), error: format_reason(reason)}
   end
 
   defp ok_value({:ok, value}), do: value

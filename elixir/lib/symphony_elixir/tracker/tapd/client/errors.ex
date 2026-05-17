@@ -2,7 +2,9 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
   @moduledoc false
 
   alias SymphonyElixir.Tracker.Error
+  alias SymphonyElixir.Tracker.Kinds
 
+  @provider_kind Kinds.tapd()
   @retryable_http_statuses [408, 429, 500, 502, 503, 504]
 
   @spec map_result(term(), atom()) :: term()
@@ -13,14 +15,14 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
   def normalize(operation, %Error{} = error) do
     %Error{
       error
-      | provider: if(error.provider in [nil, "", "unknown"], do: "tapd", else: error.provider),
+      | provider: if(error.provider in [nil, "", "unknown"], do: @provider_kind, else: error.provider),
         operation: operation
     }
   end
 
   def normalize(operation, {:tapd_http_status, status, body}) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :http_status,
       message: "TAPD request failed with HTTP #{status}.",
@@ -31,7 +33,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
   def normalize(operation, {:tapd_request, reason}) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :request_failed,
       message: "TAPD request failed before a successful response was received.",
@@ -42,7 +44,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
   def normalize(operation, {:tapd_business_error, body}) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :business_error,
       message: "TAPD returned a business error response.",
@@ -54,7 +56,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
     nested_error = normalize(operation, nested_reason)
 
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :workflow_lookup_failed,
       message: "TAPD workflow lookup failed.",
@@ -71,7 +73,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
   def normalize(operation, reason)
       when reason in [:missing_tapd_credentials, :missing_tapd_api_user, :missing_tapd_api_secret] do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :missing_credentials,
       message: "TAPD credentials are required.",
@@ -81,7 +83,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
   def normalize(operation, :missing_tapd_workspace_id) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :missing_project_reference,
       message: "TAPD workspace id is required.",
@@ -91,7 +93,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
   def normalize(operation, :missing_tapd_active_states) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :invalid_configuration,
       message: "TAPD active states are required.",
@@ -101,7 +103,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
   def normalize(operation, {:unexpected_tapd_payload, path, body}) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :invalid_response,
       message: "TAPD returned an unexpected payload for #{path}.",
@@ -111,7 +113,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
   def normalize(operation, {:tapd_mismatched_workitem_type_ids, details}) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :tapd_mismatched_workitem_type_ids,
       message: "Observed TAPD workitem types do not match the configured workflow terminal states.",
@@ -121,7 +123,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
   def normalize(operation, {:tapd_parallel_workitem_workflow, details}) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :tapd_parallel_workitem_workflow,
       message: "Parallel TAPD workflows are not supported for the requested operation.",
@@ -138,7 +140,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
              :conflicting_tapd_workitem_type_scope
            ] do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :invalid_configuration,
       message: "TAPD request or configuration is invalid.",
@@ -148,7 +150,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
   def normalize(operation, reason) do
     Error.new(%{
-      provider: "tapd",
+      provider: @provider_kind,
       operation: operation,
       code: :unknown,
       message: "TAPD request failed.",
@@ -171,7 +173,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
 
     if parallel_workflow_message?(message) do
       Error.new(%{
-        provider: "tapd",
+        provider: @provider_kind,
         operation: :update_issue_state,
         code: :tapd_story_parallel_workflow_error,
         message: message || "TAPD rejected the state transition for a parallel workflow story.",
@@ -185,7 +187,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Errors do
       })
     else
       Error.new(%{
-        provider: "tapd",
+        provider: @provider_kind,
         operation: :update_issue_state,
         code: :tapd_story_workflow_error,
         message: message || "TAPD rejected the requested story state transition.",

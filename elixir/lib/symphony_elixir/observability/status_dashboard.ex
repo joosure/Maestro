@@ -18,7 +18,7 @@ defmodule SymphonyElixir.Observability.StatusDashboard do
     Throughput
   }
 
-  @observability_pubsub Module.concat(["SymphonyElixirWeb", "ObservabilityPubSub"])
+  @observability_pubsub Module.concat(["SymphonyElixirWeb", "Observability", "PubSub"])
 
   defstruct [
     :refresh_ms,

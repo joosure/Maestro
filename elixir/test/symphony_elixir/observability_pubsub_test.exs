@@ -1,14 +1,14 @@
-defmodule SymphonyElixir.ObservabilityPubSubTest do
+defmodule SymphonyElixirWeb.Observability.PubSubTest do
   use SymphonyElixir.TestSupport
   import ExUnit.CaptureLog
 
-  alias SymphonyElixirWeb.ObservabilityPubSub
+  alias SymphonyElixirWeb.Observability.PubSub
 
   test "subscribe and broadcast_update deliver dashboard updates" do
     log =
       capture_log(fn ->
-        assert :ok = ObservabilityPubSub.subscribe()
-        assert :ok = ObservabilityPubSub.broadcast_update()
+        assert :ok = PubSub.subscribe()
+        assert :ok = PubSub.broadcast_update()
         assert_receive :observability_updated
       end)
 
@@ -30,8 +30,8 @@ defmodule SymphonyElixir.ObservabilityPubSubTest do
 
     log =
       capture_log(fn ->
-        assert {:error, :unavailable} = ObservabilityPubSub.subscribe()
-        assert :ok = ObservabilityPubSub.broadcast_update()
+        assert {:error, :unavailable} = PubSub.subscribe()
+        assert :ok = PubSub.broadcast_update()
       end)
 
     assert log =~ "dashboard_pubsub_subscribe_failed topic=observability:dashboard error=pubsub_unavailable"

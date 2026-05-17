@@ -31,10 +31,16 @@ defmodule SymphonyElixir.Tracker.Registry do
       end
   """
 
+  alias SymphonyElixir.Tracker.Kinds
+
+  @linear_kind Kinds.linear()
+  @tapd_kind Kinds.tapd()
+  @memory_kind Kinds.memory()
+
   @default_adapters %{
-    "linear" => SymphonyElixir.Tracker.Linear.Adapter,
-    "tapd" => SymphonyElixir.Tracker.Tapd.Adapter,
-    "memory" => SymphonyElixir.Tracker.Memory
+    @linear_kind => SymphonyElixir.Tracker.Linear.Adapter,
+    @tapd_kind => SymphonyElixir.Tracker.Tapd.Adapter,
+    @memory_kind => SymphonyElixir.Tracker.Memory
   }
 
   @spec supported_kinds() :: [String.t()]

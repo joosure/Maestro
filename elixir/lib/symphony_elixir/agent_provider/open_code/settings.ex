@@ -5,11 +5,12 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Settings do
 
   import Ecto.Changeset
 
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.AgentProvider.SettingsNormalizer
   alias SymphonyElixir.Config.InputNormalizer
 
   @primary_key false
-  @provider "opencode"
+  @provider Kinds.opencode()
   @supported_options ~w(command command_argv env prompt_transport agent model variant telemetry credential_ref turn_timeout_ms read_timeout_ms stall_timeout_ms)
   @supported_variants ~w(low medium high max)
   @default_command_argv ["opencode", "serve", "--hostname", "127.0.0.1", "--port", "0"]

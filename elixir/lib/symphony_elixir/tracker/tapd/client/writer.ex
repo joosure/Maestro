@@ -4,7 +4,10 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Writer do
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
   alias SymphonyElixir.Observability.Redaction
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
-  alias SymphonyElixir.Tracker.Tapd.Client.{Errors, Fields, Request}
+  alias SymphonyElixir.Tracker.Kinds
+  alias SymphonyElixir.Tracker.Tapd.Client.{Errors, Fields, Paths, Request}
+
+  @provider_kind Kinds.tapd()
 
   @spec create_story_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def create_story_comment(story_id, description, opts \\ [])
@@ -16,7 +19,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Writer do
 
     fields = %{
       component: "tracker.tapd.client",
-      tracker_kind: Map.get(tracker, :kind, "tapd"),
+      tracker_kind: Map.get(tracker, :kind, @provider_kind),
       issue_id: story_id,
       payload_summary: Redaction.summarize(%{"description" => description})
     }
@@ -32,7 +35,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Writer do
       |> maybe_put_comment_author(Map.get(platform, "comment_author"))
 
     result =
-      case Request.request("POST", "/comments", params, request_opts) do
+      case Request.request("POST", Paths.comments(), params, request_opts) do
         {:ok, _body} -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -50,7 +53,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Writer do
 
     fields = %{
       component: "tracker.tapd.client",
-      tracker_kind: Map.get(tracker, :kind, "tapd"),
+      tracker_kind: Map.get(tracker, :kind, @provider_kind),
       issue_id: story_id,
       target_state: status
     }
@@ -58,7 +61,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Writer do
     ObservabilityLogger.emit(:info, :tracker_state_update_started, fields)
 
     result =
-      case Request.request("POST", "/stories", %{"id" => story_id, "status" => status}, request_opts) do
+      case Request.request("POST", Paths.stories(), %{"id" => story_id, "status" => status}, request_opts) do
         {:ok, _body} -> :ok
         {:error, reason} -> {:error, Errors.classify_story_update_error(reason, story_id, status)}
       end

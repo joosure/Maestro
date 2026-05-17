@@ -2,6 +2,7 @@ defmodule SymphonyWorkerDaemon.Api.SessionAccess do
   @moduledoc false
 
   alias SymphonyWorkerDaemon.Auth
+  alias SymphonyWorkerDaemon.Auth.Defaults, as: AuthDefaults
   alias SymphonyWorkerDaemon.Session
 
   @spec lookup_authorized_session(Plug.Conn.t(), String.t()) :: {:ok, pid()} | {:error, :session_not_found | :session_forbidden}
@@ -57,5 +58,5 @@ defmodule SymphonyWorkerDaemon.Api.SessionAccess do
 
   defp runtime_opts(conn), do: conn.assigns[:worker_daemon_opts] || []
 
-  defp principal(conn), do: conn.assigns[:worker_daemon_principal] || %{owner: "symphony", roles: ["admin"]}
+  defp principal(conn), do: conn.assigns[:worker_daemon_principal] || AuthDefaults.default_principal()
 end

@@ -1,7 +1,12 @@
 defmodule SymphonyWorkerDaemon.Session.Ledger.Summary do
   @moduledoc false
 
-  alias SymphonyWorkerDaemon.Protocol
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+  alias SymphonyWorkerDaemon.Session.Status
+
+  @session_id_key ProtocolFields.session_id()
+  @status_key ProtocolFields.status()
+  @updated_at_ms_key ProtocolFields.updated_at_ms()
 
   @type sessions :: %{optional(String.t()) => map()}
 
@@ -15,7 +20,7 @@ defmodule SymphonyWorkerDaemon.Session.Ledger.Summary do
   @spec put(sessions(), map()) :: sessions()
   def put(sessions, summary) when is_map(sessions) and is_map(summary) do
     case normalize(summary) do
-      %{"session_id" => session_id} = summary -> Map.put(sessions, session_id, summary)
+      %{@session_id_key => session_id} = summary -> Map.put(sessions, session_id, summary)
       _invalid -> sessions
     end
   end
@@ -31,27 +36,26 @@ defmodule SymphonyWorkerDaemon.Session.Ledger.Summary do
   @spec mark_cleaned(map(), non_neg_integer()) :: map()
   def mark_cleaned(summary, updated_at_ms) when is_map(summary) and is_integer(updated_at_ms) do
     summary
-    |> Map.put("status", "cleaned")
-    |> Map.put("updated_at_ms", updated_at_ms)
+    |> Map.put(@status_key, Status.cleaned())
+    |> Map.put(@updated_at_ms_key, updated_at_ms)
   end
 
   @spec mark_active_lost(sessions(), term(), non_neg_integer()) :: sessions()
   def mark_active_lost(sessions, reason, updated_at_ms) when is_map(sessions) and is_integer(updated_at_ms) do
     Map.new(sessions, fn {session_id, summary} ->
-      if terminal?(Map.get(summary, "status")) do
+      if terminal?(Map.get(summary, @status_key)) do
         {session_id, summary}
       else
         {session_id,
          summary
-         |> Map.put("status", "lost")
+         |> Map.put(@status_key, Status.lost())
          |> Map.put("lost_reason", normalize_lost_reason(reason))
-         |> Map.put("updated_at_ms", updated_at_ms)}
+         |> Map.put(@updated_at_ms_key, updated_at_ms)}
       end
     end)
   end
 
-  defp terminal?(status) when is_binary(status), do: Protocol.terminal_status?(status)
-  defp terminal?(_status), do: false
+  defp terminal?(status), do: Status.terminal?(status)
 
   defp normalize_lost_reason(reason) when is_binary(reason), do: reason
   defp normalize_lost_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
