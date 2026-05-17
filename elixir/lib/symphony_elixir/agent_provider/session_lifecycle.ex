@@ -10,6 +10,7 @@ defmodule SymphonyElixir.AgentProvider.SessionLifecycle do
   alias SymphonyElixir.AgentProvider.SessionContext
   alias SymphonyElixir.AgentProvider.TurnResult
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationStatus
 
   @spec start_session(Path.t(), keyword()) :: {:ok, Session.t()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
@@ -86,7 +87,7 @@ defmodule SymphonyElixir.AgentProvider.SessionLifecycle do
           :agent_session_started,
           EventFields.session(session, config, opts, %{
             operation: "start_session",
-            status: "started",
+            status: OperationStatus.started(),
             stateful: Capabilities.stateful_config?(config),
             session_type: Capabilities.session_type(config),
             duration_ms: EventFields.elapsed_ms(started_at_ms)
@@ -116,7 +117,7 @@ defmodule SymphonyElixir.AgentProvider.SessionLifecycle do
       :agent_session_stopped,
       EventFields.session(session, config, opts, %{
         operation: "stop_session",
-        status: "stopped",
+        status: OperationStatus.stopped(),
         stateful: Capabilities.stateful_config?(config),
         session_type: Capabilities.session_type(config),
         duration_ms: EventFields.elapsed_ms(started_at_ms)
@@ -147,7 +148,7 @@ defmodule SymphonyElixir.AgentProvider.SessionLifecycle do
         opts,
         %{
           operation: "stop_session",
-          status: "failed",
+          status: OperationStatus.failed(),
           stateful: Capabilities.stateful_config?(config),
           session_type: Capabilities.session_type(config),
           duration_ms: EventFields.elapsed_ms(started_at_ms)

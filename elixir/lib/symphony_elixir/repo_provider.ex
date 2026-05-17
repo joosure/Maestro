@@ -19,6 +19,7 @@ defmodule SymphonyElixir.RepoProvider do
   alias SymphonyElixir.RepoProvider.{
     Adapter,
     Config,
+    Defaults,
     Error,
     Registry,
     RuntimeConfig,
@@ -33,7 +34,7 @@ defmodule SymphonyElixir.RepoProvider do
   def supported_kinds, do: Registry.supported_kinds()
 
   @spec default_kind() :: String.t()
-  def default_kind, do: "github"
+  defdelegate default_kind(), to: Defaults
 
   @spec adapter() :: module()
   def adapter, do: current!() |> elem(0)

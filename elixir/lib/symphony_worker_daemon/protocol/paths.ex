@@ -11,6 +11,9 @@ defmodule SymphonyWorkerDaemon.Protocol.Paths do
   @spec health_path() :: String.t()
   def health_path, do: @base_path <> "/health"
 
+  @spec source_path() :: String.t()
+  def source_path, do: @base_path <> "/source"
+
   @spec sessions_path() :: String.t()
   def sessions_path, do: @base_path <> "/sessions"
 

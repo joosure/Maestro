@@ -13,7 +13,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke do
     * `to_map/1` - convert a report to a serializable map
   """
 
-  alias SymphonyElixir.RepoProvider.RuntimeConfig
+  alias SymphonyElixir.RepoProvider.{Config, RuntimeConfig}
   alias SymphonyElixir.RepoProvider.Smoke.{CNBProvisioner, Destructive, Events, Mode, ReadOnly, Report, Runtime}
   alias SymphonyElixir.RepoProvider.Smoke.ProbeRunner
 
@@ -62,7 +62,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke do
     repo_config = RuntimeConfig.from_env(env_map)
     provider_override = ProbeRunner.blank_to_nil(Keyword.get(opts, :provider))
     provider_kind = provider_override || RuntimeConfig.current_kind(repo_config)
-    repository = Map.get(env_map, "SYMPHONY_REPO_PROVIDER_REPOSITORY")
+    repository = Config.repository(repo_config)
     smoke_mode = Mode.smoke_mode(opts)
     started_at_ms = deps.monotonic_time_ms.()
 

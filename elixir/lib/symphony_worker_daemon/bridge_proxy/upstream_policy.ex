@@ -1,7 +1,9 @@
 defmodule SymphonyWorkerDaemon.BridgeProxy.UpstreamPolicy do
   @moduledoc false
 
-  @base_path "/api/v1/agent-tools/dynamic"
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract
+
+  @base_path DynamicToolBridgeContract.base_path()
 
   @spec base_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def base_url(%{"symphony_base_url" => base_url}, opts) when is_binary(base_url) and is_list(opts) do

@@ -3,11 +3,18 @@ defmodule SymphonyElixir.AgentProvider.Registry do
   Registry for AI coding agent provider adapters.
   """
 
+  alias SymphonyElixir.AgentProvider.Kinds
+
+  @codex_kind Kinds.codex()
+  @claude_code_kind Kinds.claude_code()
+  @mock_kind Kinds.mock()
+  @opencode_kind Kinds.opencode()
+
   @default_adapters %{
-    "codex" => SymphonyElixir.AgentProvider.Codex.Adapter,
-    "claude_code" => SymphonyElixir.AgentProvider.ClaudeCode.Adapter,
-    "mock" => SymphonyElixir.AgentProvider.Mock.Adapter,
-    "opencode" => SymphonyElixir.AgentProvider.OpenCode.Adapter
+    @codex_kind => SymphonyElixir.AgentProvider.Codex.Adapter,
+    @claude_code_kind => SymphonyElixir.AgentProvider.ClaudeCode.Adapter,
+    @mock_kind => SymphonyElixir.AgentProvider.Mock.Adapter,
+    @opencode_kind => SymphonyElixir.AgentProvider.OpenCode.Adapter
   }
 
   @spec default_kind() :: String.t()

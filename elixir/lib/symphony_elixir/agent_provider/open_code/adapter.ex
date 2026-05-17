@@ -6,12 +6,12 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Adapter do
   @behaviour SymphonyElixir.AgentProvider.Adapter
 
   alias SymphonyElixir.Agent.Credential.{Lease, Material}
-  alias SymphonyElixir.AgentProvider.Config
-  alias SymphonyElixir.AgentProvider.OpenCode.{AppServer, Error, EventSummaryMapper, Settings, Tooling}
-  alias SymphonyElixir.AgentProvider.{Session, TurnResult}
+  alias SymphonyElixir.AgentProvider.{Config, Kinds, Session, TurnResult}
+  alias SymphonyElixir.AgentProvider.OpenCode.{AppServer, CredentialEnv, Error, EventSummaryMapper, Settings, Tooling}
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @provider_kind "opencode"
-  @env_name_pattern ~r/^[A-Za-z_][A-Za-z0-9_]*$/
+  @provider_kind Kinds.opencode()
+  @env_token_credential_kind CredentialEnv.env_token_credential_kind()
 
   @impl true
   def kind, do: @provider_kind
@@ -22,11 +22,11 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Adapter do
   @impl true
   def capabilities do
     [
-      "agent.turn.run",
-      "agent.session.stateful",
-      "agent.events.streaming",
-      "agent.usage.metrics",
-      "agent.credentials.managed"
+      CapabilityNames.agent_turn_run(),
+      CapabilityNames.agent_session_stateful(),
+      CapabilityNames.agent_events_streaming(),
+      CapabilityNames.agent_usage_metrics(),
+      CapabilityNames.agent_credentials_managed()
     ]
   end
 
@@ -44,18 +44,10 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Adapter do
   @spec materialize_credential(Config.t(), Lease.t(), keyword()) :: {:ok, Material.t()} | {:error, term()}
   def materialize_credential(%Config{}, %Lease{} = lease, _opts \\ []) do
     case lease.metadata[:account] || lease.metadata["account"] do
-      %{credential_kind: "opencode_env_token"} = account ->
+      %{credential_kind: @env_token_credential_kind} = account ->
         with {:ok, env_name} <- opencode_env_name(account),
              {:ok, token} <- read_token(account) do
-          {:ok,
-           Material.new(%{
-             env: %{env_name => token},
-             summary: %{
-               credential_kind: "opencode_env_token",
-               env_name: env_name,
-               account_id_summary: lease.account_id
-             }
-           })}
+          {:ok, Material.new(CredentialEnv.env_token_material(env_name, token, lease.account_id))}
         end
 
       nil ->
@@ -124,7 +116,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Adapter do
       not is_binary(env_name) or String.trim(env_name) == "" ->
         {:error, :missing_opencode_env_name}
 
-      Regex.match?(@env_name_pattern, env_name) ->
+      CredentialEnv.valid_env_name?(env_name) ->
         {:ok, env_name}
 
       true ->

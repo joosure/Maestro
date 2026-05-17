@@ -5,9 +5,24 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
+  alias SymphonyElixir.Observability.{AlertContract, DynamicToolMetrics}
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
-  alias SymphonyElixirWeb.{ObservabilityPubSub, Presenter, RuntimeConfig}
+  alias SymphonyElixirWeb.Observability.{Paths, PubSub, Status}
+
+  alias SymphonyElixirWeb.{
+    BrowserPaths,
+    Presenter,
+    RuntimeConfig
+  }
+
   @runtime_tick_ms 1_000
+  @alert_code_key AlertContract.code_key()
+  @alert_category_key AlertContract.category_key()
+  @alert_count_key AlertContract.count_key()
+  @alert_metric_key AlertContract.metric_key()
+  @alert_message_key AlertContract.message_key()
+  @alert_critical AlertContract.critical()
+  @alert_warning AlertContract.warning()
 
   @impl true
   def mount(params, _session, socket) do
@@ -24,7 +39,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
     subscription_result =
       if connected do
         result =
-          case ObservabilityPubSub.subscribe() do
+          case PubSub.subscribe() do
             :ok ->
               :ok
 
@@ -80,7 +95,10 @@ defmodule SymphonyElixirWeb.DashboardLive do
   def handle_info(:observability_updated, socket) do
     {:noreply,
      socket
-     |> assign(:payload, load_payload(socket.assigns.live_action, socket.assigns.issue_identifier, :refresh))
+     |> assign(
+       :payload,
+       load_payload(socket.assigns.live_action, socket.assigns.issue_identifier, :refresh)
+     )
      |> assign(:now, DateTime.utc_now())}
   end
 
@@ -185,31 +203,31 @@ defmodule SymphonyElixirWeb.DashboardLive do
           <div class="metric-grid">
             <article class="metric-card">
               <p class="metric-label">Typed hits</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "typed_tool_hits") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.typed_tool_hits()) %></p>
               <p class="metric-detail">Successful typed workflow tool executions.</p>
             </article>
 
             <article class="metric-card">
               <p class="metric-label">Raw attempts</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "raw_tool_attempts") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.raw_tool_attempts()) %></p>
               <p class="metric-detail">Rejected or failed raw tool attempts.</p>
             </article>
 
             <article class="metric-card">
               <p class="metric-label">Fallback</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "fallback_count") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.fallback_count()) %></p>
               <p class="metric-detail">Operator migration fallback calls.</p>
             </article>
 
             <article class="metric-card">
               <p class="metric-label">Unsupported</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "unsupported_tool_count") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.unsupported_tool_count()) %></p>
               <p class="metric-detail">Calls blocked before source execution.</p>
             </article>
 
             <article class="metric-card">
               <p class="metric-label">Unavailable</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "provider_capability_unavailable_count") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.provider_capability_unavailable_count()) %></p>
               <p class="metric-detail">Provider capabilities reported as unavailable.</p>
             </article>
           </div>
@@ -307,7 +325,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                       <div class="issue-stack">
                         <a class="issue-id" href={issue_live_path(entry.issue_identifier)}><%= entry.issue_identifier %></a>
                         <a class="issue-link" href={issue_live_path(entry.issue_identifier)}>Live details</a>
-                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                        <a class="issue-link" href={Paths.issue_path(entry.issue_identifier)}>JSON details</a>
                       </div>
                     </td>
                     <td>
@@ -387,7 +405,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                       <div class="issue-stack">
                         <a class="issue-id" href={issue_live_path(entry.issue_identifier)}><%= entry.issue_identifier %></a>
                         <a class="issue-link" href={issue_live_path(entry.issue_identifier)}>Live details</a>
-                        <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                        <a class="issue-link" href={Paths.issue_path(entry.issue_identifier)}>JSON details</a>
                       </div>
                     </td>
                     <td><%= entry.attempt %></td>
@@ -422,14 +440,14 @@ defmodule SymphonyElixirWeb.DashboardLive do
             <p class="metric-detail">
               <a class="issue-link" href="/">Back to dashboard</a>
               <%= if @issue_identifier do %>
-                · <a class="issue-link" href={"/api/v1/#{@issue_identifier}"}>JSON details</a>
+                · <a class="issue-link" href={Paths.issue_path(@issue_identifier)}>JSON details</a>
               <% end %>
             </p>
           </div>
 
           <div class="status-stack">
-            <span :if={!@payload[:error]} class={state_badge_class(Map.get(@payload, :status, "unknown"))}>
-              <%= Map.get(@payload, :status, "unknown") %>
+            <span :if={!@payload[:error]} class={state_badge_class(Map.get(@payload, :status, Status.unknown()))}>
+              <%= Map.get(@payload, :status, Status.unknown()) %>
             </span>
             <span class="status-badge status-badge-live">
               <span class="status-badge-dot"></span>
@@ -501,31 +519,31 @@ defmodule SymphonyElixirWeb.DashboardLive do
           <div class="metric-grid">
             <article class="metric-card">
               <p class="metric-label">Typed hits</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "typed_tool_hits") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.typed_tool_hits()) %></p>
               <p class="metric-detail">Successful typed workflow tool executions.</p>
             </article>
 
             <article class="metric-card">
               <p class="metric-label">Raw attempts</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "raw_tool_attempts") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.raw_tool_attempts()) %></p>
               <p class="metric-detail">Rejected or failed raw tool attempts.</p>
             </article>
 
             <article class="metric-card">
               <p class="metric-label">Fallback</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "fallback_count") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.fallback_count()) %></p>
               <p class="metric-detail">Operator migration fallback calls.</p>
             </article>
 
             <article class="metric-card">
               <p class="metric-label">Unsupported</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "unsupported_tool_count") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.unsupported_tool_count()) %></p>
               <p class="metric-detail">Calls blocked before source execution.</p>
             </article>
 
             <article class="metric-card">
               <p class="metric-label">Unavailable</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, "provider_capability_unavailable_count") %></p>
+              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.provider_capability_unavailable_count()) %></p>
               <p class="metric-detail">Provider capabilities reported as unavailable.</p>
             </article>
           </div>
@@ -671,7 +689,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
       payload_load_error_payload(live_action, issue_identifier)
   end
 
-  defp load_issue_payload(issue_identifier) when is_binary(issue_identifier) and issue_identifier != "" do
+  defp load_issue_payload(issue_identifier)
+       when is_binary(issue_identifier) and issue_identifier != "" do
     case Presenter.issue_payload(issue_identifier, orchestrator(), snapshot_timeout_ms()) do
       {:ok, payload} -> payload
       {:error, :issue_not_found} -> issue_not_found_payload(issue_identifier)
@@ -719,12 +738,12 @@ defmodule SymphonyElixirWeb.DashboardLive do
           :for={alert <- dynamic_tool_operator_alerts(@payload)}
           class={"metric-card " <> dynamic_tool_alert_class(alert)}
         >
-          <p class="metric-label"><%= alert["severity"] || "info" %> · <%= alert["category"] || "dynamic_tool" %></p>
-          <p class="metric-detail"><%= alert["message"] || alert["code"] || "Dynamic tool alert" %></p>
+          <p class="metric-label"><%= dynamic_tool_alert_severity(alert) %> · <%= dynamic_tool_alert_category(alert) %></p>
+          <p class="metric-detail"><%= dynamic_tool_alert_message(alert) %></p>
           <p :if={dynamic_tool_alert_capabilities(alert) != []} class="metric-detail mono">
             capabilities=<%= Enum.join(dynamic_tool_alert_capabilities(alert), ", ") %>
           </p>
-          <p class="metric-detail mono">count=<%= alert["count"] || 0 %> metric=<%= alert["metric"] || "n/a" %></p>
+          <p class="metric-detail mono">count=<%= dynamic_tool_alert_count(alert) %> metric=<%= dynamic_tool_alert_metric(alert) %></p>
         </article>
       <% end %>
     </div>
@@ -734,24 +753,40 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp dynamic_tool_operator_alerts(payload) when is_map(payload) do
     payload
     |> Map.get(:dynamic_tool_metrics, %{})
-    |> Map.get("operator_alerts", [])
+    |> Map.get(DynamicToolMetrics.operator_alerts(), [])
     |> case do
       alerts when is_list(alerts) -> alerts
       _alerts -> []
     end
   end
 
-  defp dynamic_tool_alert_class(%{"severity" => "critical"}), do: "status-card-danger"
-  defp dynamic_tool_alert_class(%{"severity" => "warning"}), do: "status-card-warning"
-  defp dynamic_tool_alert_class(_alert), do: "status-card-info"
-
-  defp dynamic_tool_alert_capabilities(%{"capabilities" => capabilities}) when is_list(capabilities) do
-    capabilities
-    |> Enum.filter(&is_binary/1)
-    |> Enum.sort()
+  defp dynamic_tool_alert_class(%{} = alert) do
+    case AlertContract.severity(alert) do
+      @alert_critical -> "status-card-danger"
+      @alert_warning -> "status-card-warning"
+      _severity -> "status-card-info"
+    end
   end
 
-  defp dynamic_tool_alert_capabilities(_alert), do: []
+  defp dynamic_tool_alert_capabilities(alert), do: AlertContract.capabilities(alert)
+
+  defp dynamic_tool_alert_severity(alert), do: AlertContract.severity(alert)
+
+  defp dynamic_tool_alert_category(%{} = alert),
+    do: alert[@alert_category_key] || AlertContract.default_category()
+
+  defp dynamic_tool_alert_category(_alert), do: AlertContract.default_category()
+
+  defp dynamic_tool_alert_message(%{} = alert),
+    do: alert[@alert_message_key] || alert[@alert_code_key] || AlertContract.default_message()
+
+  defp dynamic_tool_alert_message(_alert), do: AlertContract.default_message()
+
+  defp dynamic_tool_alert_count(%{} = alert), do: alert[@alert_count_key] || 0
+  defp dynamic_tool_alert_count(_alert), do: 0
+
+  defp dynamic_tool_alert_metric(%{} = alert), do: alert[@alert_metric_key] || "n/a"
+  defp dynamic_tool_alert_metric(_alert), do: "n/a"
 
   defp total_runtime_seconds(payload, now) do
     completed_runtime_seconds(payload) +
@@ -760,7 +795,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
       end)
   end
 
-  defp format_runtime_and_turns(started_at, turn_count, now) when is_integer(turn_count) and turn_count > 0 do
+  defp format_runtime_and_turns(started_at, turn_count, now)
+       when is_integer(turn_count) and turn_count > 0 do
     "#{format_runtime_seconds(runtime_seconds_from_started_at(started_at, now))} / #{turn_count}"
   end
 
@@ -778,7 +814,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
     DateTime.diff(now, started_at, :second)
   end
 
-  defp runtime_seconds_from_started_at(started_at, %DateTime{} = now) when is_binary(started_at) do
+  defp runtime_seconds_from_started_at(started_at, %DateTime{} = now)
+       when is_binary(started_at) do
     case DateTime.from_iso8601(started_at) do
       {:ok, parsed, _offset} -> runtime_seconds_from_started_at(parsed, now)
       _ -> 0
@@ -814,25 +851,18 @@ defmodule SymphonyElixirWeb.DashboardLive do
     get_in(payload, [:running, :run_id]) || get_in(payload, [:retry, :run_id])
   end
 
-  defp event_issue_label(%{"issue_identifier" => issue_identifier}) when is_binary(issue_identifier),
-    do: issue_identifier
+  defp event_issue_label(%{"issue_identifier" => issue_identifier})
+       when is_binary(issue_identifier),
+       do: issue_identifier
 
   defp event_issue_label(%{"issue_id" => issue_id}) when is_binary(issue_id), do: issue_id
   defp event_issue_label(_event), do: "system"
 
   defp issue_live_path(issue_identifier) when is_binary(issue_identifier),
-    do: "/issues/#{issue_identifier}"
+    do: BrowserPaths.issue_path(issue_identifier)
 
   defp state_badge_class(state) do
-    base = "state-badge"
-    normalized = state |> to_string() |> String.downcase()
-
-    cond do
-      String.contains?(normalized, ["progress", "running", "active"]) -> "#{base} state-badge-active"
-      String.contains?(normalized, ["blocked", "error", "failed"]) -> "#{base} state-badge-danger"
-      String.contains?(normalized, ["todo", "queued", "pending", "retry"]) -> "#{base} state-badge-warning"
-      true -> base
-    end
+    Status.badge_class(state)
   end
 
   defp schedule_runtime_tick do
@@ -877,7 +907,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
     }
   end
 
-  defp issue_identifier_suffix(issue_identifier) when is_binary(issue_identifier) and issue_identifier != "" do
+  defp issue_identifier_suffix(issue_identifier)
+       when is_binary(issue_identifier) and issue_identifier != "" do
     " issue_identifier=#{issue_identifier}"
   end
 

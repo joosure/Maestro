@@ -8,6 +8,7 @@ defmodule SymphonyElixirWeb.DynamicToolController do
 
   alias Plug.Conn
   alias SymphonyElixir.Agent.DynamicTool.Bridge
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
 
   @spec execute(Conn.t(), map()) :: Conn.t()
   def execute(conn, %{"tool" => tool} = params) when is_binary(tool) do
@@ -20,22 +21,19 @@ defmodule SymphonyElixirWeb.DynamicToolController do
       {:error, :forbidden_remote_address} ->
         conn
         |> put_status(403)
-        |> json(%{"success" => false, "payload" => %{"error" => %{"message" => "Dynamic tool bridge requests are restricted to loopback clients."}}})
+        |> json(Response.error("Dynamic tool bridge requests are restricted to loopback clients."))
 
       {:error, :unauthorized} ->
         conn
         |> put_status(401)
-        |> json(%{"success" => false, "payload" => %{"error" => %{"message" => "Unauthorized dynamic tool bridge request."}}})
+        |> json(Response.error("Unauthorized dynamic tool bridge request."))
     end
   end
 
   def execute(conn, _params) do
     conn
     |> put_status(400)
-    |> json(%{
-      "success" => false,
-      "payload" => %{"error" => %{"message" => "Dynamic tool bridge requests require a non-empty tool name."}}
-    })
+    |> json(Response.error("Dynamic tool bridge requests require a non-empty tool name."))
   end
 
   defp authorize_loopback(%Conn{remote_ip: {127, _a, _b, _c}}), do: :ok

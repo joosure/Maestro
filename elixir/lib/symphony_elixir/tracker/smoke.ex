@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Tracker.Smoke do
 
   alias SymphonyElixir.Config
   alias SymphonyElixir.Issue
+  alias SymphonyElixir.Smoke.ResultStatus
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Workflow
@@ -97,15 +98,15 @@ defmodule SymphonyElixir.Tracker.Smoke do
 
   @spec format_text(report()) :: String.t()
   def format_text(report) when is_map(report) do
-    status = if report.ok, do: "passed", else: "failed"
+    status = ResultStatus.report_status(report.ok)
 
     header =
-      "tracker smoke #{status} tracker=#{report.tracker_kind || "unknown"} mode=#{report.smoke_mode} " <>
+      "tracker smoke #{status} tracker=#{report.tracker_kind || ResultStatus.unknown()} mode=#{report.smoke_mode} " <>
         "probes=#{report.probe_count} passed=#{report.passed_count} failed=#{report.failed_count}"
 
     probe_lines =
       Enum.map(report.probes, fn probe ->
-        status = if probe.ok, do: "ok", else: "fail"
+        status = ResultStatus.line_status(probe.ok)
         detail = if probe.error, do: "#{probe.summary}: #{probe.error}", else: probe.summary
         "- [#{status}] #{probe.id} #{detail} (#{probe.duration_ms}ms)"
       end)
@@ -213,7 +214,7 @@ defmodule SymphonyElixir.Tracker.Smoke do
           run_probe("fetch-issue", deps, fn ->
             with {:ok, issues} <- deps.fetch_issue_states_by_ids.(tracker, [issue_id]),
                  {:ok, issue} <- single_issue(issues, issue_id) do
-              {:ok, "issue #{issue_id} current_state=#{issue_state(issue) || "unknown"}", issue}
+              {:ok, "issue #{issue_id} current_state=#{issue_state(issue) || ResultStatus.unknown()}", issue}
             end
           end)
 
@@ -297,7 +298,7 @@ defmodule SymphonyElixir.Tracker.Smoke do
              id: id,
              ok: false,
              duration_ms: deps.monotonic_time_ms.() - started_at_ms,
-             summary: "failed",
+             summary: ResultStatus.failed(),
              error: format_reason(reason)
            }, {:error, reason}}
       end
@@ -307,14 +308,14 @@ defmodule SymphonyElixir.Tracker.Smoke do
            id: id,
            ok: false,
            duration_ms: deps.monotonic_time_ms.() - started_at_ms,
-           summary: "failed",
+           summary: ResultStatus.failed(),
            error: Exception.message(exception)
          }, {:error, exception}}
     end
   end
 
   defp failed_probe(id, reason) do
-    %{id: id, ok: false, duration_ms: 0, summary: "failed", error: format_reason(reason)}
+    %{id: id, ok: false, duration_ms: 0, summary: ResultStatus.failed(), error: format_reason(reason)}
   end
 
   defp ok_value({:ok, value}), do: value

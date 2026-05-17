@@ -1,9 +1,12 @@
 defmodule SymphonyElixir.Workflow.ExecutionProfileRegistry.EntryNormalizer do
   @moduledoc false
 
+  alias SymphonyElixir.Workflow.ExecutionProfile
   alias SymphonyElixir.Workflow.ExecutionProfileRegistry.Entry
   alias SymphonyElixir.Workflow.ExecutionProfileRegistry.Values
   alias SymphonyElixir.Workflow.RoutePolicy
+
+  @execution_profile_behaviour ExecutionProfile
 
   @spec normalize_entries([term()]) :: {:ok, [Entry.t()]} | {:error, term()}
   def normalize_entries(raw_entries) do
@@ -93,7 +96,7 @@ defmodule SymphonyElixir.Workflow.ExecutionProfileRegistry.EntryNormalizer do
     with :ok <- ensure_runtime_handler_loaded(runtime_handler),
          :ok <- ensure_runtime_handler_callback(runtime_handler, :supported_actions, 0),
          :ok <- ensure_runtime_handler_callback(runtime_handler, :required_capabilities, 0),
-         :ok <- ensure_runtime_handler_callback(runtime_handler, :run, 1),
+         :ok <- ensure_runtime_handler_behaviour(runtime_handler),
          {:ok, handler_supported_actions} <- runtime_handler_supported_actions(runtime_handler),
          :ok <- validate_runtime_handler_action_scope(runtime_handler, supported_actions, handler_supported_actions),
          {:ok, handler_capabilities} <- runtime_handler_required_capabilities(runtime_handler) do
@@ -116,6 +119,25 @@ defmodule SymphonyElixir.Workflow.ExecutionProfileRegistry.EntryNormalizer do
       {:error, {:invalid_registry_entry_runtime_handler_contract, runtime_handler, {callback, arity}}}
     end
   end
+
+  defp ensure_runtime_handler_behaviour(runtime_handler) do
+    runtime_handler
+    |> module_behaviours()
+    |> Enum.member?(@execution_profile_behaviour)
+    |> case do
+      true -> :ok
+      false -> {:error, {:invalid_registry_entry_runtime_handler_behaviour, runtime_handler, @execution_profile_behaviour}}
+    end
+  end
+
+  defp module_behaviours(module) when is_atom(module) do
+    module
+    |> module_info_attributes()
+    |> Keyword.get_values(:behaviour)
+    |> List.flatten()
+  end
+
+  defp module_info_attributes(module), do: module.module_info(:attributes)
 
   defp runtime_handler_supported_actions(runtime_handler) do
     runtime_handler

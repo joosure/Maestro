@@ -3,6 +3,11 @@ defmodule SymphonyWorkerDaemon.CommandPolicy.AllowedExecutables do
 
   alias SymphonyElixir.PathSafety
   alias SymphonyElixir.Platform.Process, as: PlatformProcess
+  alias SymphonyWorkerDaemon.CommandPolicy.CapabilityContract
+
+  @command_key CapabilityContract.command_key()
+  @name_key CapabilityContract.name_key()
+  @path_key CapabilityContract.path_key()
 
   @type executable_spec :: %{
           required(String.t()) => String.t() | boolean()
@@ -52,9 +57,9 @@ defmodule SymphonyWorkerDaemon.CommandPolicy.AllowedExecutables do
         with {:ok, canonical_path} <- canonical_path(resolved_path) do
           {:ok,
            %{
-             "command" => command,
-             "name" => Path.basename(resolved_path),
-             "path" => resolved_path,
+             @command_key => command,
+             @name_key => Path.basename(resolved_path),
+             @path_key => resolved_path,
              "canonical_path" => canonical_path
            }}
         end
@@ -77,7 +82,7 @@ defmodule SymphonyWorkerDaemon.CommandPolicy.AllowedExecutables do
     resolved_path == allowed_path
   end
 
-  def matches?(%{"path" => allowed_path}, _command, resolved_path) when is_binary(allowed_path) do
+  def matches?(%{@path_key => allowed_path}, _command, resolved_path) when is_binary(allowed_path) do
     case canonical_path(allowed_path) do
       {:ok, canonical_path} -> resolved_path == canonical_path
       {:error, _reason} -> resolved_path == allowed_path
@@ -89,7 +94,7 @@ defmodule SymphonyWorkerDaemon.CommandPolicy.AllowedExecutables do
   @spec normalize_entry(term()) :: String.t() | nil
   def normalize_entry(nil), do: nil
 
-  def normalize_entry(%{"command" => command}) when is_binary(command), do: normalize_entry(command)
+  def normalize_entry(%{@command_key => command}) when is_binary(command), do: normalize_entry(command)
 
   def normalize_entry(value) when is_binary(value) do
     case String.trim(value) do
@@ -101,7 +106,7 @@ defmodule SymphonyWorkerDaemon.CommandPolicy.AllowedExecutables do
   def normalize_entry(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_entry()
   def normalize_entry(_value), do: nil
 
-  defp prepared_spec?(%{"command" => command, "path" => path, "name" => name})
+  defp prepared_spec?(%{@command_key => command, @path_key => path, @name_key => name})
        when is_binary(command) and is_binary(path) and is_binary(name),
        do: true
 

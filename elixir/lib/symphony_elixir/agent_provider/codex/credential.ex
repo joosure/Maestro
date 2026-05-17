@@ -3,7 +3,11 @@ defmodule SymphonyElixir.AgentProvider.Codex.Credential do
 
   alias SymphonyElixir.Agent.Credential.{Lease, Material}
   alias SymphonyElixir.Agent.Runtime.Target
+  alias SymphonyElixir.AgentProvider.Codex.CredentialEnv
+  alias SymphonyElixir.AgentProvider.Kinds
 
+  @provider_kind Kinds.codex()
+  @api_key_credential_kind CredentialEnv.api_key_credential_kind()
   @secret_mode 0o600
   @dir_mode 0o700
   @file_store_config "cli_auth_credentials_store = \"file\"\n"
@@ -23,10 +27,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.Credential do
   end
 
   @spec remote_auth_commands(Material.t() | term()) :: {[String.t()], [String.t()]}
-  def remote_auth_commands(%Material{auth_metadata: %{"codex" => %{"credential_kind" => "codex_api_key"} = metadata}}) do
+  def remote_auth_commands(%Material{auth_metadata: %{@provider_kind => %{"credential_kind" => @api_key_credential_kind} = metadata}}) do
     with api_key when is_binary(api_key) and api_key != "" <- Map.get(metadata, "api_key"),
          codex_home when is_binary(codex_home) and codex_home != "" <- Map.get(metadata, "codex_home") do
-      auth_json = Jason.encode!(auth_payload(api_key))
+      auth_json = Jason.encode!(CredentialEnv.auth_payload(api_key))
 
       setup_commands = [
         "rm -rf #{shell_escape(codex_home)}",
@@ -50,10 +54,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.Credential do
       :ok ->
         {:ok,
          Material.new(%{
-           env: %{"CODEX_HOME" => codex_home},
+           env: CredentialEnv.materialized_env(codex_home),
            auth_metadata: %{
-             "codex" => %{
-               "credential_kind" => "codex_api_key",
+             @provider_kind => %{
+               "credential_kind" => @api_key_credential_kind,
                "codex_home" => codex_home
              }
            },
@@ -69,10 +73,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.Credential do
 
   defp remote_material(api_key, codex_home, %Lease{} = lease) do
     Material.new(%{
-      env: %{"CODEX_HOME" => codex_home},
+      env: CredentialEnv.materialized_env(codex_home),
       auth_metadata: %{
-        "codex" => %{
-          "credential_kind" => "codex_api_key",
+        @provider_kind => %{
+          "credential_kind" => @api_key_credential_kind,
           "codex_home" => codex_home,
           "api_key" => api_key
         }
@@ -83,8 +87,8 @@ defmodule SymphonyElixir.AgentProvider.Codex.Credential do
 
   defp material_summary(codex_home, %Lease{} = lease, storage) do
     %{
-      credential_kind: "codex_api_key",
-      auth_shape: "CODEX_HOME",
+      credential_kind: @api_key_credential_kind,
+      auth_shape: CredentialEnv.auth_shape(),
       credential_store: storage,
       codex_home_summary: path_summary(codex_home),
       account_id_summary: lease.account_id
@@ -97,12 +101,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.Credential do
 
     with :ok <- mkdir_private(codex_home),
          :ok <- write_private_file(config_path, @file_store_config),
-         :ok <- write_private_file(auth_path, Jason.encode!(auth_payload(api_key))) do
+         :ok <- write_private_file(auth_path, Jason.encode!(CredentialEnv.auth_payload(api_key))) do
       :ok
     end
   end
-
-  defp auth_payload(api_key), do: %{"auth_mode" => "apikey", "OPENAI_API_KEY" => api_key}
 
   defp read_api_key(%{secret_file: path}) when is_binary(path) do
     case File.read(path) do

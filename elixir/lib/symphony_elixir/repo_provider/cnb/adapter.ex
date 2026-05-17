@@ -23,16 +23,19 @@ defmodule SymphonyElixir.RepoProvider.CNB.Adapter do
   alias SymphonyElixir.RepoProvider.CNB.Normalizer
   alias SymphonyElixir.RepoProvider.CNB.PullRequestHandler
   alias SymphonyElixir.RepoProvider.CNB.RunHandler
+  alias SymphonyElixir.RepoProvider.CNB.RuntimeEnv
   alias SymphonyElixir.RepoProvider.Config, as: RepoConfig
   alias SymphonyElixir.RepoProvider.ConfigValidator
   alias SymphonyElixir.RepoProvider.Error
+  alias SymphonyElixir.RepoProvider.Kinds
 
   @type repo_config :: map()
   @capabilities SymphonyElixir.RepoProvider.Adapter.all_capabilities() --
                   [:pr_add_label, :pr_submit_review]
+  @provider_kind Kinds.cnb()
 
   @impl true
-  def kind, do: "cnb"
+  def kind, do: @provider_kind
 
   @impl true
   def defaults, do: %{}
@@ -249,7 +252,7 @@ defmodule SymphonyElixir.RepoProvider.CNB.Adapter do
         end
 
       {:error, :missing_cnb_token} ->
-        {:error, Error.runtime_failure(:missing_cnb_token, "CNB provider requires CNB_TOKEN")}
+        {:error, Error.runtime_failure(:missing_cnb_token, "CNB provider requires #{RuntimeEnv.token_env()}")}
     end
   end
 
@@ -260,7 +263,7 @@ defmodule SymphonyElixir.RepoProvider.CNB.Adapter do
         fun.(token) |> normalize_result()
 
       {:error, :missing_cnb_token} ->
-        {:error, Error.runtime_failure(:missing_cnb_token, "CNB provider requires CNB_TOKEN")}
+        {:error, Error.runtime_failure(:missing_cnb_token, "CNB provider requires #{RuntimeEnv.token_env()}")}
     end
   end
 

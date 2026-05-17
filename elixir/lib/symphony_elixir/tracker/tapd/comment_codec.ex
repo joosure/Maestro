@@ -7,8 +7,12 @@ defmodule SymphonyElixir.Tracker.Tapd.CommentCodec do
     ResponseNormalizer
   }
 
+  alias SymphonyElixir.Tracker.Tapd.Client.Paths
+
+  @comments_path Paths.comments()
+
   @spec normalize_request_params(String.t(), String.t(), map()) :: map()
-  def normalize_request_params("POST", "/comments", %{"description" => description} = params)
+  def normalize_request_params("POST", @comments_path, %{"description" => description} = params)
       when is_binary(description) do
     Map.put(params, "description", encode_description(description))
   end
@@ -16,7 +20,7 @@ defmodule SymphonyElixir.Tracker.Tapd.CommentCodec do
   def normalize_request_params(_method, _path, params) when is_map(params), do: params
 
   @spec normalize_response_body(String.t(), String.t(), term()) :: term()
-  def normalize_response_body(_method, "/comments", body), do: ResponseNormalizer.normalize(body)
+  def normalize_response_body(_method, @comments_path, body), do: ResponseNormalizer.normalize(body)
 
   def normalize_response_body(_method, _path, body), do: body
 

@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Agent.Credential.LeaseRequest do
 
   @type t :: %__MODULE__{
           provider_kind: String.t(),
-          credential_ref: String.t(),
+          credential_ref: String.t() | nil,
           run_id: String.t() | nil,
           issue_id: String.t() | nil,
           worker_pool: String.t() | nil,
@@ -49,5 +49,6 @@ defmodule SymphonyElixir.Agent.Credential.LeaseRequest do
   end
 
   defp optional_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp optional_string(value) when is_integer(value), do: Integer.to_string(value)
   defp optional_string(_value), do: nil
 end

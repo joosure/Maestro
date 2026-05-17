@@ -3,13 +3,17 @@ defmodule SymphonyWorkerDaemon.CommandPolicy do
 
   alias SymphonyElixir.Platform.Process, as: PlatformProcess
   alias SymphonyWorkerDaemon.CommandPolicy.{AllowedExecutables, Capabilities, Validation}
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+
+  @mode_key ProtocolFields.mode()
+  @argv_key ProtocolFields.argv()
 
   @type executable_spec :: %{
           required(String.t()) => String.t() | boolean()
         }
 
   @spec validate(map(), Path.t(), keyword()) :: :ok | {:error, term()}
-  def validate(%{"mode" => "argv", "argv" => [command | _args]}, cwd, opts)
+  def validate(%{@mode_key => "argv", @argv_key => [command | _args]}, cwd, opts)
       when is_binary(command) and is_binary(cwd) and is_list(opts) do
     if Keyword.get(opts, :allow_any_executable?, false) do
       :ok
@@ -22,7 +26,7 @@ defmodule SymphonyWorkerDaemon.CommandPolicy do
     end
   end
 
-  def validate(%{"mode" => "shell"}, _cwd, opts) when is_list(opts) do
+  def validate(%{@mode_key => "shell"}, _cwd, opts) when is_list(opts) do
     cond do
       not Keyword.get(opts, :allow_shell?, false) ->
         {:error, :shell_command_disabled}
@@ -35,7 +39,7 @@ defmodule SymphonyWorkerDaemon.CommandPolicy do
     end
   end
 
-  def validate(%{"mode" => "unset"}, _cwd, _opts), do: {:error, :command_unset}
+  def validate(%{@mode_key => "unset"}, _cwd, _opts), do: {:error, :command_unset}
   def validate(_command, _cwd, _opts), do: {:error, :command_invalid}
 
   @spec prepare_allowed_executables([term()]) :: {:ok, [executable_spec()]} | {:error, term()}

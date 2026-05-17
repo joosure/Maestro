@@ -12,6 +12,7 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
   alias SymphonyElixir.Orchestrator.WorkerHosts
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Workflow.Readiness
+  alias SymphonyElixir.Workflow.ReadinessContract
 
   @spec choose_issues([Issue.t()], State.t()) :: State.t()
   def choose_issues(issues, %State{} = state) when is_list(issues) do
@@ -211,19 +212,19 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
         available_capabilities: DispatchContext.available_capabilities(dispatch_context)
       )
 
-    profile = Map.get(facts, "profile", %{})
-    route = Map.get(facts, "route", %{})
-    gate = Map.get(facts, "gate", %{})
+    profile = Map.get(facts, ReadinessContract.profile_key(), %{})
+    route = Map.get(facts, ReadinessContract.route_key(), %{})
+    gate = Map.get(facts, ReadinessContract.gate_key(), %{})
     capabilities = Map.get(facts, "capabilities", %{})
 
     %{
       workflow_profile: Map.get(profile, "kind"),
       workflow_profile_version: Map.get(profile, "version"),
-      workflow_route_key: Map.get(route, "key"),
+      workflow_route_key: Map.get(route, ReadinessContract.key_key()),
       workflow_route_action: Map.get(route, "action"),
-      workflow_gate_status: Map.get(gate, "status"),
-      workflow_gate: Map.get(gate, "gate"),
-      workflow_gate_reason: Map.get(gate, "reason"),
+      workflow_gate_status: Map.get(gate, ReadinessContract.status_key()),
+      workflow_gate: ReadinessContract.gate(gate),
+      workflow_gate_reason: Map.get(gate, ReadinessContract.reason_key()),
       workflow_missing_capabilities: Map.get(capabilities, "missing", [])
     }
   end

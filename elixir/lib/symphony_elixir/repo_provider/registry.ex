@@ -31,10 +31,16 @@ defmodule SymphonyElixir.RepoProvider.Registry do
       end
   """
 
+  alias SymphonyElixir.RepoProvider.Kinds
+
+  @cnb_kind Kinds.cnb()
+  @github_kind Kinds.github()
+  @memory_kind Kinds.memory()
+
   @default_adapters %{
-    "cnb" => SymphonyElixir.RepoProvider.CNB.Adapter,
-    "github" => SymphonyElixir.RepoProvider.GitHub.Adapter,
-    "memory" => SymphonyElixir.RepoProvider.Memory
+    @cnb_kind => SymphonyElixir.RepoProvider.CNB.Adapter,
+    @github_kind => SymphonyElixir.RepoProvider.GitHub.Adapter,
+    @memory_kind => SymphonyElixir.RepoProvider.Memory
   }
 
   @spec supported_kinds() :: [String.t()]

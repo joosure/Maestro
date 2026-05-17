@@ -9,11 +9,12 @@ defmodule SymphonyElixir.AgentProvider.Mock.Adapter do
 
   @behaviour SymphonyElixir.AgentProvider.Adapter
 
-  alias SymphonyElixir.AgentProvider.{Config, EventSummary, Session, TurnResult}
+  alias SymphonyElixir.AgentProvider.{Config, EventSummary, Kinds, Session, TurnResult, TurnStatus}
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @provider_kind "mock"
+  @provider_kind Kinds.mock()
   @supported_options ~w(message turn_status session_id thread_id turn_id complete_issue_state)
-  @supported_statuses ~w(completed failed cancelled input_required timeout)
+  @supported_statuses TurnStatus.strings()
   @default_message "Mock agent completed a local Symphony turn without external credentials."
 
   @impl true
@@ -23,12 +24,12 @@ defmodule SymphonyElixir.AgentProvider.Mock.Adapter do
   def defaults do
     %{
       "message" => @default_message,
-      "turn_status" => "completed"
+      "turn_status" => TurnStatus.completed()
     }
   end
 
   @impl true
-  def capabilities, do: ["agent.turn.run"]
+  def capabilities, do: [CapabilityNames.agent_turn_run()]
 
   @impl true
   def validate_options(options) when is_map(options) do
@@ -69,7 +70,7 @@ defmodule SymphonyElixir.AgentProvider.Mock.Adapter do
        agent_provider_kind: @provider_kind,
        provider_state: %{
          message: Map.get(config.options, "message", @default_message),
-         turn_status: Map.get(config.options, "turn_status", "completed")
+         turn_status: Map.get(config.options, "turn_status", TurnStatus.completed())
        },
        run_id: Keyword.get(opts, :run_id),
        session_id: session_id,
@@ -82,7 +83,7 @@ defmodule SymphonyElixir.AgentProvider.Mock.Adapter do
 
   @impl true
   def run_turn(%Config{} = config, %Session{} = session, prompt, issue, opts \\ []) do
-    status = Map.get(config.options, "turn_status", "completed") |> status_atom()
+    status = Map.get(config.options, "turn_status", TurnStatus.completed()) |> status_atom()
     message = Map.get(config.options, "message", @default_message)
     turn_id = configured_or_generated_id(config, "turn_id", "mock-turn")
 
@@ -170,13 +171,9 @@ defmodule SymphonyElixir.AgentProvider.Mock.Adapter do
   defp normalize_message(_message), do: @default_message
 
   defp normalize_turn_status(status) when status in @supported_statuses, do: status
-  defp normalize_turn_status(_status), do: "completed"
+  defp normalize_turn_status(_status), do: TurnStatus.completed()
 
-  defp status_atom("failed"), do: :failed
-  defp status_atom("cancelled"), do: :cancelled
-  defp status_atom("input_required"), do: :input_required
-  defp status_atom("timeout"), do: :timeout
-  defp status_atom(_status), do: :completed
+  defp status_atom(status), do: TurnStatus.normalize_atom(status)
 
   defp configured_or_generated_id(%Config{options: options}, key, prefix) do
     case Map.get(options, key) do

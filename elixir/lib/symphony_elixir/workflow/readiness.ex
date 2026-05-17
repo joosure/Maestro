@@ -8,16 +8,26 @@ defmodule SymphonyElixir.Workflow.Readiness do
   repository, or provider side effects.
   """
 
+  alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.CompletionValidator
   alias SymphonyElixir.Workflow.ExecutionProfileRegistry
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
+  alias SymphonyElixir.Workflow.ReadinessContract
   alias SymphonyElixir.Workflow.RouteFacts
   alias SymphonyElixir.Workflow.RoutePolicy
   alias SymphonyElixir.Workflow.RoutePolicy.Policy
 
+  @key_key ReadinessContract.key_key()
+  @profile_key ReadinessContract.profile_key()
+  @route_key ReadinessContract.route_key()
+  @required_outputs_key ReadinessContract.required_outputs_key()
+  @allowed_completion_routes_key ReadinessContract.allowed_completion_routes_key()
+  @evidence_requirements_key ReadinessContract.evidence_requirements_key()
+  @handoff_expectations_key ReadinessContract.handoff_expectations_key()
+
   @empty_route %{
-    "key" => nil,
+    @key_key => nil,
     "raw_state" => nil,
     "lifecycle_phase" => nil,
     "action" => nil,
@@ -27,10 +37,10 @@ defmodule SymphonyElixir.Workflow.Readiness do
   }
 
   @empty_contract %{
-    "required_outputs" => [],
-    "allowed_completion_routes" => [],
-    "evidence_requirements" => [],
-    "handoff_expectations" => []
+    @required_outputs_key => [],
+    @allowed_completion_routes_key => [],
+    @evidence_requirements_key => [],
+    @handoff_expectations_key => []
   }
 
   @spec facts(map(), keyword() | map()) :: map()
@@ -43,11 +53,11 @@ defmodule SymphonyElixir.Workflow.Readiness do
     evidence = completion_evidence(issue, opts)
 
     %{
-      "profile" => profile_map(profile_context),
-      "route" => route_map(route_facts),
+      @profile_key => profile_map(profile_context),
+      @route_key => route_map(route_facts),
       "completion_contract" => completion_contract(issue, profile_context),
       "capabilities" => capabilities,
-      "gate" => gate(route_facts, capabilities, evidence)
+      ReadinessContract.gate_key() => gate(route_facts, capabilities, evidence)
     }
   end
 
@@ -56,11 +66,11 @@ defmodule SymphonyElixir.Workflow.Readiness do
     capabilities = capabilities(profile_context, nil, opts)
 
     %{
-      "profile" => profile_map(profile_context),
-      "route" => @empty_route,
+      @profile_key => profile_map(profile_context),
+      @route_key => @empty_route,
       "completion_contract" => completion_contract(%{}, profile_context),
       "capabilities" => capabilities,
-      "gate" => no_route_gate()
+      ReadinessContract.gate_key() => no_route_gate()
     }
   end
 
@@ -70,14 +80,14 @@ defmodule SymphonyElixir.Workflow.Readiness do
   defp gate(route_facts, capabilities, evidence)
 
   defp gate(_route_facts, %{"missing" => missing}, _evidence) when is_list(missing) and missing != [] do
-    %{
-      "status" => "blocked",
-      "gate" => "capability",
-      "category" => "system",
-      "reason" => "Required workflow capabilities are unavailable.",
-      "required_evidence" => missing,
-      "observed_evidence" => []
-    }
+    gate_map(
+      ReadinessContract.blocked(),
+      ReadinessContract.capability_gate(),
+      "system",
+      "Required workflow capabilities are unavailable.",
+      missing,
+      []
+    )
   end
 
   defp gate(nil, _capabilities, _evidence), do: no_route_gate()
@@ -88,49 +98,49 @@ defmodule SymphonyElixir.Workflow.Readiness do
 
     cond do
       approval_gate? ->
-        %{
-          "status" => "waiting",
-          "gate" => "approval",
-          "category" => "human",
-          "reason" => "Waiting for human approval or review feedback.",
-          "required_evidence" => [
+        gate_map(
+          ReadinessContract.waiting(),
+          ReadinessContract.approval_gate(),
+          "human",
+          "Waiting for human approval or review feedback.",
+          [
             "human approval or requested-changes decision",
             "tracker or change-proposal review evidence"
           ],
-          "observed_evidence" => observed_route_evidence(route_facts)
-        }
+          observed_route_evidence(route_facts)
+        )
 
       human_review_gate? ->
-        %{
-          "status" => "waiting",
-          "gate" => "human_review",
-          "category" => "human",
-          "reason" => "Waiting for a human review decision.",
-          "required_evidence" => ["human review decision"],
-          "observed_evidence" => observed_route_evidence(route_facts)
-        }
+        gate_map(
+          ReadinessContract.waiting(),
+          ReadinessContract.human_review_gate(),
+          "human",
+          "Waiting for a human review decision.",
+          ["human review decision"],
+          observed_route_evidence(route_facts)
+        )
 
       true ->
-        %{
-          "status" => "waiting",
-          "gate" => "route_wait",
-          "category" => "workflow",
-          "reason" => "Route policy is wait; automatic dispatch is not allowed.",
-          "required_evidence" => ["route moves to a dispatchable state"],
-          "observed_evidence" => observed_route_evidence(route_facts)
-        }
+        gate_map(
+          ReadinessContract.waiting(),
+          ReadinessContract.route_wait_gate(),
+          "workflow",
+          "Route policy is wait; automatic dispatch is not allowed.",
+          ["route moves to a dispatchable state"],
+          observed_route_evidence(route_facts)
+        )
     end
   end
 
   defp gate(%RouteFacts{action: :stop} = route_facts, _capabilities, _evidence) do
-    %{
-      "status" => "blocked",
-      "gate" => "terminal",
-      "category" => "workflow",
-      "reason" => "Route policy is stop; no automatic dispatch is allowed.",
-      "required_evidence" => ["new non-terminal route before more work can run"],
-      "observed_evidence" => observed_route_evidence(route_facts)
-    }
+    gate_map(
+      ReadinessContract.blocked(),
+      ReadinessContract.terminal_gate(),
+      "workflow",
+      "Route policy is stop; no automatic dispatch is allowed.",
+      ["new non-terminal route before more work can run"],
+      observed_route_evidence(route_facts)
+    )
   end
 
   defp gate(%RouteFacts{action: :dispatch, route_key: :merging} = route_facts, capabilities, evidence) do
@@ -139,7 +149,7 @@ defmodule SymphonyElixir.Workflow.Readiness do
 
   defp gate(%RouteFacts{action: :dispatch, execution_profile: execution_profile} = route_facts, capabilities, evidence)
        when is_binary(execution_profile) do
-    if execution_profile == "land" do
+    if capabilities |> Map.get("conditional", []) |> CapabilityNames.merge_gate?() do
       merge_gate(route_facts, capabilities, evidence)
     else
       dispatch_gate(route_facts)
@@ -152,25 +162,25 @@ defmodule SymphonyElixir.Workflow.Readiness do
 
   defp gate(%RouteFacts{action: action} = route_facts, _capabilities, _evidence)
        when action in [:transition, :transition_then_dispatch] do
-    %{
-      "status" => "open",
-      "gate" => "route_preparation",
-      "category" => "workflow",
-      "reason" => "Backend route preparation must complete before normal dispatch.",
-      "required_evidence" => ["tracker state moved to the transition target route"],
-      "observed_evidence" => observed_route_evidence(route_facts)
-    }
+    gate_map(
+      ReadinessContract.open(),
+      ReadinessContract.route_preparation_gate(),
+      "workflow",
+      "Backend route preparation must complete before normal dispatch.",
+      ["tracker state moved to the transition target route"],
+      observed_route_evidence(route_facts)
+    )
   end
 
   defp gate(%RouteFacts{} = route_facts, _capabilities, _evidence) do
-    %{
-      "status" => "blocked",
-      "gate" => "unknown_route_action",
-      "category" => "workflow",
-      "reason" => "Route policy action is not recognized by readiness facts.",
-      "required_evidence" => ["valid route policy action"],
-      "observed_evidence" => observed_route_evidence(route_facts)
-    }
+    gate_map(
+      ReadinessContract.blocked(),
+      ReadinessContract.unknown_route_action_gate(),
+      "workflow",
+      "Route policy action is not recognized by readiness facts.",
+      ["valid route policy action"],
+      observed_route_evidence(route_facts)
+    )
   end
 
   defp profile_context(issue, opts) when is_map(issue) do
@@ -370,10 +380,10 @@ defmodule SymphonyElixir.Workflow.Readiness do
 
     @empty_contract
     |> Map.merge(%{
-      "required_outputs" => contract |> map_field(:required_outputs) |> string_list(),
-      "allowed_completion_routes" => contract |> map_field(:allowed_completion_routes) |> string_list(),
-      "evidence_requirements" => contract |> map_field(:evidence_requirements) |> string_list(),
-      "handoff_expectations" => contract |> map_field(:handoff_expectations) |> string_list()
+      @required_outputs_key => contract |> map_field(:required_outputs) |> string_list(),
+      @allowed_completion_routes_key => contract |> map_field(:allowed_completion_routes) |> string_list(),
+      @evidence_requirements_key => contract |> map_field(:evidence_requirements) |> string_list(),
+      @handoff_expectations_key => contract |> map_field(:handoff_expectations) |> string_list()
     })
   end
 
@@ -390,7 +400,7 @@ defmodule SymphonyElixir.Workflow.Readiness do
   defp route_map(%RouteFacts{} = route_facts) do
     @empty_route
     |> Map.merge(%{
-      "key" => atom_name(route_facts.route_key),
+      @key_key => atom_name(route_facts.route_key),
       "raw_state" => route_facts.raw_state,
       "lifecycle_phase" => route_facts.lifecycle_phase,
       "action" => atom_name(route_facts.action),
@@ -411,14 +421,14 @@ defmodule SymphonyElixir.Workflow.Readiness do
   defp route_policy_value(value), do: value
 
   defp no_route_gate do
-    %{
-      "status" => "blocked",
-      "gate" => "route",
-      "category" => "workflow",
-      "reason" => "Current issue state does not resolve to a workflow route.",
-      "required_evidence" => ["state maps to a profile route key"],
-      "observed_evidence" => []
-    }
+    gate_map(
+      ReadinessContract.blocked(),
+      ReadinessContract.route_gate(),
+      "workflow",
+      "Current issue state does not resolve to a workflow route.",
+      ["state maps to a profile route key"],
+      []
+    )
   end
 
   defp merge_gate(route_facts, capabilities, evidence) do
@@ -428,28 +438,40 @@ defmodule SymphonyElixir.Workflow.Readiness do
       |> put_route_evidence(route_facts)
 
     result = CompletionValidator.merge_gate(evidence, capabilities)
-    passed? = Map.get(result, "status") == "passed"
+    passed? = ReadinessContract.passed?(result)
 
-    %{
-      "status" => if(passed?, do: "open", else: "blocked"),
-      "gate" => "merge",
-      "category" => "repo",
-      "reason" => merge_gate_reason(passed?),
-      "required_evidence" => Map.get(result, "missing_evidence", []),
-      "observed_evidence" => observed_route_evidence(route_facts) ++ Map.get(result, "observed_evidence", []),
-      "checks" => Map.get(result, "checks", [])
-    }
+    gate_map(
+      if(passed?, do: ReadinessContract.open(), else: ReadinessContract.blocked()),
+      ReadinessContract.merge_gate(),
+      "repo",
+      merge_gate_reason(passed?),
+      Map.get(result, ReadinessContract.missing_evidence_key(), []),
+      observed_route_evidence(route_facts) ++ Map.get(result, ReadinessContract.observed_evidence_key(), []),
+      %{ReadinessContract.checks_key() => Map.get(result, ReadinessContract.checks_key(), [])}
+    )
   end
 
   defp dispatch_gate(route_facts) do
+    gate_map(
+      ReadinessContract.open(),
+      ReadinessContract.dispatch_gate(),
+      "workflow",
+      "Route policy allows automatic dispatch.",
+      ["route policy action is dispatch"],
+      observed_route_evidence(route_facts)
+    )
+  end
+
+  defp gate_map(status, gate, category, reason, required_evidence, observed_evidence, extra \\ %{}) do
     %{
-      "status" => "open",
-      "gate" => "dispatch",
-      "category" => "workflow",
-      "reason" => "Route policy allows automatic dispatch.",
-      "required_evidence" => ["route policy action is dispatch"],
-      "observed_evidence" => observed_route_evidence(route_facts)
+      ReadinessContract.status_key() => status,
+      ReadinessContract.gate_key() => gate,
+      ReadinessContract.category_key() => category,
+      ReadinessContract.reason_key() => reason,
+      ReadinessContract.required_evidence_key() => required_evidence,
+      ReadinessContract.observed_evidence_key() => observed_evidence
     }
+    |> Map.merge(extra)
   end
 
   defp observed_route_evidence(%RouteFacts{} = route_facts) do
@@ -472,8 +494,8 @@ defmodule SymphonyElixir.Workflow.Readiness do
     do: "Merge execution is fail-closed until change proposal, approval, checks, merge capability, and tracker-state evidence are present."
 
   defp put_route_evidence(evidence, %RouteFacts{} = route_facts) when is_map(evidence) do
-    Map.put(evidence, "route", %{
-      "key" => atom_name(route_facts.route_key),
+    Map.put(evidence, @route_key, %{
+      @key_key => atom_name(route_facts.route_key),
       "current" => atom_name(route_facts.route_key),
       "action" => atom_name(route_facts.action),
       "raw_state" => route_facts.raw_state,

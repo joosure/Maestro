@@ -2,9 +2,10 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Error do
   @moduledoc false
 
   alias SymphonyElixir.AgentProvider.Error
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Observability.Redaction
 
-  @provider "claude_code"
+  @provider Kinds.claude_code()
 
   @spec normalize(term(), atom()) :: Error.t()
   def normalize(%Error{} = error, _operation), do: error

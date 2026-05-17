@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.EventStream do
 
   alias SymphonyElixir.Agent.Runtime.WorkerDaemon.SessionHandle
   alias SymphonyWorkerDaemon.Protocol
+  alias SymphonyWorkerDaemon.Session.Status
 
   @default_poll_interval_ms 50
   @default_event_limit 100
@@ -114,10 +115,10 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.EventStream do
     end
   end
 
-  defp send_terminal_status(%SessionHandle{} = handle, owner, "exited"), do: send(owner, {handle, {:exit_status, 0}})
-  defp send_terminal_status(%SessionHandle{} = handle, owner, "cleaned"), do: send(owner, {handle, {:exit_status, 0}})
-  defp send_terminal_status(%SessionHandle{} = handle, owner, "stopped"), do: send(owner, {handle, {:exit_status, 0}})
-  defp send_terminal_status(%SessionHandle{} = handle, owner, _status), do: send(owner, {handle, {:exit_status, 1}})
+  defp send_terminal_status(%SessionHandle{} = handle, owner, status) do
+    exit_status = if Status.successful_terminal?(status), do: 0, else: 1
+    send(owner, {handle, {:exit_status, exit_status}})
+  end
 
   defp send_terminal_failure(%SessionHandle{} = handle, owner), do: send(owner, {handle, {:exit_status, 1}})
 

@@ -46,10 +46,14 @@ defmodule SymphonyElixir.Config.Schema.Repo do
     use Ecto.Schema
     import Ecto.Changeset
 
+    alias SymphonyElixir.RepoProvider.Defaults, as: RepoProviderDefaults
+    alias SymphonyElixir.RepoProvider.Kinds, as: RepoProviderKinds
+
     @primary_key false
+    @github_kind RepoProviderKinds.github()
 
     embedded_schema do
-      field(:kind, :string, default: "github")
+      field(:kind, :string, default: RepoProviderDefaults.default_kind())
       field(:repository, :string)
       field(:api_base_url, :string)
       field(:web_base_url, :string)
@@ -64,7 +68,7 @@ defmodule SymphonyElixir.Config.Schema.Repo do
     end
 
     defp reject_removed_github_settings(changeset, attrs) when is_map(attrs) do
-      if Map.has_key?(attrs, "github") || Map.has_key?(attrs, :github) do
+      if Map.has_key?(attrs, @github_kind) || Map.has_key?(attrs, :github) do
         add_error(
           changeset,
           :github,

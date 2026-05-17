@@ -4,9 +4,11 @@ defmodule SymphonyElixir.Tracker.Linear.GraphQL do
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
   alias SymphonyElixir.Observability.Redaction
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Linear.Errors
 
   @max_error_body_log_bytes 1_000
+  @provider_kind Kinds.linear()
 
   @spec request(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def request(query, variables, opts)
@@ -101,7 +103,7 @@ defmodule SymphonyElixir.Tracker.Linear.GraphQL do
   defp request_fields(tracker, payload, variables) do
     %{
       component: "tracker.linear.client",
-      tracker_kind: Map.get(tracker, :kind, "linear"),
+      tracker_kind: Map.get(tracker, :kind, @provider_kind),
       http_method: "POST",
       http_path: "/graphql",
       operation_name: Map.get(payload, "operationName"),

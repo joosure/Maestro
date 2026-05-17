@@ -13,38 +13,43 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
 
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Tracker.StatePrecondition
   alias SymphonyElixir.Tracker.Tapd.{ChangeProposalReference, Client, ConfigValidator, ToolExecutor, WorkspacePreparation}
+  alias SymphonyElixir.Tracker.Tapd.Client.Paths
+  alias SymphonyElixir.Workflow.CapabilityNames
+
+  @provider_kind Kinds.tapd()
 
   # ── Required callbacks ───────────────────────────────────────────
 
   @spec kind() :: String.t()
-  def kind, do: "tapd"
+  def kind, do: @provider_kind
 
   @spec capabilities() :: [String.t()]
   def capabilities do
     [
-      "tracker.issue.read",
-      "tracker.issue.update",
-      "tracker.issue.create",
-      "tracker.comment.read",
-      "tracker.comment.write",
-      "tracker.comment.update",
-      "tracker.state.update",
-      "tracker.relation.read",
-      "tracker.relation.write",
-      "tracker.issue_snapshot",
-      "tracker.move_issue",
-      "tracker.upsert_workpad",
-      "tracker.attach_change_proposal",
-      "tracker.upsert_comment",
-      "tracker.create_follow_up_issue",
-      "tracker.read_issue_relations",
-      "tracker.add_issue_relation",
-      "tracker.read_issue_dependencies",
-      "tracker.save_issue_dependency",
-      "tracker.provider_diagnostics"
+      CapabilityNames.tracker_issue_read(),
+      CapabilityNames.tracker_issue_update(),
+      CapabilityNames.tracker_issue_create(),
+      CapabilityNames.tracker_comment_read(),
+      CapabilityNames.tracker_comment_write(),
+      CapabilityNames.tracker_comment_update(),
+      CapabilityNames.tracker_state_update(),
+      CapabilityNames.tracker_relation_read(),
+      CapabilityNames.tracker_relation_write(),
+      CapabilityNames.tracker_issue_snapshot(),
+      CapabilityNames.tracker_move_issue(),
+      CapabilityNames.tracker_upsert_workpad(),
+      CapabilityNames.tracker_attach_change_proposal(),
+      CapabilityNames.tracker_upsert_comment(),
+      CapabilityNames.tracker_create_follow_up_issue(),
+      CapabilityNames.tracker_read_issue_relations(),
+      CapabilityNames.tracker_add_issue_relation(),
+      CapabilityNames.tracker_read_issue_dependencies(),
+      CapabilityNames.tracker_save_issue_dependency(),
+      CapabilityNames.tracker_provider_diagnostics()
     ]
   end
 
@@ -170,7 +175,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
   def healthcheck(tracker, opts \\ []) when is_map(tracker) and is_list(opts) do
     request_opts = Keyword.put(opts, :tracker, tracker)
 
-    case Client.request("GET", "/quickstart/testauth", %{}, request_opts) do
+    case Client.request("GET", Paths.quickstart_testauth(), %{}, request_opts) do
       {:ok, _body} ->
         :ok
 

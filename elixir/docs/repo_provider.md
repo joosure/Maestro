@@ -49,6 +49,16 @@ Provider credentials:
   with access to the target repository and PR checks
 - CNB: `CNB_TOKEN`
 
+Runtime environment variable names are code-owned contracts. Repo-core names
+live in `SymphonyElixir.Repo.RuntimeEnv`; repo-provider names live in
+`SymphonyElixir.RepoProvider.RuntimeEnv`; CNB-specific names, including
+`CNB_TOKEN`, live in `SymphonyElixir.RepoProvider.CNB.RuntimeEnv`.
+
+Repo-provider kind values and display labels are code-owned by
+`SymphonyElixir.RepoProvider.Kinds`. Defaults are owned separately by
+`SymphonyElixir.RepoProvider.Defaults`, so registries, CLI output, smoke
+selection, and config schemas stay aligned when a provider is added.
+
 CNB `run-list` and `run-view` additionally depend on CNB build/bill
 authorization for the target repository's build APIs.
 
@@ -102,9 +112,28 @@ issue comments, review summaries, inline review comments/replies, and head
 `repos/org/group/project/...`. Unmatched endpoints use direct OpenAPI
 passthrough.
 
+GitHub and CNB check-run normalizers emit the same internal status/conclusion
+contract. Consumers should use `SymphonyElixir.RepoProvider.CheckRun` for
+completed status checks, successful conclusion lists, and display fallback
+values instead of duplicating provider-normalized literals.
+
 The CNB helper implements `--jq` / `-q` internally for the query shapes used by
 bundled automation, including field access, array indexing, and array
 iteration. It does not require an external `jq` binary.
+
+The Elixir implementation keeps the helper path split into three layers:
+
+- `RepoProvider.Invocation` and `repo_provider/invocation/*` parse argv into a
+  provider-neutral invocation struct.
+- `RepoProvider.Command` and `repo_provider/command/*` execute parsed command
+  semantics through the repo-provider facade and shape command-specific results.
+- `RepoProvider.CLI.Evaluator` adapts parsed command execution to the CLI
+  runtime by reading environment, resolving runtime config, emitting
+  observability events, and returning `{stdout, stderr, exit_code}` tuples.
+
+`RepoProvider.CommandNames` remains the root-level owner of the external helper
+command-name contract because parser, smoke, helper, and provider handler code
+all consume the same names.
 
 CNB HTTP tuning environment variables:
 
@@ -125,10 +154,14 @@ It exits with:
 
 Agent-review recognition is configured with:
 
-- `SYMPHONY_AGENT_REVIEW_BOTS`
-- `SYMPHONY_AGENT_REVIEW_REQUEST_TOKEN`
-- `SYMPHONY_AGENT_REPLY_PREFIX`
-- `SYMPHONY_AGENT_REVIEW_HEADING`
+- `SYMPHONY_AGENT_REVIEW_BOTS`, default empty
+- `SYMPHONY_AGENT_REVIEW_REQUEST_TOKEN`, default `@agent review`
+- `SYMPHONY_AGENT_REPLY_PREFIX`, default `[agent]`
+- `SYMPHONY_AGENT_REVIEW_HEADING`, default `## Agent Review`
+
+The Elixir owner for these names and defaults is
+`SymphonyElixir.RepoProvider.LandWatch.RuntimeEnv`; land-watch policy code
+should use that module instead of duplicating environment-variable literals.
 
 ## Observability
 
@@ -218,7 +251,8 @@ Configure these repository secrets when using those workflows:
 
 - `REPO_PROVIDER_GITHUB_TOKEN` for GitHub repos outside the workflow's own
   repository or when the default `GITHUB_TOKEN` lacks sufficient read access
-- `REPO_PROVIDER_CNB_TOKEN` for CNB smoke
+- `REPO_PROVIDER_CNB_TOKEN` for CNB smoke; the workflow maps this secret into
+  the runtime `CNB_TOKEN` contract before invoking the Elixir smoke task
 
 The destructive workflow supports either an existing remote source branch via
 `head_branch` or CNB's `auto_provision_cnb_pipeline=true` mode.

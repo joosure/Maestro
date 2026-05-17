@@ -2,6 +2,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot.Probe do
   @moduledoc false
 
   alias SymphonyElixir.ChangeProposalReconciliation.OneShot.Report
+  alias SymphonyElixir.Smoke.ResultStatus
 
   @type result :: Report.probe_result()
 
@@ -34,7 +35,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot.Probe do
   def ok_value(_result), do: nil
 
   defp failed(id, reason, duration_ms) do
-    %{id: id, ok: false, duration_ms: duration_ms, summary: "failed", error: format_reason(reason)}
+    %{id: id, ok: false, duration_ms: duration_ms, summary: ResultStatus.failed(), error: format_reason(reason)}
   end
 
   defp elapsed_ms(monotonic_time_ms, started_at_ms) do

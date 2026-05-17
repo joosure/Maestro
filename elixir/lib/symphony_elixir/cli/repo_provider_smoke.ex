@@ -2,7 +2,9 @@ defmodule SymphonyElixir.CLI.RepoProviderSmoke do
   @moduledoc false
 
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
-  alias SymphonyElixir.RepoProvider.CommandEvaluator
+  alias SymphonyElixir.RepoProvider.CLI.Evaluator
+  alias SymphonyElixir.RepoProvider.Kinds
+  alias SymphonyElixir.RepoProvider.RuntimeConfig
   alias SymphonyElixir.RepoProvider.Smoke
 
   @switches [
@@ -92,7 +94,7 @@ defmodule SymphonyElixir.CLI.RepoProviderSmoke do
     %{
       env: &System.get_env/0,
       command_opts: fn -> [] end,
-      cli_evaluate: &CommandEvaluator.evaluate/2,
+      cli_evaluate: &Evaluator.evaluate/2,
       monotonic_time_ms: fn -> System.monotonic_time(:millisecond) end,
       emit_event: &ObservabilityLogger.emit/3
     }
@@ -145,7 +147,7 @@ defmodule SymphonyElixir.CLI.RepoProviderSmoke do
       base: blank_to_nil(Keyword.get(opts, :base)),
       title: blank_to_nil(Keyword.get(opts, :title)),
       body: blank_to_nil(Keyword.get(opts, :body)),
-      provider_kind: blank_to_nil(Keyword.get(opts, :provider)) || Map.get(env_map, "SYMPHONY_REPO_PROVIDER_KIND", "github")
+      provider_kind: blank_to_nil(Keyword.get(opts, :provider)) || env_map |> RuntimeConfig.from_env() |> RuntimeConfig.current_kind()
     }
   end
 
@@ -156,7 +158,7 @@ defmodule SymphonyElixir.CLI.RepoProviderSmoke do
   defp auto_provision_requires_destructive?(_validation), do: false
 
   defp unsupported_auto_provision_provider?(%{auto_provision_cnb_pipeline?: true, provider_kind: provider_kind}),
-    do: provider_kind != "cnb"
+    do: provider_kind != Kinds.cnb()
 
   defp unsupported_auto_provision_provider?(_validation), do: false
 

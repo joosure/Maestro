@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Agent.Runner.Execution do
   alias SymphonyElixir.Agent.Runner.{EventFields, RunContext, RunEvents, TurnEvents, WorkerAttempt, WorkerUpdates}
   alias SymphonyElixir.Config
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationStatus
 
   @spec run(map(), pid() | nil, keyword()) :: :ok
   def run(issue, update_recipient \\ nil, opts \\ []) do
@@ -21,7 +22,7 @@ defmodule SymphonyElixir.Agent.Runner.Execution do
       EventFields.event(issue, worker_host, nil, %{
         run_id: run_id,
         correlation_id: run_id,
-        status: "started",
+        status: OperationStatus.started(),
         attempt: Keyword.get(opts, :attempt)
       })
     )
@@ -72,7 +73,7 @@ defmodule SymphonyElixir.Agent.Runner.Execution do
       EventFields.event(issue, worker_host, nil, %{
         run_id: run_id,
         correlation_id: run_id,
-        status: "completed",
+        status: OperationStatus.completed(),
         attempt: Keyword.get(opts, :attempt),
         duration_ms: RunContext.elapsed_ms(started_at_ms)
       })
@@ -108,7 +109,7 @@ defmodule SymphonyElixir.Agent.Runner.Execution do
           Map.merge(
             ObsLogger.error_details(reason),
             %{
-              status: "failed",
+              status: OperationStatus.failed(),
               attempt: Keyword.get(opts, :attempt),
               duration_ms: RunContext.elapsed_ms(started_at_ms)
             }

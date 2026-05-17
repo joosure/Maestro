@@ -2,6 +2,16 @@ defmodule SymphonyWorkerDaemon.Api.Audit do
   @moduledoc false
 
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+
+  @caller_key ProtocolFields.caller()
+  @request_id_key ProtocolFields.request_id()
+  @session_id_key ProtocolFields.session_id()
+  @run_id_key ProtocolFields.run_id()
+  @owner_key ProtocolFields.owner()
+  @tenant_id_key ProtocolFields.tenant_id()
+  @provider_kind_key ProtocolFields.provider_kind()
+  @worker_pool_key ProtocolFields.worker_pool()
 
   @spec emit(Plug.Conn.t(), map(), atom(), map()) :: :ok
   def emit(conn, principal, event, fields) when is_map(principal) and is_atom(event) and is_map(fields) do
@@ -21,16 +31,16 @@ defmodule SymphonyWorkerDaemon.Api.Audit do
 
   @spec request_fields(map(), map()) :: map()
   def request_fields(request, response \\ %{}) when is_map(request) and is_map(response) do
-    caller = Map.get(request, "caller", %{})
+    caller = Map.get(request, @caller_key, %{})
 
     %{
-      request_id: Map.get(request, "request_id"),
-      session_id: Map.get(response, "session_id") || Map.get(request, "session_id"),
-      run_id: Map.get(request, "run_id"),
-      caller_owner: Map.get(caller, "owner"),
-      caller_tenant_id: Map.get(caller, "tenant_id"),
-      provider_kind: Map.get(caller, "provider_kind"),
-      worker_pool: Map.get(caller, "worker_pool")
+      request_id: Map.get(request, @request_id_key),
+      session_id: Map.get(response, @session_id_key) || Map.get(request, @session_id_key),
+      run_id: Map.get(request, @run_id_key),
+      caller_owner: Map.get(caller, @owner_key),
+      caller_tenant_id: Map.get(caller, @tenant_id_key),
+      provider_kind: Map.get(caller, @provider_kind_key),
+      worker_pool: Map.get(caller, @worker_pool_key)
     }
     |> compact_map()
   end

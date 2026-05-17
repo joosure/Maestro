@@ -6,6 +6,8 @@ defmodule SymphonyElixirWeb.Presenter do
   alias SymphonyElixir.{AgentProvider, Config, Orchestrator}
   alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Observability.StatusDashboard
+  alias SymphonyElixir.Workflow.CapabilityNames
+  alias SymphonyElixirWeb.Observability.Status
 
   @spec state_payload(GenServer.name(), timeout()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms) do
@@ -100,9 +102,9 @@ defmodule SymphonyElixirWeb.Presenter do
   defp retry_attempt(nil), do: 0
   defp retry_attempt(retry), do: retry.attempt || 0
 
-  defp issue_status(_running, nil), do: "running"
-  defp issue_status(nil, _retry), do: "retrying"
-  defp issue_status(_running, _retry), do: "running"
+  defp issue_status(_running, nil), do: Status.running()
+  defp issue_status(nil, _retry), do: Status.retrying()
+  defp issue_status(_running, _retry), do: Status.running()
 
   defp running_entry_payload(entry) do
     %{
@@ -277,17 +279,17 @@ defmodule SymphonyElixirWeb.Presenter do
     }
   end
 
-  defp agent_status(running, _retry) when not is_nil(running), do: "running"
-  defp agent_status(nil, retry) when not is_nil(retry), do: "retry_scheduled"
-  defp agent_status(_running, _retry), do: "unknown"
+  defp agent_status(running, _retry) when not is_nil(running), do: Status.running()
+  defp agent_status(nil, retry) when not is_nil(retry), do: Status.retry_scheduled()
+  defp agent_status(_running, _retry), do: Status.unknown()
 
-  defp turn_status(running, _retry) when not is_nil(running), do: "running"
-  defp turn_status(nil, retry) when not is_nil(retry), do: "retry_scheduled"
-  defp turn_status(_running, _retry), do: "unknown"
+  defp turn_status(running, _retry) when not is_nil(running), do: Status.running()
+  defp turn_status(nil, retry) when not is_nil(retry), do: Status.retry_scheduled()
+  defp turn_status(_running, _retry), do: Status.unknown()
 
-  defp worker_status(running, _retry) when not is_nil(running), do: "running"
-  defp worker_status(nil, retry) when not is_nil(retry), do: "retry_scheduled"
-  defp worker_status(_running, _retry), do: "unknown"
+  defp worker_status(running, _retry) when not is_nil(running), do: Status.running()
+  defp worker_status(nil, retry) when not is_nil(retry), do: Status.retry_scheduled()
+  defp worker_status(_running, _retry), do: Status.unknown()
 
   defp agent_attempt(running, _retry) when not is_nil(running), do: Map.get(running, :attempt)
   defp agent_attempt(nil, retry) when not is_nil(retry), do: Map.get(retry, :attempt)
@@ -311,7 +313,7 @@ defmodule SymphonyElixirWeb.Presenter do
   defp provider_capabilities(_kind), do: []
 
   defp provider_stateful?(kind) when is_binary(kind) do
-    AgentProvider.supports?("agent.session.stateful", kind: kind)
+    AgentProvider.supports?(CapabilityNames.agent_session_stateful(), kind: kind)
   rescue
     _ -> false
   end

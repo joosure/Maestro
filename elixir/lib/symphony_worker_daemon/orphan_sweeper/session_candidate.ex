@@ -2,11 +2,13 @@ defmodule SymphonyWorkerDaemon.OrphanSweeper.SessionCandidate do
   @moduledoc false
 
   alias SymphonyElixir.PathSafety
+  alias SymphonyWorkerDaemon.Session.Status
 
   @restart_lost_reasons MapSet.new(["daemon_restarted", "session_supervisor_restarted"])
+  @lost_status Status.lost()
 
   @spec restart_orphan?(map()) :: boolean()
-  def restart_orphan?(%{"status" => "lost", "lost_reason" => reason}) when is_binary(reason) do
+  def restart_orphan?(%{"status" => @lost_status, "lost_reason" => reason}) when is_binary(reason) do
     MapSet.member?(@restart_lost_reasons, reason)
   end
 

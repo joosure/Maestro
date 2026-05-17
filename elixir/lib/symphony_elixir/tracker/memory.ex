@@ -7,24 +7,28 @@ defmodule SymphonyElixir.Tracker.Memory do
 
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Tracker.Config
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Tracker.StatePrecondition
+  alias SymphonyElixir.Workflow.CapabilityNames
+
+  @provider_kind Kinds.memory()
 
   @spec kind() :: String.t()
-  def kind, do: "memory"
+  def kind, do: @provider_kind
 
   @spec capabilities() :: [String.t()]
   def capabilities do
     [
-      "tracker.issue.read",
-      "tracker.issue.update",
-      "tracker.issue.create",
-      "tracker.comment.read",
-      "tracker.comment.write",
-      "tracker.comment.update",
-      "tracker.state.update",
-      "tracker.relation.read",
-      "tracker.relation.write"
+      CapabilityNames.tracker_issue_read(),
+      CapabilityNames.tracker_issue_update(),
+      CapabilityNames.tracker_issue_create(),
+      CapabilityNames.tracker_comment_read(),
+      CapabilityNames.tracker_comment_write(),
+      CapabilityNames.tracker_comment_update(),
+      CapabilityNames.tracker_state_update(),
+      CapabilityNames.tracker_relation_read(),
+      CapabilityNames.tracker_relation_write()
     ]
   end
 

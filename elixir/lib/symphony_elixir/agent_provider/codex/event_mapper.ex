@@ -3,8 +3,9 @@ defmodule SymphonyElixir.AgentProvider.Codex.EventMapper do
 
   alias SymphonyElixir.AgentProvider.Codex.EventSummaryMapper.Payload
   alias SymphonyElixir.AgentProvider.Event
+  alias SymphonyElixir.AgentProvider.Kinds
 
-  @provider_kind "codex"
+  @provider_kind Kinds.codex()
 
   @spec map_message(term()) :: Event.t()
   def map_message(nil), do: Event.new(agent_provider_kind: @provider_kind, raw: nil)

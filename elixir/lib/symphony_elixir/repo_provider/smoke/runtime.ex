@@ -3,14 +3,15 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Runtime do
 
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
   alias SymphonyElixir.Platform.CommandEnv
-  alias SymphonyElixir.RepoProvider.CommandEvaluator
+  alias SymphonyElixir.RepoProvider.CLI.Evaluator
+  alias SymphonyElixir.RepoProvider.RuntimeEnv
 
   @spec runtime_deps() :: map()
   def runtime_deps do
     %{
       env: &System.get_env/0,
       command_opts: fn -> [] end,
-      cli_evaluate: &CommandEvaluator.evaluate/2,
+      cli_evaluate: &Evaluator.evaluate/2,
       monotonic_time_ms: fn -> System.monotonic_time(:millisecond) end,
       emit_event: &ObservabilityLogger.emit/3,
       system_cmd: &default_system_cmd/3,
@@ -25,7 +26,7 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Runtime do
   def env_map(opts, deps) do
     deps.env.()
     |> normalize_env()
-    |> maybe_put_env("SYMPHONY_REPO_PROVIDER_REPOSITORY", Keyword.get(opts, :repo))
+    |> RuntimeEnv.put_provider_repository(Keyword.get(opts, :repo))
   end
 
   @spec cli_deps(map(), map()) :: map()
@@ -48,10 +49,6 @@ defmodule SymphonyElixir.RepoProvider.Smoke.Runtime do
 
   defp normalize_env(env) when is_map(env), do: env
   defp normalize_env(env) when is_list(env), do: Map.new(env)
-
-  defp maybe_put_env(env_map, _key, nil), do: env_map
-  defp maybe_put_env(env_map, _key, ""), do: env_map
-  defp maybe_put_env(env_map, key, value) when is_binary(value), do: Map.put(env_map, key, value)
 
   defp default_system_cmd(command, argv, opts) do
     CommandEnv.system_cmd(command, argv, Keyword.merge([stderr_to_stdout: true], opts))

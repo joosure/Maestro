@@ -1,12 +1,14 @@
 defmodule SymphonyElixir.Agent.Credential do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.Credential.{Lease, Material, Store}
+  alias SymphonyElixir.Agent.Credential.{Lease, LeaseRequest, Material, Store}
   alias SymphonyElixir.AgentProvider.{Config, Error}
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationStatus
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @managed_capability "agent.credentials.managed"
+  @managed_capability CapabilityNames.agent_credentials_managed()
 
   @spec prepare_provider_start(Config.t(), module(), [String.t()], keyword()) ::
           {:ok, keyword()} | {:error, Error.t()}
@@ -182,7 +184,7 @@ defmodule SymphonyElixir.Agent.Credential do
         code: :agent_provider_not_implemented,
         message: "Managed agent credentials are not implemented for this provider",
         retryable?: false,
-        details: credential_details(credential_ref, "agent.credentials.managed")
+        details: credential_details(credential_ref, @managed_capability)
       })
 
     emit_credential_failed(config, credential_ref, opts, error)
@@ -197,7 +199,7 @@ defmodule SymphonyElixir.Agent.Credential do
         code: :agent_provider_capability_unsupported,
         message: "Selected provider does not support managed agent credentials",
         retryable?: false,
-        details: credential_details(credential_ref, "agent.credentials.managed")
+        details: credential_details(credential_ref, @managed_capability)
       })
 
     emit_credential_failed(config, credential_ref, opts, error)
@@ -212,22 +214,36 @@ defmodule SymphonyElixir.Agent.Credential do
       message: "Managed agent credential materialization failed",
       retryable?: true,
       details:
-        credential_details(credential_ref, "agent.credentials.managed")
+        credential_details(credential_ref, @managed_capability)
         |> Map.put(:reason_summary, Redaction.summarize(reason, 256))
     })
   end
 
   defp build_lease(%Config{} = config, credential_ref, opts) do
+    request = lease_request(config, credential_ref, opts)
+
     Lease.new(%{
       id: lease_id(config, opts),
-      provider_kind: config.kind,
-      credential_ref_summary: credential_ref_summary(credential_ref),
-      account_id: account_id_from_ref(credential_ref),
+      provider_kind: request.provider_kind,
+      credential_ref_summary: credential_ref_summary(request.credential_ref),
+      account_id: account_id_from_ref(request.credential_ref),
       metadata: %{
-        run_id: Keyword.get(opts, :run_id),
-        issue_id: Keyword.get(opts, :issue_id) || map_value(Keyword.get(opts, :issue), :id),
-        worker_pool: runtime_value(opts, :worker_pool)
+        run_id: request.run_id,
+        issue_id: request.issue_id,
+        worker_pool: request.worker_pool,
+        purpose: request.purpose
       }
+    })
+  end
+
+  defp lease_request(%Config{} = config, credential_ref, opts) do
+    LeaseRequest.new(%{
+      provider_kind: config.kind,
+      credential_ref: credential_ref,
+      run_id: Keyword.get(opts, :run_id),
+      issue_id: Keyword.get(opts, :issue_id) || map_value(Keyword.get(opts, :issue), :id),
+      worker_pool: runtime_value(opts, :worker_pool),
+      purpose: Keyword.get(opts, :credential_lease_purpose, :run)
     })
   end
 
@@ -319,7 +335,7 @@ defmodule SymphonyElixir.Agent.Credential do
         component: "agent_credential",
         agent_provider_kind: config.kind,
         operation: "release_lease",
-        status: "failed",
+        status: OperationStatus.failed(),
         run_id: Keyword.get(opts, :run_id) || lease.metadata[:run_id],
         correlation_id: Keyword.get(opts, :run_id) || lease.metadata[:run_id],
         issue_id: Keyword.get(opts, :issue_id) || lease.metadata[:issue_id],
@@ -339,7 +355,7 @@ defmodule SymphonyElixir.Agent.Credential do
       :agent_credential_lease_failed,
       credential_event_fields(config, credential_ref, opts, %{
         operation: "acquire_lease",
-        status: "failed",
+        status: OperationStatus.failed(),
         error_code: error.code,
         retryable: error.retryable?,
         error: error.message
@@ -418,7 +434,7 @@ defmodule SymphonyElixir.Agent.Credential do
         component: "agent_credential",
         agent_provider_kind: config.kind,
         operation: "cleanup_material",
-        status: "failed",
+        status: OperationStatus.failed(),
         run_id: Keyword.get(opts, :run_id),
         correlation_id: Keyword.get(opts, :run_id),
         issue_id: Keyword.get(opts, :issue_id) || map_value(Keyword.get(opts, :issue), :id),

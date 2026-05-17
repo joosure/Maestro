@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ChangeProposalReference do
 
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Tracker.ChangeProposalReference
-  alias SymphonyElixir.Tracker.Tapd.Client.{Fields, Request, Response}
+  alias SymphonyElixir.Tracker.Tapd.Client.{Fields, Paths, Request, Response}
 
   @default_comment_limit 50
 
@@ -32,15 +32,15 @@ defmodule SymphonyElixir.Tracker.Tapd.ChangeProposalReference do
       |> Keyword.put(:tracker, tracker)
       |> Keyword.put(:operation, :fetch_change_proposal_reference)
 
-    with {:ok, body} <- Request.request("GET", "/comments", params, request_opts),
+    with {:ok, body} <- Request.request("GET", Paths.comments(), params, request_opts),
          {:ok, comments} <- comments_from_body(body) do
       {:ok, Enum.find_value(comments, &reference_from_comment/1)}
     end
   end
 
   defp comments_from_body(body) do
-    with {:ok, data} <- Response.decode_success_envelope("/comments", body),
-         true <- is_list(data) || {:error, {:unexpected_tapd_payload, "/comments", body}} do
+    with {:ok, data} <- Response.decode_success_envelope(Paths.comments(), body),
+         true <- is_list(data) || {:error, {:unexpected_tapd_payload, Paths.comments(), body}} do
       {:ok, Enum.flat_map(data, &normalize_comment/1)}
     end
   end

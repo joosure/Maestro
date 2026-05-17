@@ -2,6 +2,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.Launcher do
   @moduledoc false
 
   alias SymphonyElixir.Agent.Runtime.{CommandSpec, DynamicToolBridge, Environment, Target}
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.AgentProvider.OpenCode.AppServer.Diagnostics
   alias SymphonyElixir.AgentProvider.OpenCode.Settings
   alias SymphonyElixir.PathSafety
@@ -10,6 +11,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.Launcher do
 
   @listening_line_regex ~r/opencode server listening on (?<url>http:\/\/[^\s]+)/
   @port_line_bytes 1_048_576
+  @provider_kind Kinds.opencode()
 
   @spec validate_runtime_placement(keyword()) :: :ok | {:error, term()}
   def validate_runtime_placement(opts) when is_list(opts) do
@@ -115,7 +117,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.Launcher do
   end
 
   defp runtime_env(%Settings{} = settings, workspace, opts) do
-    with {:ok, env} <- Environment.current_env("opencode", settings.telemetry, opts),
+    with {:ok, env} <- Environment.current_env(@provider_kind, settings.telemetry, opts),
          {:ok, bridge_env} <- DynamicToolBridge.runtime_env(opts) do
       provider_env =
         RepoProvider.runtime_env()

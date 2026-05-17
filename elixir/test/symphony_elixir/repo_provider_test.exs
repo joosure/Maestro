@@ -2,22 +2,33 @@ defmodule SymphonyElixir.RepoProviderTest do
   use SymphonyElixir.TestSupport
 
   alias SymphonyElixir.RepoProvider
+  alias SymphonyElixir.RepoProvider.CheckRun
   alias SymphonyElixir.RepoProvider.CNB
   alias SymphonyElixir.RepoProvider.Config, as: RepoConfig
   alias SymphonyElixir.RepoProvider.ConfigValidator
   alias SymphonyElixir.RepoProvider.Error
   alias SymphonyElixir.RepoProvider.GitHub
+  alias SymphonyElixir.RepoProvider.Kinds
   alias SymphonyElixir.RepoProvider.Memory
   alias SymphonyElixir.RepoProvider.RuntimeConfig
   alias SymphonyElixir.Workflow
 
   test "supports known provider kinds and adapter lookup" do
-    assert Enum.sort(RepoProvider.supported_kinds()) == ["cnb", "github", "memory"]
-    assert RepoProvider.adapter_for("cnb") == CNB.Adapter
-    assert RepoProvider.adapter_for("github") == GitHub.Adapter
+    assert Enum.sort(RepoProvider.supported_kinds()) == Enum.sort(Kinds.built_in())
+    assert RepoProvider.adapter_for(Kinds.cnb()) == CNB.Adapter
+    assert RepoProvider.adapter_for(Kinds.github()) == GitHub.Adapter
     assert RepoProvider.adapter_for("gitlab") == nil
     assert RepoProvider.adapter_for(:github) == nil
-    assert RepoProvider.default_kind() == "github"
+    assert RepoProvider.default_kind() == Kinds.github()
+  end
+
+  test "centralizes normalized check-run status contract" do
+    check = %{name: "ci", status: CheckRun.completed_status(), conclusion: "success"}
+
+    assert CheckRun.name(check) == "ci"
+    assert CheckRun.completed?(check)
+    assert CheckRun.successful_conclusion?(CheckRun.conclusion(check))
+    assert CheckRun.display_conclusion(%{}) == CheckRun.pending_conclusion()
   end
 
   test "reads current provider kind from config and uses github as the default" do

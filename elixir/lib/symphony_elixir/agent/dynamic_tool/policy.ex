@@ -3,11 +3,20 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
   Side-effect metadata and allowlist enforcement for dynamic tool execution.
   """
 
-  alias SymphonyElixir.Agent.DynamicTool.Spec
+  alias SymphonyElixir.Agent.DynamicTool.{MetadataContract, Spec}
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
 
-  @side_effect_classes ~w(read_only write destructive)
-  @default_side_effect "destructive"
+  @side_effect_classes MetadataContract.side_effect_classes()
+  @default_side_effect MetadataContract.default_side_effect()
+  @default_schema_version MetadataContract.default_schema_version()
   @default_allowed_side_effects @side_effect_classes
+  @side_effect_key MetadataContract.side_effect()
+  @schema_version_key MetadataContract.schema_version()
+  @risk_flags_key MetadataContract.risk_flags()
+  @workflow_capability_key MetadataContract.workflow_capability()
+  @source_kind_key MetadataContract.source_kind()
+  @deprecated_key MetadataContract.deprecated()
+  @operator_only_key MetadataContract.operator_only()
 
   @type metadata :: %{
           required(String.t()) => String.t() | [String.t()] | boolean()
@@ -38,26 +47,26 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
   @spec metadata(term()) :: metadata()
   def metadata(tool_spec) when is_map(tool_spec) do
     %{}
-    |> Map.put("sideEffect", side_effect(tool_spec))
-    |> Map.put("schemaVersion", string_field(tool_spec, ["schemaVersion", "schema_version"], "1"))
-    |> Map.put("riskFlags", risk_flags(tool_spec))
+    |> Map.put(@side_effect_key, side_effect(tool_spec))
+    |> Map.put(@schema_version_key, string_field(tool_spec, MetadataContract.schema_version_keys(), @default_schema_version))
+    |> Map.put(@risk_flags_key, risk_flags(tool_spec))
     |> maybe_put_string(
-      "workflowCapability",
-      string_field(tool_spec, ["workflowCapability", "workflow_capability"], nil)
+      @workflow_capability_key,
+      string_field(tool_spec, MetadataContract.workflow_capability_keys(), nil)
     )
-    |> maybe_put_string("sourceKind", string_field(tool_spec, ["sourceKind", "source_kind"], nil))
-    |> maybe_put_boolean("deprecated", boolean_field(tool_spec, ["deprecated"], false))
+    |> maybe_put_string(@source_kind_key, string_field(tool_spec, MetadataContract.source_kind_keys(), nil))
+    |> maybe_put_boolean(@deprecated_key, boolean_field(tool_spec, [@deprecated_key], false))
     |> maybe_put_boolean(
-      "operatorOnly",
-      boolean_field(tool_spec, ["operatorOnly", "operator_only"], false)
+      @operator_only_key,
+      boolean_field(tool_spec, MetadataContract.operator_only_keys(), false)
     )
   end
 
   def metadata(_tool_spec) do
     %{
-      "sideEffect" => @default_side_effect,
-      "schemaVersion" => "1",
-      "riskFlags" => []
+      @side_effect_key => @default_side_effect,
+      @schema_version_key => @default_schema_version,
+      @risk_flags_key => []
     }
   end
 
@@ -70,28 +79,21 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
     cond do
       operator_only?(tool_context, tool) and not operator_tool_access?(tool_context, opts) ->
         {:error,
-         %{
-           "error" => %{
-             "code" => "operator_only_dynamic_tool_denied",
-             "message" => "Operator-only dynamic tool requires explicit diagnostics exposure.",
-             "tool" => tool,
-             "requiredExposure" => "diagnostics"
-           }
-         }}
+         Response.error_payload("operator_only_dynamic_tool_denied", "Operator-only dynamic tool requires explicit diagnostics exposure.", %{
+           "tool" => tool,
+           "requiredExposure" => "diagnostics"
+         })}
 
       side_effect in allowed_side_effects ->
         :ok
 
       true ->
         {:error,
-         %{
-           "error" => %{
-             "message" => "Dynamic tool side-effect class is not allowed by policy.",
-             "tool" => tool,
-             "sideEffect" => side_effect,
-             "allowedSideEffects" => allowed_side_effects
-           }
-         }}
+         Response.error_payload(nil, "Dynamic tool side-effect class is not allowed by policy.", %{
+           "tool" => tool,
+           @side_effect_key => side_effect,
+           "allowedSideEffects" => allowed_side_effects
+         })}
     end
   end
 
@@ -110,7 +112,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
       when is_map(tool_metadata) and is_binary(tool) do
     tool_metadata
     |> Map.get(tool, %{})
-    |> Map.get("operatorOnly", false)
+    |> Map.get(@operator_only_key, false)
     |> Kernel.==(true)
   end
 
@@ -190,7 +192,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
   defp side_effect(tool_spec) when is_map(tool_spec) do
     tool_spec
     |> string_field(
-      ["sideEffect", "side_effect", "sideEffectClass", "side_effect_class"],
+      MetadataContract.side_effect_keys(),
       @default_side_effect
     )
     |> normalize_side_effect_value()
@@ -203,7 +205,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
   defp side_effect(_tool_spec), do: @default_side_effect
 
   defp risk_flags(tool_spec) do
-    case field_value(tool_spec, ["riskFlags", "risk_flags"]) do
+    case field_value(tool_spec, MetadataContract.risk_flags_keys()) do
       flags when is_list(flags) ->
         flags
         |> Enum.map(&normalize_string/1)
@@ -227,7 +229,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
 
   defp field_value(map, fields) when is_map(map) and is_list(fields) do
     Enum.find_value(fields, fn field ->
-      Map.get(map, field) || Map.get(map, atom_field(field))
+      MetadataContract.field_value(map, field)
     end)
   end
 
@@ -275,21 +277,4 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
     do: value |> Atom.to_string() |> normalize_string()
 
   defp normalize_string(_value), do: nil
-
-  defp atom_field("sideEffect"), do: :sideEffect
-  defp atom_field("side_effect"), do: :side_effect
-  defp atom_field("sideEffectClass"), do: :sideEffectClass
-  defp atom_field("side_effect_class"), do: :side_effect_class
-  defp atom_field("schemaVersion"), do: :schemaVersion
-  defp atom_field("schema_version"), do: :schema_version
-  defp atom_field("riskFlags"), do: :riskFlags
-  defp atom_field("risk_flags"), do: :risk_flags
-  defp atom_field("workflowCapability"), do: :workflowCapability
-  defp atom_field("workflow_capability"), do: :workflow_capability
-  defp atom_field("sourceKind"), do: :sourceKind
-  defp atom_field("source_kind"), do: :source_kind
-  defp atom_field("deprecated"), do: :deprecated
-  defp atom_field("operatorOnly"), do: :operatorOnly
-  defp atom_field("operator_only"), do: :operator_only
-  defp atom_field(_field), do: nil
 end

@@ -13,7 +13,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer do
   alias SymphonyElixir.AgentProvider.Codex.AppServer.SessionProtocol
   alias SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream
   alias SymphonyElixir.AgentProvider.Codex.Settings, as: CodexSettings
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+
+  @provider_kind Kinds.codex()
 
   @type session :: %{
           agent_provider_kind: String.t(),
@@ -266,7 +269,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer do
 
   defp start_thread(expanded_workspace, worker_host, codex_settings, runtime_context, run_id, port, bridge_runtime, tool_context) do
     metadata =
-      PortMetadata.metadata("codex", port, worker_host)
+      PortMetadata.metadata(@provider_kind, port, worker_host)
       |> Map.merge(DynamicToolBridge.metadata(bridge_runtime))
 
     dynamic_tool_specs = DynamicToolContext.tool_specs(tool_context)
@@ -299,7 +302,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer do
 
       {:ok,
        %{
-         agent_provider_kind: "codex",
+         agent_provider_kind: @provider_kind,
          port: port,
          metadata: metadata,
          approval_policy: session_policies.approval_policy,

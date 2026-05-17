@@ -1,15 +1,16 @@
 defmodule SymphonyWorkerDaemon.BridgeProxy.ProxyOptions do
   @moduledoc false
 
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract
   alias SymphonyWorkerDaemon.BridgeProxy.{PortReservation, Requester}
 
   @loopback_ip {127, 0, 0, 1}
   @loopback_host "127.0.0.1"
-  @base_path "/api/v1/agent-tools/dynamic"
-  @base_url_env "SYMPHONY_DYNAMIC_TOOL_BRIDGE_BASE_URL"
-  @token_env "SYMPHONY_DYNAMIC_TOOL_BRIDGE_TOKEN"
-  @transport_env "SYMPHONY_DYNAMIC_TOOL_BRIDGE_TRANSPORT"
-  @transport "worker_daemon_http"
+  @base_path DynamicToolBridgeContract.base_path()
+  @base_url_env DynamicToolBridgeContract.base_url_env()
+  @token_env DynamicToolBridgeContract.token_env()
+  @transport_env DynamicToolBridgeContract.transport_env()
+  @transport DynamicToolBridgeContract.worker_daemon_transport()
   @default_timeout_ms 30_000
 
   @spec ensure_enabled(keyword()) :: :ok | {:error, :dynamic_tool_bridge_proxy_disabled}

@@ -2,7 +2,7 @@ defmodule SymphonyElixir.Agent.Runtime do
   @moduledoc false
 
   alias SymphonyElixir.Agent.Runtime.Target
-  alias SymphonyElixir.Agent.Runtime.WorkerDaemon.{Endpoint, PoolResolver}
+  alias SymphonyElixir.Agent.Runtime.WorkerDaemon.{Endpoint, PoolResolver, RuntimeEnv}
   alias SymphonyElixir.Config, as: RuntimeConfig
   alias SymphonyElixir.Config.Schema, as: RuntimeSchema
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
@@ -285,7 +285,7 @@ defmodule SymphonyElixir.Agent.Runtime do
         |> normalize_optional_string()
         |> case do
           endpoint when is_binary(endpoint) -> endpoint
-          nil -> System.get_env("SYMPHONY_WORKER_DAEMON_ENDPOINT") |> normalize_optional_string()
+          nil -> RuntimeEnv.endpoint()
         end
     end
   end

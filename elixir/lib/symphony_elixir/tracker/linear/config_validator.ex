@@ -3,9 +3,12 @@ defmodule SymphonyElixir.Tracker.Linear.ConfigValidator do
 
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Linear.WorkflowConfig
   alias SymphonyElixir.Workflow.ProfileRegistry
   alias SymphonyElixir.Workflow.Validator, as: WorkflowValidator
+
+  @provider_kind Kinds.linear()
 
   @spec validate(map()) :: :ok | {:error, Error.t()}
   def validate(tracker) when is_map(tracker) do
@@ -75,7 +78,7 @@ defmodule SymphonyElixir.Tracker.Linear.ConfigValidator do
 
   defp config_error(source_reason) do
     Error.new(%{
-      provider: "linear",
+      provider: @provider_kind,
       operation: :validate_config,
       code: :invalid_configuration,
       message: "Linear workflow configuration is invalid.",

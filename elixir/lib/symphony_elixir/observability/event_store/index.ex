@@ -1,10 +1,10 @@
 defmodule SymphonyElixir.Observability.EventStore.Index do
   @moduledoc false
 
-  alias SymphonyElixir.Observability.EventBuffer
+  alias SymphonyElixir.Observability.EventStore.Buffer
 
   @type entry :: %{
-          required(:buffer) => EventBuffer.t(),
+          required(:buffer) => Buffer.t(),
           required(:last_seen_at) => integer()
         }
 
@@ -17,10 +17,10 @@ defmodule SymphonyElixir.Observability.EventStore.Index do
   def append(index, value, record, limit, index_key_limit)
       when is_map(index) and is_binary(value) and is_integer(limit) and limit > 0 do
     now_ms = System.monotonic_time(:millisecond)
-    entry = Map.get(index, value, %{buffer: EventBuffer.new(limit), last_seen_at: now_ms})
+    entry = Map.get(index, value, %{buffer: Buffer.new(limit), last_seen_at: now_ms})
 
     updated_entry = %{
-      buffer: EventBuffer.append(entry.buffer, record),
+      buffer: Buffer.append(entry.buffer, record),
       last_seen_at: now_ms
     }
 
@@ -34,7 +34,7 @@ defmodule SymphonyElixir.Observability.EventStore.Index do
       when is_map(index) and is_integer(limit) and limit > 0 do
     index
     |> Map.new(fn {key, %{buffer: buffer} = entry} ->
-      {key, %{entry | buffer: EventBuffer.resize(buffer, limit)}}
+      {key, %{entry | buffer: Buffer.resize(buffer, limit)}}
     end)
     |> prune(index_key_limit)
   end
@@ -42,7 +42,7 @@ defmodule SymphonyElixir.Observability.EventStore.Index do
   @spec records(t(), String.t() | nil) :: [map()]
   def records(index, value) when is_map(index) and is_binary(value) and value != "" do
     case Map.get(index, value) do
-      %{buffer: buffer} -> EventBuffer.to_list(buffer)
+      %{buffer: buffer} -> Buffer.to_list(buffer)
       _entry -> []
     end
   end

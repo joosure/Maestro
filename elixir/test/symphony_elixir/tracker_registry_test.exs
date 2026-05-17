@@ -5,6 +5,7 @@ defmodule SymphonyElixir.TrackerRegistryTest do
   alias SymphonyElixir.Agent.DynamicTool.Bridge
   alias SymphonyElixir.Agent.DynamicTool.BridgeContract
   alias SymphonyElixir.Agent.Runtime.DynamicToolBridge
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.ProjectRef
 
   defmodule FakeAdapter do
@@ -92,7 +93,7 @@ defmodule SymphonyElixir.TrackerRegistryTest do
       tracker_terminal_states: nil
     )
 
-    assert Tracker.supported_kinds() |> Enum.sort() == ["fake", "linear", "memory", "tapd"]
+    assert Tracker.supported_kinds() |> Enum.sort() == ["fake" | Kinds.built_in()] |> Enum.sort()
     assert Tracker.adapter() == FakeAdapter
     assert Tracker.adapter_for("fake") == FakeAdapter
     assert :ok = Config.validate!()

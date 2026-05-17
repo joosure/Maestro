@@ -258,7 +258,7 @@ defmodule SymphonyElixir.CLITest do
            code: :unsupported_option,
            provider: "cnb",
            operation: :validate_config,
-           message: "repo.provider.options.required_pr_label requires repo.provider.kind to be github; current provider: cnb"
+           message: "Repo provider cnb does not support option repo.provider.options.required_pr_label"
          }}
       end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
@@ -266,7 +266,7 @@ defmodule SymphonyElixir.CLITest do
 
     assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
     assert message =~ "Configuration error:"
-    assert message =~ "repo.provider.options.required_pr_label requires repo.provider.kind to be github"
+    assert message =~ "Repo provider cnb does not support option repo.provider.options.required_pr_label"
     assert message =~ "tracker and repo provider settings"
   end
 

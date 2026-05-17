@@ -1,13 +1,22 @@
 defmodule SymphonyWorkerDaemon.Protocol.Request do
   @moduledoc false
 
+  alias SymphonyWorkerDaemon.Protocol.Fields
+
+  @protocol_version_key Fields.protocol_version()
+  @request_id_key Fields.request_id()
+  @input_key Fields.input()
+  @encoding_key Fields.encoding()
+  @idempotency_key Fields.idempotency_key()
+  @reason_key Fields.reason()
+
   @spec input(iodata(), keyword(), String.t()) :: map()
   def input(data, opts, protocol_version) when is_list(opts) and is_binary(protocol_version) do
     %{
-      "protocol_version" => protocol_version,
-      "request_id" => request_id(opts),
-      "input" => IO.iodata_to_binary(data),
-      "encoding" => "utf-8"
+      @protocol_version_key => protocol_version,
+      @request_id_key => request_id(opts),
+      @input_key => IO.iodata_to_binary(data),
+      @encoding_key => "utf-8"
     }
   end
 
@@ -16,10 +25,10 @@ defmodule SymphonyWorkerDaemon.Protocol.Request do
     request_id = request_id(opts)
 
     %{
-      "protocol_version" => protocol_version,
-      "request_id" => request_id,
-      "idempotency_key" => string_value(opts, :idempotency_key) || request_id,
-      "reason" => string_value(opts, :reason) || "symphony_stop"
+      @protocol_version_key => protocol_version,
+      @request_id_key => request_id,
+      @idempotency_key => string_value(opts, :idempotency_key) || request_id,
+      @reason_key => string_value(opts, :reason) || "symphony_stop"
     }
   end
 
@@ -28,9 +37,9 @@ defmodule SymphonyWorkerDaemon.Protocol.Request do
     request_id = request_id(opts)
 
     %{
-      "protocol_version" => protocol_version,
-      "request_id" => request_id,
-      "idempotency_key" => string_value(opts, :idempotency_key) || request_id
+      @protocol_version_key => protocol_version,
+      @request_id_key => request_id,
+      @idempotency_key => string_value(opts, :idempotency_key) || request_id
     }
   end
 

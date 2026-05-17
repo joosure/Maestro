@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Connection do
 
   alias SymphonyElixir.Agent.Runtime.Target
   alias SymphonyElixir.Agent.Runtime.WorkerDaemon.Endpoint
+  alias SymphonyElixir.Agent.Runtime.WorkerDaemon.RuntimeEnv
 
   @spec endpoint(Target.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def endpoint(%Target{} = target, opts \\ []) do
@@ -10,7 +11,7 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Connection do
       Keyword.get(opts, :worker_daemon_endpoint),
       metadata_value(target.metadata, :worker_daemon_endpoint),
       Application.get_env(:symphony_elixir, :worker_daemon_endpoint),
-      System.get_env("SYMPHONY_WORKER_DAEMON_ENDPOINT")
+      RuntimeEnv.endpoint()
     ]
     |> Enum.find_value(&Endpoint.normalize/1)
     |> Endpoint.normalize_validated()
@@ -30,7 +31,7 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Connection do
         |> normalize_optional_string()
         |> case do
           token when is_binary(token) -> token
-          nil -> System.get_env("SYMPHONY_WORKER_DAEMON_TOKEN") |> normalize_optional_string()
+          nil -> RuntimeEnv.token()
         end
     end
   end

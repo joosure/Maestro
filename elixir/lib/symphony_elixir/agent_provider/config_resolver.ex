@@ -2,6 +2,7 @@ defmodule SymphonyElixir.AgentProvider.ConfigResolver do
   @moduledoc false
 
   alias SymphonyElixir.AgentProvider.Config
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.AgentProvider.Registry
   alias SymphonyElixir.Config, as: RuntimeConfig
   alias SymphonyElixir.Workflow
@@ -57,17 +58,7 @@ defmodule SymphonyElixir.AgentProvider.ConfigResolver do
   end
 
   @spec normalize_kind(term()) :: String.t() | nil
-  def normalize_kind(nil), do: nil
-  def normalize_kind(kind) when is_atom(kind), do: Atom.to_string(kind)
-
-  def normalize_kind(kind) when is_binary(kind) do
-    case String.trim(kind) do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  def normalize_kind(_kind), do: nil
+  def normalize_kind(kind), do: Kinds.normalize(kind)
 
   defp current_effective_config(opts) do
     base =

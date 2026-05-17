@@ -202,6 +202,14 @@ agent_runtime:
   placement: local            # local | ssh | worker_daemon
 ```
 
+Agent provider kind values are canonical runtime strings. Current built-ins are
+`codex`, `claude_code`, `opencode`, and `mock`; supported aliases are normalized
+by the Elixir provider-kind owner before registry lookup.
+
+Canonical tracker, repo-provider, and agent-provider kind strings are owned by
+the Elixir `Tracker.Kinds`, `RepoProvider.Kinds`, and `AgentProvider.Kinds`
+modules so registries, defaults, and documentation stay aligned.
+
 A production deployment can vary those dimensions independently. For example:
 
 ```text

@@ -3,8 +3,9 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.EventSummaryMapper do
 
   alias SymphonyElixir.AgentProvider.EventSummary
   alias SymphonyElixir.AgentProvider.EventSummaryMapper.{Access, Text}
+  alias SymphonyElixir.AgentProvider.Kinds
 
-  @provider_kind "claude_code"
+  @provider_kind Kinds.claude_code()
 
   @spec summarize(term()) :: EventSummary.t()
   def summarize(message) do

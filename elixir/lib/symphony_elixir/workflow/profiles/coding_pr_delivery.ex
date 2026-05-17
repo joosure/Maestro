@@ -5,9 +5,12 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
 
   @behaviour SymphonyElixir.Workflow.Profile
 
+  alias SymphonyElixir.Workflow.CapabilityNames, as: Capabilities
   alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
 
   @route_keys [:planning, :developing, :review, :merging, :rework, :resolved, :rejected]
+  @land_execution_profile "land"
+  @default_allowed_execution_profiles [@land_execution_profile]
 
   @default_raw_state_by_route_key %{
     planning: "planning",
@@ -23,7 +26,7 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
     planning: %{action: :transition_then_dispatch, transition_target: :developing},
     developing: %{action: :dispatch},
     review: %{action: :wait},
-    merging: %{action: :dispatch, execution_profile: "land"},
+    merging: %{action: :dispatch, execution_profile: @land_execution_profile},
     rework: %{action: :dispatch},
     resolved: %{action: :stop},
     rejected: %{action: :stop}
@@ -36,54 +39,54 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
       "typed_repo_tools" => false
     },
     "execution_profiles" => %{
-      "allowed" => ["land"]
+      "allowed" => @default_allowed_execution_profiles
     }
   }
 
   @required_capabilities [
-    "tracker.issue.read",
-    "tracker.comment.read",
-    "tracker.comment.write",
-    "tracker.state.update",
-    "repo.checkout",
-    "repo.diff",
-    "repo.commit",
-    "repo.push",
-    "agent.turn.run"
+    Capabilities.tracker_issue_read(),
+    Capabilities.tracker_comment_read(),
+    Capabilities.tracker_comment_write(),
+    Capabilities.tracker_state_update(),
+    Capabilities.repo_checkout(),
+    Capabilities.repo_diff(),
+    Capabilities.repo_commit(),
+    Capabilities.repo_push(),
+    Capabilities.agent_turn_run()
   ]
 
   @change_proposal_capabilities [
-    "repo_provider.change_proposal.create",
-    "repo_provider.change_proposal.read",
-    "repo_provider.review.read",
-    "repo_provider.check.read"
+    Capabilities.repo_provider_change_proposal_create(),
+    Capabilities.repo_provider_change_proposal_read(),
+    Capabilities.repo_provider_review_read(),
+    Capabilities.repo_provider_check_read()
   ]
 
   @typed_tracker_capabilities [
-    "tracker.issue_snapshot",
-    "tracker.move_issue",
-    "tracker.upsert_workpad"
+    Capabilities.tracker_issue_snapshot(),
+    Capabilities.tracker_move_issue(),
+    Capabilities.tracker_upsert_workpad()
   ]
 
   @typed_change_proposal_capabilities [
-    "tracker.attach_change_proposal"
+    Capabilities.tracker_attach_change_proposal()
   ]
 
   @typed_repo_capabilities [
-    "repo.change_proposal_snapshot",
-    "repo.create_or_update_change_proposal",
-    "repo.read_change_proposal_discussion",
-    "repo.add_change_proposal_comment",
-    "repo.reply_change_proposal_review_comment",
-    "repo.read_change_proposal_checks"
+    Capabilities.repo_change_proposal_snapshot(),
+    Capabilities.repo_create_or_update_change_proposal(),
+    Capabilities.repo_read_change_proposal_discussion(),
+    Capabilities.repo_add_change_proposal_comment(),
+    Capabilities.repo_reply_change_proposal_review_comment(),
+    Capabilities.repo_read_change_proposal_checks()
   ]
 
   @typed_repo_land_capabilities [
-    "repo.merge_change_proposal"
+    Capabilities.repo_merge_change_proposal()
   ]
 
   @profile_owned_execution_profile_capabilities [
-    "repo_provider.merge"
+    Capabilities.repo_provider_merge()
   ]
 
   @optional_capabilities (@change_proposal_capabilities ++
@@ -91,16 +94,16 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
                             @typed_repo_land_capabilities ++
                             [
                               @profile_owned_execution_profile_capabilities,
-                              "repo_provider.review.write",
-                              "tracker.relation.read",
-                              "tracker.relation.write",
-                              "tracker.upsert_comment",
-                              "tracker.create_follow_up_issue",
-                              "tracker.read_issue_relations",
-                              "tracker.add_issue_relation",
-                              "tracker.read_issue_dependencies",
-                              "tracker.save_issue_dependency",
-                              "repo.submit_change_proposal_review"
+                              Capabilities.repo_provider_review_write(),
+                              Capabilities.tracker_relation_read(),
+                              Capabilities.tracker_relation_write(),
+                              Capabilities.tracker_upsert_comment(),
+                              Capabilities.tracker_create_follow_up_issue(),
+                              Capabilities.tracker_read_issue_relations(),
+                              Capabilities.tracker_add_issue_relation(),
+                              Capabilities.tracker_read_issue_dependencies(),
+                              Capabilities.tracker_save_issue_dependency(),
+                              Capabilities.repo_submit_change_proposal_review()
                             ])
                          |> List.flatten()
 
@@ -158,7 +161,7 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
   def completion_contract(_options), do: @completion_contract
 
   @impl true
-  def allowed_execution_profiles, do: ["land"]
+  def allowed_execution_profiles, do: @default_allowed_execution_profiles
 
   @impl true
   def allowed_execution_profiles(options) when is_map(options),
@@ -170,7 +173,7 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
   @impl true
   def execution_profile_required_capabilities(execution_profile, options)
       when is_binary(execution_profile) and is_map(options) do
-    if execution_profile == "land" and execution_profile in allowed_execution_profile_names(options) do
+    if execution_profile == @land_execution_profile and execution_profile in allowed_execution_profile_names(options) do
       @profile_owned_execution_profile_capabilities
       |> maybe_add_capabilities(
         @typed_repo_land_capabilities,

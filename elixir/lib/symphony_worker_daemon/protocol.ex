@@ -1,31 +1,11 @@
 defmodule SymphonyWorkerDaemon.Protocol do
   @moduledoc false
 
-  alias SymphonyWorkerDaemon.Protocol.{Paths, Request, Response, Validation}
+  alias SymphonyWorkerDaemon.Protocol.{Features, Paths, Request, Response, Validation}
 
   @protocol_version "2026-05-02"
-  @supported_features [
-    "health",
-    "session_create",
-    "session_status",
-    "session_list",
-    "session_events",
-    "session_input",
-    "session_stop",
-    "session_cleanup",
-    "dynamic_tool_bridge_proxy",
-    "executable_policy",
-    "timeout_policy",
-    "resource_budget"
-  ]
-  @session_required_features [
-    "session_create",
-    "session_status",
-    "session_list",
-    "session_input",
-    "session_stop",
-    "session_cleanup"
-  ]
+  @supported_features Features.supported()
+  @session_required_features Features.session_required()
 
   @type health_response :: %{
           required(:status) => String.t(),

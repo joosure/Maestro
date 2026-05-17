@@ -7,10 +7,12 @@ defmodule SymphonyElixirWeb.SourceController do
 
   alias Plug.Conn
   alias SymphonyElixir.LegalSourceInfo
+  alias SymphonyElixir.LegalSourceInfo.RuntimeEnv, as: LegalSourceRuntimeEnv
+  alias SymphonyElixirWeb.BrowserPaths
 
   @spec show(Conn.t(), map()) :: Conn.t()
   def show(conn, _params) do
-    notice = LegalSourceInfo.payload()
+    notice = source_notice()
 
     conn
     |> put_resp_content_type("text/html")
@@ -19,10 +21,14 @@ defmodule SymphonyElixirWeb.SourceController do
 
   @spec metadata(Conn.t(), map()) :: Conn.t()
   def metadata(conn, _params) do
-    json(conn, LegalSourceInfo.payload())
+    json(conn, source_notice())
   end
 
+  defp source_notice, do: LegalSourceInfo.payload(notice_path: BrowserPaths.source_path())
+
   defp html_document(%{"source_url" => source_url, "source_revision" => source_revision}) do
+    source_revision_env = LegalSourceRuntimeEnv.source_revision_envs() |> List.first()
+
     revision_markup =
       case source_revision do
         value when is_binary(value) and value != "" ->
@@ -35,7 +41,7 @@ defmodule SymphonyElixirWeb.SourceController do
         _value ->
           """
           <p class="legal-meta">
-            No deployment revision was configured. Operators should set <code>MAESTRO_SOURCE_REVISION</code> when serving a specific commit, tag, or release.
+            No deployment revision was configured. Operators should set <code>#{source_revision_env}</code> when serving a specific commit, tag, or release.
           </p>
           """
       end
@@ -47,7 +53,7 @@ defmodule SymphonyElixirWeb.SourceController do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Maestro Source Code</title>
-        <link rel="stylesheet" href="/dashboard.css" />
+        <link rel="stylesheet" href="#{BrowserPaths.dashboard_css_path()}" />
       </head>
       <body>
         <main class="app-shell legal-shell">

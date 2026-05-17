@@ -1,11 +1,19 @@
 defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.DynamicTool.MetadataContract
+  alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Linear.Client
+  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @source_kind "linear"
+  @source_kind Kinds.linear()
   @schema_version "1"
   @risk_flags ["external_network", "secret_access", "privileged_api"]
+  @metadata_schema_version_key MetadataContract.schema_version()
+  @metadata_side_effect_key MetadataContract.side_effect()
+  @metadata_risk_flags_key MetadataContract.risk_flags()
+  @metadata_workflow_capability_key MetadataContract.workflow_capability()
+  @metadata_source_kind_key MetadataContract.source_kind()
 
   @issue_snapshot_tool "linear_issue_snapshot"
   @move_issue_tool "linear_move_issue"
@@ -15,13 +23,13 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   @prepare_file_upload_tool "linear_prepare_file_upload"
   @provider_diagnostics_tool "linear_provider_diagnostics"
 
-  @issue_snapshot_capability "tracker.issue_snapshot"
-  @move_issue_capability "tracker.move_issue"
-  @upsert_workpad_capability "tracker.upsert_workpad"
-  @attach_change_proposal_capability "tracker.attach_change_proposal"
-  @upsert_comment_capability "tracker.upsert_comment"
-  @prepare_file_upload_capability "tracker.prepare_file_upload"
-  @provider_diagnostics_capability "tracker.provider_diagnostics"
+  @issue_snapshot_capability CapabilityNames.tracker_issue_snapshot()
+  @move_issue_capability CapabilityNames.tracker_move_issue()
+  @upsert_workpad_capability CapabilityNames.tracker_upsert_workpad()
+  @attach_change_proposal_capability CapabilityNames.tracker_attach_change_proposal()
+  @upsert_comment_capability CapabilityNames.tracker_upsert_comment()
+  @prepare_file_upload_capability CapabilityNames.tracker_prepare_file_upload()
+  @provider_diagnostics_capability CapabilityNames.tracker_provider_diagnostics()
 
   @issue_snapshot_query """
   query SymphonyLinearIssueSnapshot($issueId: String!, $commentFirst: Int!) {
@@ -380,11 +388,11 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
       "name" => name,
       "description" => description,
       "inputSchema" => input_schema,
-      "schemaVersion" => @schema_version,
-      "sideEffect" => side_effect,
-      "riskFlags" => @risk_flags,
-      "workflowCapability" => capability,
-      "sourceKind" => @source_kind
+      @metadata_schema_version_key => @schema_version,
+      @metadata_side_effect_key => side_effect,
+      @metadata_risk_flags_key => @risk_flags,
+      @metadata_workflow_capability_key => capability,
+      @metadata_source_kind_key => @source_kind
     }
   end
 

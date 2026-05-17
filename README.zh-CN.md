@@ -202,6 +202,14 @@ agent_runtime:
   placement: local            # local | ssh | worker_daemon
 ```
 
+Agent provider kind 是规范化运行时字符串。当前内置值为 `codex`、
+`claude_code`、`opencode` 和 `mock`；支持的别名会先由 Elixir 的
+provider-kind owner 归一化，再进入 registry 查找。
+
+Tracker、repo-provider 和 agent-provider 的规范 kind 字符串分别由
+Elixir 的 `Tracker.Kinds`、`RepoProvider.Kinds` 和 `AgentProvider.Kinds`
+模块持有，确保 registry、默认值和文档保持一致。
+
 这些维度可以独立组合。例如：
 
 ```text

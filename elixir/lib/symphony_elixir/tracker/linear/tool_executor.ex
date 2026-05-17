@@ -7,6 +7,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor do
   workflow capabilities instead of provider schema guesses.
   """
 
+  alias SymphonyElixir.Agent.DynamicTool.EventContract
   alias SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools
 
   @spec tool_specs() :: [map()]
@@ -40,9 +41,9 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor do
     {:failure,
      %{
        "error" => %{
-         "code" => "unsupported_tool",
+         "code" => EventContract.unsupported_tool(),
          "message" => "Unsupported Linear dynamic tool.",
-         "supportedTools" => supported_tool_names()
+         EventContract.supported_tools_key() => supported_tool_names()
        }
      }}
   end
@@ -51,9 +52,9 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor do
     {:failure,
      %{
        "error" => %{
-         "code" => "unsupported_tool",
+         "code" => EventContract.unsupported_tool(),
          "message" => "Unsupported Linear dynamic tool.",
-         "supportedTools" => supported_tool_names(tracker)
+         EventContract.supported_tools_key() => supported_tool_names(tracker)
        }
      }}
   end

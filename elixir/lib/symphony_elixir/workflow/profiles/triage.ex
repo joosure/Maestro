@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Workflow.Profiles.Triage do
 
   @behaviour SymphonyElixir.Workflow.Profile
 
+  alias SymphonyElixir.Workflow.CapabilityNames, as: Capabilities
   alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
 
   @route_keys [:intake, :classifying, :needs_info, :routed, :duplicate, :rejected]
@@ -59,19 +60,19 @@ defmodule SymphonyElixir.Workflow.Profiles.Triage do
   }
 
   @required_capabilities [
-    "tracker.issue.read",
-    "tracker.issue.update",
-    "tracker.comment.read",
-    "tracker.comment.write",
-    "tracker.state.update",
-    "agent.turn.run"
+    Capabilities.tracker_issue_read(),
+    Capabilities.tracker_issue_update(),
+    Capabilities.tracker_comment_read(),
+    Capabilities.tracker_comment_write(),
+    Capabilities.tracker_state_update(),
+    Capabilities.agent_turn_run()
   ]
 
   @optional_capabilities [
-    "tracker.relation.read",
-    "tracker.relation.write",
-    "tracker.issue.create",
-    "tracker.comment.update"
+    Capabilities.tracker_relation_read(),
+    Capabilities.tracker_relation_write(),
+    Capabilities.tracker_issue_create(),
+    Capabilities.tracker_comment_update()
   ]
 
   @impl true

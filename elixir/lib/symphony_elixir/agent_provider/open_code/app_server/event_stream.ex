@@ -4,7 +4,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.EventStream do
   require Logger
 
   alias SymphonyElixir.AgentProvider.AppServer.Messages
-  alias SymphonyElixir.AgentProvider.OpenCode.AppServer.{Context, Diagnostics, Usage}
+  alias SymphonyElixir.AgentProvider.OpenCode.AppServer.{Context, Diagnostics, Paths, Usage}
   alias SymphonyElixir.PathSafety
 
   @allowed_unattended_permissions MapSet.new(~w(read edit glob grep list bash lsp task skill todowrite webfetch websearch codesearch))
@@ -15,7 +15,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.EventStream do
       when is_map(session) and is_reference(turn_ref) and is_pid(owner) and is_function(on_message, 1) do
     response =
       Req.get!(session.request,
-        url: "/global/event",
+        url: Paths.global_event(),
         decode_body: false,
         into: :self,
         headers: %{"accept" => "text/event-stream"}
@@ -264,7 +264,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.EventStream do
     {kind,
      Map.merge(Context.session(session), %{
        method: "GET",
-       path: "/global/event",
+       path: Paths.global_event(),
        transport_reason: transport_reason,
        cause: Diagnostics.preview_value(reason),
        message: message

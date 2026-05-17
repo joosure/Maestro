@@ -6,11 +6,35 @@ defmodule SymphonyWorkerDaemon.Api do
   import SymphonyWorkerDaemon.Api.Response, only: [error_payload: 3, json: 3, mutation_error: 5]
 
   alias SymphonyElixir.LegalSourceInfo
-  alias SymphonyWorkerDaemon.Api.{Audit, Health, RateLimit, RequestLimits, RequestParams, SessionAccess, SessionCleanup, SessionCreate, SessionOptions}
-  alias SymphonyWorkerDaemon.{Auth, Protocol}
-  alias SymphonyWorkerDaemon.Session
 
-  @base_path "/api/v1/worker-daemon"
+  alias SymphonyWorkerDaemon.Api.{
+    Audit,
+    Health,
+    RateLimit,
+    RequestLimits,
+    RequestParams,
+    SessionAccess,
+    SessionCleanup,
+    SessionCreate,
+    SessionOptions
+  }
+
+  alias SymphonyWorkerDaemon.{Auth, Protocol}
+  alias SymphonyWorkerDaemon.Auth.Defaults, as: AuthDefaults
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+  alias SymphonyWorkerDaemon.Protocol.Paths
+  alias SymphonyWorkerDaemon.Protocol.ResponseStatus
+  alias SymphonyWorkerDaemon.Session
+  alias SymphonyWorkerDaemon.Session.Status
+
+  @base_path Paths.base_path()
+  @source_path Paths.source_path()
+  @input_key ProtocolFields.input()
+  @request_id_key ProtocolFields.request_id()
+  @reason_key ProtocolFields.reason()
+  @sessions_key ProtocolFields.sessions()
+  @events_key ProtocolFields.events()
+  @status_key ProtocolFields.status()
 
   plug(:match)
   plug(:reject_oversized_headers)
@@ -24,8 +48,8 @@ defmodule SymphonyWorkerDaemon.Api do
     json(conn, 200, conn |> runtime_opts() |> Health.payload())
   end
 
-  get @base_path <> "/source" do
-    json(conn, 200, LegalSourceInfo.payload(notice_path: @base_path <> "/source"))
+  get @source_path do
+    json(conn, 200, LegalSourceInfo.payload(notice_path: @source_path))
   end
 
   post @base_path <> "/sessions" do
@@ -34,7 +58,12 @@ defmodule SymphonyWorkerDaemon.Api do
     principal = principal(conn)
     features = Health.features(opts)
 
-    with :ok <- Protocol.validate_create_request(request, features, RequestParams.protocol_limit_opts(opts)),
+    with :ok <-
+           Protocol.validate_create_request(
+             request,
+             features,
+             RequestParams.protocol_limit_opts(opts)
+           ),
          :ok <- Auth.authorize_create(principal, request),
          {:ok, _pid, payload} <-
            Session.Supervisor.start_session(
@@ -42,7 +71,13 @@ defmodule SymphonyWorkerDaemon.Api do
              request,
              SessionOptions.build(opts)
            ) do
-      Audit.emit(conn, principal, :worker_daemon_session_create_accepted, Audit.request_fields(request, payload))
+      Audit.emit(
+        conn,
+        principal,
+        :worker_daemon_session_create_accepted,
+        Audit.request_fields(request, payload)
+      )
+
       json(conn, 201, payload)
     else
       {:error, reason} ->
@@ -53,15 +88,24 @@ defmodule SymphonyWorkerDaemon.Api do
   get @base_path <> "/sessions" do
     conn = fetch_query_params(conn)
 
-    with {:ok, filters} <- Auth.authorize_filters(principal(conn), RequestParams.session_filters(conn.query_params)),
+    with {:ok, filters} <-
+           Auth.authorize_filters(
+             principal(conn),
+             RequestParams.session_filters(conn.query_params)
+           ),
          {:ok, sessions} <-
            conn
            |> runtime_opts()
            |> Keyword.get(:registry, SymphonyWorkerDaemon.SessionRegistry)
            |> Session.Supervisor.list_sessions(filters, SessionAccess.session_list_opts(conn)) do
-      json(conn, 200, %{"sessions" => sessions})
+      json(conn, 200, %{@sessions_key => sessions})
     else
-      {:error, :session_forbidden} -> json(conn, 403, error_payload("session_forbidden", Auth.principal_summary(principal(conn)), false))
+      {:error, :session_forbidden} ->
+        json(
+          conn,
+          403,
+          error_payload("session_forbidden", Auth.principal_summary(principal(conn)), false)
+        )
     end
   end
 
@@ -69,33 +113,49 @@ defmodule SymphonyWorkerDaemon.Api do
     conn = fetch_query_params(conn)
 
     case SessionAccess.lookup_authorized_session(conn, session_id) do
-      {:ok, pid} -> json(conn, 200, %{"events" => Session.Server.events(pid, RequestParams.event_filters(conn.query_params))})
-      {:error, :session_not_found} -> json(conn, 404, error_payload("session_not_found", session_id, false))
-      {:error, :session_forbidden} -> json(conn, 403, error_payload("session_forbidden", session_id, false))
+      {:ok, pid} ->
+        json(conn, 200, %{
+          @events_key => Session.Server.events(pid, RequestParams.event_filters(conn.query_params))
+        })
+
+      {:error, :session_not_found} ->
+        json(conn, 404, error_payload("session_not_found", session_id, false))
+
+      {:error, :session_forbidden} ->
+        json(conn, 403, error_payload("session_forbidden", session_id, false))
     end
   end
 
   get @base_path <> "/sessions/:session_id" do
     case SessionAccess.lookup_authorized_status(conn, session_id) do
-      {:ok, status} -> json(conn, 200, status)
-      {:error, :session_not_found} -> json(conn, 404, error_payload("session_not_found", session_id, false))
-      {:error, :session_forbidden} -> json(conn, 403, error_payload("session_forbidden", session_id, false))
+      {:ok, status} ->
+        json(conn, 200, status)
+
+      {:error, :session_not_found} ->
+        json(conn, 404, error_payload("session_not_found", session_id, false))
+
+      {:error, :session_forbidden} ->
+        json(conn, 403, error_payload("session_forbidden", session_id, false))
     end
   end
 
   post @base_path <> "/sessions/:session_id/input" do
     request = RequestParams.body_params(conn)
 
-    with :ok <- Protocol.validate_input_request(request, RequestParams.protocol_limit_opts(runtime_opts(conn))),
+    with :ok <-
+           Protocol.validate_input_request(
+             request,
+             RequestParams.protocol_limit_opts(runtime_opts(conn))
+           ),
          {:ok, pid} <- SessionAccess.lookup_authorized_session(conn, session_id),
-         :ok <- Session.Server.send_input(pid, Map.get(request, "input", "")) do
+         :ok <- Session.Server.send_input(pid, Map.get(request, @input_key, "")) do
       Audit.emit(conn, principal(conn), :worker_daemon_session_input_accepted, %{
         session_id: session_id,
-        request_id: Map.get(request, "request_id"),
-        input_bytes: byte_size(Map.get(request, "input", ""))
+        request_id: Map.get(request, @request_id_key),
+        input_bytes: byte_size(Map.get(request, @input_key, ""))
       })
 
-      json(conn, 200, %{"status" => "accepted"})
+      json(conn, 200, %{@status_key => ResponseStatus.accepted()})
     else
       {:error, reason} -> mutation_error(conn, session_id, reason, "session_input_failed", true)
     end
@@ -104,17 +164,21 @@ defmodule SymphonyWorkerDaemon.Api do
   post @base_path <> "/sessions/:session_id/stop" do
     request = RequestParams.body_params(conn)
 
-    with :ok <- Protocol.validate_stop_request(request, RequestParams.protocol_limit_opts(runtime_opts(conn))),
+    with :ok <-
+           Protocol.validate_stop_request(
+             request,
+             RequestParams.protocol_limit_opts(runtime_opts(conn))
+           ),
          {:ok, pid} <- SessionAccess.lookup_authorized_session(conn, session_id) do
-      :ok = Session.Server.stop_session(pid, reason: Map.get(request, "reason"))
+      :ok = Session.Server.stop_session(pid, reason: Map.get(request, @reason_key))
 
       Audit.emit(conn, principal(conn), :worker_daemon_session_stop_accepted, %{
         session_id: session_id,
-        request_id: Map.get(request, "request_id"),
-        reason: Map.get(request, "reason")
+        request_id: Map.get(request, @request_id_key),
+        reason: Map.get(request, @reason_key)
       })
 
-      json(conn, 200, %{"status" => "stopped"})
+      json(conn, 200, %{@status_key => Status.stopped()})
     else
       {:error, reason} -> mutation_error(conn, session_id, reason, "session_stop_failed", true)
     end
@@ -123,13 +187,21 @@ defmodule SymphonyWorkerDaemon.Api do
   post @base_path <> "/sessions/:session_id/cleanup" do
     request = RequestParams.body_params(conn)
 
-    case Protocol.validate_cleanup_request(request, RequestParams.protocol_limit_opts(runtime_opts(conn))) do
+    case Protocol.validate_cleanup_request(
+           request,
+           RequestParams.protocol_limit_opts(runtime_opts(conn))
+         ) do
       :ok ->
         case SessionAccess.lookup_authorized_session(conn, session_id) do
           {:ok, pid} ->
             :ok = Session.Server.cleanup(pid, delete_workspace?: false)
-            Audit.emit(conn, principal(conn), :worker_daemon_session_cleanup_accepted, %{session_id: session_id, request_id: Map.get(request, "request_id")})
-            json(conn, 200, %{"status" => "cleaned"})
+
+            Audit.emit(conn, principal(conn), :worker_daemon_session_cleanup_accepted, %{
+              session_id: session_id,
+              request_id: Map.get(request, @request_id_key)
+            })
+
+            json(conn, 200, %{@status_key => Status.cleaned()})
 
           {:error, :session_not_found} ->
             SessionCleanup.cleanup_ledger_session(conn, session_id, request)
@@ -190,5 +262,6 @@ defmodule SymphonyWorkerDaemon.Api do
 
   defp runtime_opts(conn), do: conn.assigns[:worker_daemon_opts] || []
 
-  defp principal(conn), do: conn.assigns[:worker_daemon_principal] || %{owner: "symphony", roles: ["admin"]}
+  defp principal(conn),
+    do: conn.assigns[:worker_daemon_principal] || AuthDefaults.default_principal()
 end

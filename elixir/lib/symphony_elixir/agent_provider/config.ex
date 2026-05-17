@@ -3,6 +3,7 @@ defmodule SymphonyElixir.AgentProvider.Config do
   Provider-neutral effective agent-provider configuration.
   """
 
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Config.InputNormalizer
 
   @type t :: %__MODULE__{
@@ -39,15 +40,7 @@ defmodule SymphonyElixir.AgentProvider.Config do
   @spec with_options(t(), term()) :: t()
   def with_options(%__MODULE__{} = config, options), do: %{config | options: normalize_options(options)}
 
-  defp normalize_kind(kind) when is_binary(kind) do
-    case String.trim(kind) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp normalize_kind(kind) when is_atom(kind), do: kind |> Atom.to_string() |> normalize_kind()
-  defp normalize_kind(_kind), do: nil
+  defp normalize_kind(kind), do: Kinds.normalize(kind)
 
   defp normalize_options(options) when is_map(options), do: InputNormalizer.normalize_keys(options)
   defp normalize_options(_options), do: %{}

@@ -6,7 +6,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
   alias SymphonyElixir.AgentProvider.Codex.AppServer.Messages
   alias SymphonyElixir.AgentProvider.Codex.AppServer.StreamDiagnostics
   alias SymphonyElixir.AgentProvider.Codex.AppServer.TurnRequests
+  alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+
+  @provider_kind Kinds.codex()
 
   @spec await_completion(term(), (map() -> term()), boolean(), map(), pos_integer(), non_neg_integer() | nil) ::
           {:ok, :turn_completed} | {:error, term()}
@@ -167,7 +170,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
             payload: payload,
             raw: payload_string
           },
-          PortMetadata.message("codex", port, payload, turn_context)
+          PortMetadata.message(@provider_kind, port, payload, turn_context)
         )
 
         receive_loop(
@@ -203,7 +206,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
               payload: payload_string,
               raw: payload_string
             },
-            PortMetadata.message("codex", port, %{raw: payload_string}, turn_context)
+            PortMetadata.message(@provider_kind, port, %{raw: payload_string}, turn_context)
           )
         else
           emit_non_json_stream_message(
@@ -238,7 +241,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
         raw: payload_string,
         details: payload_details
       },
-      PortMetadata.message("codex", port, payload, turn_context)
+      PortMetadata.message(@provider_kind, port, payload, turn_context)
     )
   end
 
@@ -259,7 +262,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
          turn_timeout_ms,
          stall_timeout_ms
        ) do
-    metadata = PortMetadata.message("codex", port, payload, turn_context)
+    metadata = PortMetadata.message(@provider_kind, port, payload, turn_context)
 
     case TurnRequests.handle(%{
            port: port,
@@ -427,7 +430,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.TurnStream do
         raw: raw_payload,
         stream_label: stream_label
       },
-      PortMetadata.message("codex", port, %{raw: raw_payload}, turn_context)
+      PortMetadata.message(@provider_kind, port, %{raw: raw_payload}, turn_context)
     )
   end
 

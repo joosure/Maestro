@@ -1,10 +1,9 @@
 defmodule SymphonyWorkerDaemon.Auth do
   @moduledoc false
 
-  alias SymphonyWorkerDaemon.Auth.{AccessPolicy, Clients, Token, Values}
+  alias SymphonyWorkerDaemon.Auth.{AccessPolicy, Clients, Defaults, Token, Values}
 
-  @default_owner "symphony"
-  @admin_role "admin"
+  @admin_role Defaults.admin_role()
 
   @type principal :: %{
           required(:owner) => String.t(),
@@ -77,6 +76,14 @@ defmodule SymphonyWorkerDaemon.Auth do
     Clients.build(opts, default_owner(opts), @admin_role, default_tenant_id(opts))
   end
 
-  defp default_owner(opts), do: opts |> Keyword.get(:owner, @default_owner) |> Values.normalize_optional_string() || @default_owner
+  defp default_owner(opts) do
+    owner =
+      opts
+      |> Keyword.get(:owner, Defaults.default_owner())
+      |> Values.normalize_optional_string()
+
+    owner || Defaults.default_owner()
+  end
+
   defp default_tenant_id(opts), do: opts |> Keyword.get(:tenant_id) |> Values.normalize_optional_string()
 end

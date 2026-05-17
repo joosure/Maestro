@@ -19,7 +19,8 @@ Segments:
   Use `no_repo` for workflows that do not perform repo clone, push, PR, or merge
   operations.
 - `agent-provider`: the canonical agent runtime/provider kind, such as `codex`,
-  `opencode`, or `claude_code`.
+  `opencode`, or `claude_code`. The Elixir runtime owns these strings and
+  supported aliases in `SymphonyElixir.AgentProvider.Kinds`.
 - `variant`: optional detail for a specialized template that shares the same
   tracker, source, and agent provider. Keep variants as a suffix on the file
   name, for example `opencode.canary.md`, before adding another directory level.

@@ -1,8 +1,7 @@
 defmodule SymphonyElixir.Observability.EventStore.State do
   @moduledoc false
 
-  alias SymphonyElixir.Observability.EventBuffer
-  alias SymphonyElixir.Observability.EventStore.{Config, Index}
+  alias SymphonyElixir.Observability.EventStore.{Buffer, Config, Index}
 
   defstruct next_seq: 1,
             config: %{},
@@ -20,7 +19,7 @@ defmodule SymphonyElixir.Observability.EventStore.State do
   @type t :: %__MODULE__{
           next_seq: pos_integer(),
           config: Config.t(),
-          all_events: EventBuffer.t(),
+          all_events: Buffer.t(),
           issue_events: Index.t(),
           issue_identifier_events: Index.t(),
           run_events: Index.t(),
@@ -31,7 +30,7 @@ defmodule SymphonyElixir.Observability.EventStore.State do
   def new(config) do
     %__MODULE__{
       config: config,
-      all_events: EventBuffer.new(config.global_event_limit)
+      all_events: Buffer.new(config.global_event_limit)
     }
   end
 
@@ -42,7 +41,7 @@ defmodule SymphonyElixir.Observability.EventStore.State do
     %{
       state
       | next_seq: seq + 1,
-        all_events: EventBuffer.append(state.all_events, record),
+        all_events: Buffer.append(state.all_events, record),
         issue_events:
           Index.append(
             state.issue_events,
@@ -83,7 +82,7 @@ defmodule SymphonyElixir.Observability.EventStore.State do
     %{
       state
       | config: config,
-        all_events: EventBuffer.resize(state.all_events, config.global_event_limit),
+        all_events: Buffer.resize(state.all_events, config.global_event_limit),
         issue_events: Index.resize(state.issue_events, config.issue_event_limit, config.index_key_limit),
         issue_identifier_events:
           Index.resize(

@@ -3,44 +3,57 @@ defmodule SymphonyElixir.Agent.DynamicTool.BridgeContract do
   Stable external-process contract for the Agent Dynamic Tool bridge.
   """
 
-  @base_path "/api/v1/agent-tools/dynamic"
-  @execute_path @base_path <> "/execute"
-  @base_url_env "SYMPHONY_DYNAMIC_TOOL_BRIDGE_BASE_URL"
-  @token_env "SYMPHONY_DYNAMIC_TOOL_BRIDGE_TOKEN"
-  @transport_env "SYMPHONY_DYNAMIC_TOOL_BRIDGE_TRANSPORT"
-  @token_config_key :dynamic_tool_bridge_token
-  @remote_port_option_key :dynamic_tool_bridge_remote_port
-  @local_transport "local_http"
-  @ssh_tunnel_transport "ssh_tunnel_http"
-  @worker_daemon_transport "worker_daemon_http"
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
 
   @spec base_path() :: String.t()
-  def base_path, do: @base_path
+  defdelegate base_path(), to: DynamicToolBridgeContract
+
+  @spec execute_suffix() :: String.t()
+  defdelegate execute_suffix(), to: DynamicToolBridgeContract
 
   @spec execute_path() :: String.t()
-  def execute_path, do: @execute_path
+  defdelegate execute_path(), to: DynamicToolBridgeContract
 
   @spec base_url_env() :: String.t()
-  def base_url_env, do: @base_url_env
+  defdelegate base_url_env(), to: DynamicToolBridgeContract
 
   @spec token_env() :: String.t()
-  def token_env, do: @token_env
+  defdelegate token_env(), to: DynamicToolBridgeContract
 
   @spec transport_env() :: String.t()
-  def transport_env, do: @transport_env
+  defdelegate transport_env(), to: DynamicToolBridgeContract
 
   @spec token_config_key() :: atom()
-  def token_config_key, do: @token_config_key
+  defdelegate token_config_key(), to: DynamicToolBridgeContract
 
   @spec remote_port_option_key() :: atom()
-  def remote_port_option_key, do: @remote_port_option_key
+  defdelegate remote_port_option_key(), to: DynamicToolBridgeContract
 
   @spec local_transport() :: String.t()
-  def local_transport, do: @local_transport
+  defdelegate local_transport(), to: DynamicToolBridgeContract
 
   @spec ssh_tunnel_transport() :: String.t()
-  def ssh_tunnel_transport, do: @ssh_tunnel_transport
+  defdelegate ssh_tunnel_transport(), to: DynamicToolBridgeContract
 
   @spec worker_daemon_transport() :: String.t()
-  def worker_daemon_transport, do: @worker_daemon_transport
+  defdelegate worker_daemon_transport(), to: DynamicToolBridgeContract
+
+  @spec response_success(term()) :: Response.envelope()
+  defdelegate response_success(payload), to: Response, as: :success
+
+  @spec response_failure(term()) :: Response.envelope()
+  defdelegate response_failure(payload), to: Response, as: :failure
+
+  @spec response_error(String.t()) :: Response.envelope()
+  defdelegate response_error(message), to: Response, as: :error
+
+  @spec response_error(String.t() | nil, String.t(), map()) :: Response.envelope()
+  defdelegate response_error(code, message, fields \\ %{}), to: Response, as: :error
+
+  @spec response_error_payload(String.t() | nil, String.t(), map()) :: map()
+  defdelegate response_error_payload(code, message, fields \\ %{}), to: Response, as: :error_payload
+
+  @spec response_success?(term()) :: boolean()
+  defdelegate response_success?(payload), to: Response, as: :success?
 end

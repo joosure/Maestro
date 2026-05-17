@@ -3,10 +3,13 @@ defmodule SymphonyWorkerDaemon.BridgeProxy do
 
   use GenServer
 
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract
   alias SymphonyWorkerDaemon.BridgeProxy.{ProxyOptions, Requester, UpstreamPolicy}
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
 
   @loopback_ip {127, 0, 0, 1}
-  @base_url_env "SYMPHONY_DYNAMIC_TOOL_BRIDGE_BASE_URL"
+  @base_url_env DynamicToolBridgeContract.base_url_env()
+  @dynamic_tool_bridge_key ProtocolFields.dynamic_tool_bridge()
 
   @type runtime :: %{
           required(:pid) => pid(),
@@ -32,7 +35,7 @@ defmodule SymphonyWorkerDaemon.BridgeProxy do
 
   @spec start_from_request(map(), keyword()) :: {:ok, runtime() | nil} | {:error, term()}
   def start_from_request(request, opts \\ []) when is_map(request) and is_list(opts) do
-    case Map.get(request, "dynamic_tool_bridge") do
+    case Map.get(request, @dynamic_tool_bridge_key) do
       bridge_spec when is_map(bridge_spec) ->
         with :ok <- ProxyOptions.ensure_enabled(opts),
              {:ok, pid} <- start_linked_proxy(Keyword.merge(opts, bridge_spec: bridge_spec)),

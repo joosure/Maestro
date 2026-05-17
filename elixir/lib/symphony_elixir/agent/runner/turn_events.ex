@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
 
   alias SymphonyElixir.Agent.FailureClassifier
   alias SymphonyElixir.AgentProvider.Error, as: ProviderError
+  alias SymphonyElixir.AgentProvider.TurnStatus
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
 
   @spec terminal_event_for_status(term()) :: atom()
@@ -35,22 +36,19 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
   def terminal_level(:agent_turn_failed), do: :error
 
   @spec status_string(term()) :: String.t()
-  def status_string(nil), do: "completed"
-  def status_string(status) when is_atom(status), do: Atom.to_string(status)
-  def status_string(status) when is_binary(status), do: status
-  def status_string(_status), do: "completed"
+  def status_string(status), do: TurnStatus.string(status)
 
   @spec status_for_event(atom()) :: String.t()
-  def status_for_event(:agent_turn_timeout), do: "timeout"
-  def status_for_event(:agent_turn_input_required), do: "input_required"
-  def status_for_event(:agent_turn_failed), do: "failed"
+  def status_for_event(:agent_turn_timeout), do: TurnStatus.timeout()
+  def status_for_event(:agent_turn_input_required), do: TurnStatus.input_required()
+  def status_for_event(:agent_turn_failed), do: TurnStatus.failed()
 
   @spec status_error_fields(term()) :: map()
   def status_error_fields(:completed), do: %{}
-  def status_error_fields(:input_required), do: %{failure_class: "input_required", retryable: false}
-  def status_error_fields(:timeout), do: %{failure_class: "timeout", retryable: true}
+  def status_error_fields(:input_required), do: %{failure_class: TurnStatus.input_required(), retryable: false}
+  def status_error_fields(:timeout), do: %{failure_class: TurnStatus.timeout(), retryable: true}
   def status_error_fields(:failed), do: %{failure_class: "agent_provider_failure"}
-  def status_error_fields(:cancelled), do: %{failure_class: "cancelled", retryable: false}
+  def status_error_fields(:cancelled), do: %{failure_class: TurnStatus.cancelled(), retryable: false}
   def status_error_fields(_status), do: %{}
 
   @spec error_fields(term()) :: map()
@@ -80,22 +78,22 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
     code_string = Atom.to_string(code)
 
     cond do
-      String.contains?(code_string, "timeout") -> "timeout"
-      String.contains?(code_string, "input_required") -> "input_required"
+      String.contains?(code_string, TurnStatus.timeout()) -> TurnStatus.timeout()
+      String.contains?(code_string, TurnStatus.input_required()) -> TurnStatus.input_required()
       true -> "agent_provider_failure"
     end
   end
 
-  def failure_class(:turn_timeout), do: "timeout"
-  def failure_class(:stall_timeout), do: "timeout"
-  def failure_class(:response_timeout), do: "timeout"
-  def failure_class({:agent_turn_terminal_status, :timeout}), do: "timeout"
-  def failure_class({:agent_turn_terminal_status, :input_required}), do: "input_required"
-  def failure_class({:agent_turn_terminal_status, :cancelled}), do: "cancelled"
+  def failure_class(:turn_timeout), do: TurnStatus.timeout()
+  def failure_class(:stall_timeout), do: TurnStatus.timeout()
+  def failure_class(:response_timeout), do: TurnStatus.timeout()
+  def failure_class({:agent_turn_terminal_status, :timeout}), do: TurnStatus.timeout()
+  def failure_class({:agent_turn_terminal_status, :input_required}), do: TurnStatus.input_required()
+  def failure_class({:agent_turn_terminal_status, :cancelled}), do: TurnStatus.cancelled()
   def failure_class({:agent_turn_terminal_status, :failed}), do: "agent_provider_failure"
-  def failure_class({:turn_input_required, _payload}), do: "input_required"
-  def failure_class({:approval_required, _payload}), do: "input_required"
-  def failure_class({:turn_cancelled, _payload}), do: "cancelled"
+  def failure_class({:turn_input_required, _payload}), do: TurnStatus.input_required()
+  def failure_class({:approval_required, _payload}), do: TurnStatus.input_required()
+  def failure_class({:turn_cancelled, _payload}), do: TurnStatus.cancelled()
   def failure_class(_reason), do: "agent_provider_failure"
 
   @spec run_failure_class(term(), String.t() | nil) :: String.t()
@@ -120,8 +118,8 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
 
   defp terminal_event_for_error_code(code) when is_binary(code) do
     cond do
-      String.contains?(code, "timeout") -> :agent_turn_timeout
-      String.contains?(code, "input_required") -> :agent_turn_input_required
+      String.contains?(code, TurnStatus.timeout()) -> :agent_turn_timeout
+      String.contains?(code, TurnStatus.input_required()) -> :agent_turn_input_required
       true -> :agent_turn_failed
     end
   end

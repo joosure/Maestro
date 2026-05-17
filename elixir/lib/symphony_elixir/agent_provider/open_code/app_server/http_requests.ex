@@ -3,7 +3,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
 
   require Logger
 
-  alias SymphonyElixir.AgentProvider.OpenCode.AppServer.{Context, Diagnostics}
+  alias SymphonyElixir.AgentProvider.OpenCode.AppServer.{Context, Diagnostics, Paths}
 
   @poll_interval_ms 250
 
@@ -26,21 +26,21 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
 
   @spec create_session(Req.Request.t(), Path.t(), map()) :: {:ok, String.t()} | {:error, term()}
   def create_session(request, workspace, context) when is_binary(workspace) and is_map(context) do
-    case Req.post(request, url: "/session", json: %{"title" => Path.basename(workspace)}) do
+    case Req.post(request, url: Paths.session(), json: %{"title" => Path.basename(workspace)}) do
       {:ok, %{status: status, body: %{"id" => session_id}}} when status in 200..299 and is_binary(session_id) ->
         {:ok, session_id}
 
       {:ok, %{status: status, body: body}} ->
-        {:error, request_http_error(:session_create_http_error, "POST", "/session", status, body, context)}
+        {:error, request_http_error(:session_create_http_error, "POST", Paths.session(), status, body, context)}
 
       {:error, reason} ->
-        {:error, request_transport_error(:session_create_transport_error, "POST", "/session", reason, context)}
+        {:error, request_transport_error(:session_create_transport_error, "POST", Paths.session(), reason, context)}
     end
   end
 
   @spec post_turn_message(map(), String.t()) :: {:ok, map()} | {:error, term()}
   def post_turn_message(session, prompt) when is_map(session) and is_binary(prompt) do
-    path = "/session/#{session.session_id}/message"
+    path = Paths.session_message(session.session_id)
 
     payload =
       %{
@@ -71,7 +71,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
 
   @spec abort_session(map()) :: :ok
   def abort_session(session) when is_map(session) do
-    case Req.post(session.request, url: "/session/#{session.session_id}/abort", json: %{}) do
+    case Req.post(session.request, url: Paths.session_abort(session.session_id), json: %{}) do
       {:ok, _response} -> :ok
       {:error, reason} -> Logger.debug("OpenCode abort failed: #{inspect(reason)}")
     end
@@ -80,7 +80,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
   end
 
   defp await_health_until(request, deadline_ms, context) do
-    case Req.get(request, url: "/global/health") do
+    case Req.get(request, url: Paths.global_health()) do
       {:ok, %{status: 200, body: %{"healthy" => true}}} ->
         :ok
 
@@ -115,7 +115,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
     {:healthcheck_timeout,
      Map.merge(context, %{
        method: "GET",
-       path: "/global/health",
+       path: Paths.global_health(),
        response_status: status,
        response_body: Diagnostics.preview_value(body),
        message: "OpenCode never reported healthy before read_timeout_ms elapsed"
@@ -138,7 +138,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
     {kind,
      Map.merge(context, %{
        method: "GET",
-       path: "/global/health",
+       path: Paths.global_health(),
        transport_reason: transport_reason,
        cause: Diagnostics.preview_value(reason),
        message: message

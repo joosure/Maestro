@@ -1,29 +1,38 @@
 defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.Context do
   @moduledoc false
 
+  alias SymphonyElixir.RepoProvider.CNB.RuntimeEnv, as: CNBRuntimeEnv
   alias SymphonyElixir.RepoProvider.Config, as: RepoConfig
+  alias SymphonyElixir.RepoProvider.RuntimeEnv
   alias SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.{Runtime, Settings}
   alias SymphonyElixir.RepoProvider.Smoke.ProbeRunner
 
   @spec needs_base_resolution?(keyword(), map()) :: boolean()
   def needs_base_resolution?(opts, repo_config) do
     is_nil(ProbeRunner.blank_to_nil(Keyword.get(opts, :base))) and
-      is_nil(ProbeRunner.blank_to_nil(Map.get(repo_config, :base_branch)))
+      is_nil(ProbeRunner.blank_to_nil(RepoConfig.base_branch(repo_config)))
   end
 
   @spec build(keyword(), map(), map(), map()) :: {:ok, map()} | {:error, String.t()}
   def build(opts, repo_config, env_map, deps) do
-    repository = ProbeRunner.blank_to_nil(Map.get(env_map, "SYMPHONY_REPO_PROVIDER_REPOSITORY"))
-    token = ProbeRunner.blank_to_nil(Map.get(env_map, "CNB_TOKEN"))
-    base = ProbeRunner.blank_to_nil(Keyword.get(opts, :base)) || ProbeRunner.blank_to_nil(Map.get(repo_config, :base_branch))
+    repository =
+      ProbeRunner.blank_to_nil(RepoConfig.repository(repo_config)) ||
+        RuntimeEnv.provider_repository(env_map)
+
+    token = CNBRuntimeEnv.token(env_map)
+
+    base =
+      ProbeRunner.blank_to_nil(Keyword.get(opts, :base)) ||
+        ProbeRunner.blank_to_nil(RepoConfig.base_branch(repo_config))
+
     head = "#{Settings.branch_prefix()}-#{System.unique_integer([:positive, :monotonic])}"
 
     cond do
       is_nil(repository) ->
-        {:error, "CNB auto-provision smoke requires --repo or SYMPHONY_REPO_PROVIDER_REPOSITORY"}
+        {:error, "CNB auto-provision smoke requires --repo or #{RuntimeEnv.provider_repository_env()}"}
 
       is_nil(token) ->
-        {:error, "CNB auto-provision smoke requires CNB_TOKEN"}
+        {:error, "CNB auto-provision smoke requires #{CNBRuntimeEnv.token_env()}"}
 
       true ->
         case Runtime.mk_temp_dir(deps, "repo-provider-cnb-smoke") do

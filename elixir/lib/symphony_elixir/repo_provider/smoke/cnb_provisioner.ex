@@ -13,7 +13,11 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner do
   import SymphonyElixir.RepoProvider.Smoke.ProbeRunner,
     only: [probe: 2, run_probe: 3, synthetic_failure_probe: 2]
 
+  alias SymphonyElixir.RepoProvider.CommandNames
   alias SymphonyElixir.RepoProvider.Smoke.CNBProvisioner.{Args, Context, Git, PRFlow, Runtime}
+
+  @current_kind_command CommandNames.current_kind()
+  @auth_status_command CommandNames.auth_status()
 
   # ── Public API ─────────────────────────────────────────────────────
 
@@ -30,8 +34,8 @@ defmodule SymphonyElixir.RepoProvider.Smoke.CNBProvisioner do
   def run(opts, provider_override, repo_config, env_map, cli_deps, deps) do
     preflight_results =
       [
-        probe("current-kind", Args.provider_argv(provider_override, ["current-kind"])),
-        probe("auth-status", Args.provider_argv(provider_override, ["auth-status"]))
+        probe(@current_kind_command, Args.provider_argv(provider_override, [@current_kind_command])),
+        probe(@auth_status_command, Args.provider_argv(provider_override, [@auth_status_command]))
       ]
       |> Enum.map(&run_probe(&1, cli_deps, deps))
 

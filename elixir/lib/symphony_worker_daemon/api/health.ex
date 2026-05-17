@@ -4,7 +4,21 @@ defmodule SymphonyWorkerDaemon.Api.Health do
   alias SymphonyWorkerDaemon.Api.{RateLimit, Response}
   alias SymphonyWorkerDaemon.BridgeProxy.UpstreamPolicy
   alias SymphonyWorkerDaemon.{CapacityManager, CommandPolicy, Protocol}
+  alias SymphonyWorkerDaemon.Protocol.{Features, HealthStatus}
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
   alias SymphonyWorkerDaemon.Session
+
+  @status_key ProtocolFields.status()
+  @protocol_version_key ProtocolFields.protocol_version()
+  @daemon_version_key ProtocolFields.daemon_version()
+  @worker_id_key ProtocolFields.worker_id()
+  @daemon_instance_id_key ProtocolFields.daemon_instance_id()
+  @worker_profile_version_key ProtocolFields.worker_profile_version()
+  @capacity_key ProtocolFields.capacity()
+  @session_ledger_key ProtocolFields.session_ledger()
+  @rate_limits_key ProtocolFields.rate_limits()
+  @features_key ProtocolFields.features()
+  @capabilities_key ProtocolFields.capabilities()
 
   @spec payload(keyword()) :: map()
   def payload(opts) when is_list(opts) do
@@ -12,17 +26,17 @@ defmodule SymphonyWorkerDaemon.Api.Health do
     ledger_health = safe_ledger_health(Keyword.get(opts, :session_ledger))
 
     %{
-      "status" => aggregate_status(capacity, ledger_health),
-      "protocol_version" => Protocol.protocol_version(),
-      "daemon_version" => Keyword.get(opts, :daemon_version, Protocol.daemon_version()),
-      "worker_id" => Keyword.get(opts, :worker_id),
-      "daemon_instance_id" => Keyword.get(opts, :daemon_instance_id),
-      "worker_profile_version" => Keyword.get(opts, :worker_profile_version, "default"),
-      "capacity" => Response.stringify_map(capacity),
-      "session_ledger" => Response.stringify_map(ledger_health),
-      "rate_limits" => RateLimit.health(opts),
-      "features" => features(opts),
-      "capabilities" => CommandPolicy.capabilities(command_policy_opts(opts))
+      @status_key => aggregate_status(capacity, ledger_health),
+      @protocol_version_key => Protocol.protocol_version(),
+      @daemon_version_key => Keyword.get(opts, :daemon_version, Protocol.daemon_version()),
+      @worker_id_key => Keyword.get(opts, :worker_id),
+      @daemon_instance_id_key => Keyword.get(opts, :daemon_instance_id),
+      @worker_profile_version_key => Keyword.get(opts, :worker_profile_version, "default"),
+      @capacity_key => Response.stringify_map(capacity),
+      @session_ledger_key => Response.stringify_map(ledger_health),
+      @rate_limits_key => RateLimit.health(opts),
+      @features_key => features(opts),
+      @capabilities_key => CommandPolicy.capabilities(command_policy_opts(opts))
     }
   end
 
@@ -40,13 +54,16 @@ defmodule SymphonyWorkerDaemon.Api.Health do
     if dynamic_tool_bridge_proxy_available?(opts) do
       features
     else
-      List.delete(features, "dynamic_tool_bridge_proxy")
+      List.delete(features, Features.dynamic_tool_bridge_proxy())
     end
   end
 
   defp dynamic_tool_bridge_proxy_available?(opts) when is_list(opts) do
     Keyword.get(opts, :enable_dynamic_tool_bridge_proxy?, false) and
-      match?({:ok, [_first | _rest]}, UpstreamPolicy.prepare_allowed_upstreams(Keyword.get(opts, :allowed_dynamic_tool_bridge_upstreams, [])))
+      match?(
+        {:ok, [_first | _rest]},
+        UpstreamPolicy.prepare_allowed_upstreams(Keyword.get(opts, :allowed_dynamic_tool_bridge_upstreams, []))
+      )
   end
 
   defp command_policy_opts(opts) do
@@ -60,23 +77,20 @@ defmodule SymphonyWorkerDaemon.Api.Health do
   defp safe_capacity_status(capacity_manager) do
     CapacityManager.status(capacity_manager)
   catch
-    :exit, _reason -> %{status: :unavailable}
+    :exit, _reason -> %{status: HealthStatus.unavailable()}
   end
 
   defp safe_ledger_health(session_ledger) do
     Session.Ledger.health(session_ledger)
   catch
-    :exit, _reason -> %{status: :unavailable, persistence: :unknown}
+    :exit, _reason -> %{status: HealthStatus.unavailable(), persistence: :unknown}
   end
 
-  defp aggregate_status(capacity, ledger_health) when is_map(capacity) and is_map(ledger_health) do
-    capacity_status = capacity |> Map.get(:status, :ready) |> to_string()
-    ledger_status = ledger_health |> Map.get(:status, :ready) |> to_string()
+  defp aggregate_status(capacity, ledger_health)
+       when is_map(capacity) and is_map(ledger_health) do
+    capacity_status = Map.get(capacity, :status, HealthStatus.ready())
+    ledger_status = Map.get(ledger_health, :status, HealthStatus.ready())
 
-    cond do
-      capacity_status == "unavailable" or ledger_status == "unavailable" -> "unavailable"
-      ledger_status == "degraded" -> "degraded"
-      true -> capacity_status
-    end
+    HealthStatus.aggregate(capacity_status, ledger_status)
   end
 end

@@ -4,9 +4,11 @@ defmodule SymphonyWorkerDaemon.BridgeProxy.RouterPlug do
   use Plug.Router
 
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
 
-  @base_path "/api/v1/agent-tools/dynamic"
-  @execute_path @base_path <> "/execute"
+  @execute_path DynamicToolBridgeContract.execute_path()
+  @execute_suffix DynamicToolBridgeContract.execute_suffix()
   @default_max_header_bytes 16_384
   @default_max_request_body_bytes 1_048_576
 
@@ -19,7 +21,7 @@ defmodule SymphonyWorkerDaemon.BridgeProxy.RouterPlug do
 
   post @execute_path do
     opts = conn.assigns.bridge_proxy_opts
-    upstream_url = Keyword.fetch!(opts, :upstream_base_url) <> "/execute"
+    upstream_url = Keyword.fetch!(opts, :upstream_base_url) <> @execute_suffix
     upstream_token = Keyword.fetch!(opts, :upstream_token)
     requester = Keyword.fetch!(opts, :requester)
     timeout_ms = Keyword.fetch!(opts, :timeout_ms)
@@ -141,15 +143,7 @@ defmodule SymphonyWorkerDaemon.BridgeProxy.RouterPlug do
   end
 
   defp error_payload(code, details) do
-    %{
-      "success" => false,
-      "payload" => %{
-        "error" => %{
-          "code" => code,
-          "message" => safe_details(details)
-        }
-      }
-    }
+    Response.error(code, safe_details(details))
   end
 
   defp safe_details(details) when is_binary(details), do: Redaction.redact_string(details)

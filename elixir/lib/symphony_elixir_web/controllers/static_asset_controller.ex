@@ -6,19 +6,20 @@ defmodule SymphonyElixirWeb.StaticAssetController do
   use Phoenix.Controller, formats: []
 
   alias Plug.Conn
+  alias SymphonyElixirWeb.BrowserPaths
   alias SymphonyElixirWeb.StaticAssets
 
   @spec dashboard_css(Conn.t(), map()) :: Conn.t()
-  def dashboard_css(conn, _params), do: serve(conn, "/dashboard.css")
+  def dashboard_css(conn, _params), do: serve(conn, BrowserPaths.dashboard_css_path())
 
   @spec phoenix_html_js(Conn.t(), map()) :: Conn.t()
-  def phoenix_html_js(conn, _params), do: serve(conn, "/vendor/phoenix_html/phoenix_html.js")
+  def phoenix_html_js(conn, _params), do: serve(conn, BrowserPaths.phoenix_html_js_path())
 
   @spec phoenix_js(Conn.t(), map()) :: Conn.t()
-  def phoenix_js(conn, _params), do: serve(conn, "/vendor/phoenix/phoenix.js")
+  def phoenix_js(conn, _params), do: serve(conn, BrowserPaths.phoenix_js_path())
 
   @spec phoenix_live_view_js(Conn.t(), map()) :: Conn.t()
-  def phoenix_live_view_js(conn, _params), do: serve(conn, "/vendor/phoenix_live_view/phoenix_live_view.js")
+  def phoenix_live_view_js(conn, _params), do: serve(conn, BrowserPaths.phoenix_live_view_js_path())
 
   defp serve(conn, path) do
     case StaticAssets.fetch(path) do

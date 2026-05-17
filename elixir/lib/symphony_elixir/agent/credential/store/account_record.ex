@@ -2,6 +2,14 @@ defmodule SymphonyElixir.Agent.Credential.Store.AccountRecord do
   @moduledoc false
 
   alias SymphonyElixir.Agent.Credential.Store.{Normalization, Paths, RateLimits, State}
+  alias SymphonyElixir.AgentProvider.ClaudeCode.CredentialEnv, as: ClaudeCredentialEnv
+  alias SymphonyElixir.AgentProvider.Kinds
+  alias SymphonyElixir.AgentProvider.OpenCode.CredentialEnv, as: OpenCodeCredentialEnv
+
+  @claude_code_kind Kinds.claude_code()
+  @claude_oauth_token_credential_kind ClaudeCredentialEnv.oauth_token_credential_kind()
+  @opencode_env_token_credential_kind OpenCodeCredentialEnv.env_token_credential_kind()
+  @opencode_kind Kinds.opencode()
 
   @spec normalize(String.t(), Path.t(), map(), map(), map()) :: map()
   def normalize(provider_kind, account_dir, metadata, state, settings) do
@@ -112,7 +120,7 @@ defmodule SymphonyElixir.Agent.Credential.Store.AccountRecord do
   end
 
   @spec default_credential_kind(String.t()) :: String.t()
-  def default_credential_kind("claude_code"), do: "claude_oauth_token"
-  def default_credential_kind("opencode"), do: "opencode_env_token"
+  def default_credential_kind(@claude_code_kind), do: @claude_oauth_token_credential_kind
+  def default_credential_kind(@opencode_kind), do: @opencode_env_token_credential_kind
   def default_credential_kind(_provider_kind), do: "provider_profile"
 end

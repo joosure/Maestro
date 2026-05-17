@@ -3,13 +3,23 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
 
   alias SymphonyElixir.Agent.Runtime.{CommandSpec, Target}
   alias SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.{Connection, Transport}
+  alias SymphonyWorkerDaemon.CommandPolicy.CapabilityContract
   alias SymphonyWorkerDaemon.Protocol
+  alias SymphonyWorkerDaemon.Protocol.{Features, HealthStatus}
+
+  @capability_kind_key CapabilityContract.kind_key()
+  @capability_scope_key CapabilityContract.scope_key()
+  @capability_available_key CapabilityContract.available_key()
+  @capability_command_key CapabilityContract.command_key()
+  @capability_path_key CapabilityContract.path_key()
+  @capability_name_key CapabilityContract.name_key()
 
   @spec health(Target.t(), keyword()) :: {:ok, Protocol.health_response()} | {:error, term()}
   def health(%Target{} = target, opts \\ []) do
     with {:ok, endpoint} <- Connection.endpoint(target, opts),
          token <- Connection.token(opts),
-         {:ok, payload} <- Transport.request(:get, endpoint, Protocol.health_path(), token, nil, opts) do
+         {:ok, payload} <-
+           Transport.request(:get, endpoint, Protocol.health_path(), token, nil, opts) do
       Protocol.normalize_health_response(payload)
     end
   end
@@ -39,10 +49,17 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
     request_preflight(nil, target, endpoint, token, opts)
   end
 
-  @spec request_preflight(CommandSpec.t() | nil, Target.t(), String.t(), String.t() | nil, keyword()) ::
+  @spec request_preflight(
+          CommandSpec.t() | nil,
+          Target.t(),
+          String.t(),
+          String.t() | nil,
+          keyword()
+        ) ::
           {:ok, Protocol.health_response()} | {:error, term()}
   def request_preflight(command_spec, %Target{} = target, endpoint, token, opts) do
-    with {:ok, payload} <- Transport.request(:get, endpoint, Protocol.health_path(), token, nil, opts),
+    with {:ok, payload} <-
+           Transport.request(:get, endpoint, Protocol.health_path(), token, nil, opts),
          {:ok, health} <- Protocol.normalize_health_response(payload),
          :ok <- validate_health(target, health, opts),
          :ok <- validate_command_capability(command_spec, health) do
@@ -50,8 +67,10 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
     end
   end
 
-  @spec validate_health(Target.t(), Protocol.health_response(), keyword()) :: :ok | {:error, term()}
-  def validate_health(%Target{} = target, health, opts \\ []) when is_map(health) and is_list(opts) do
+  @spec validate_health(Target.t(), Protocol.health_response(), keyword()) ::
+          :ok | {:error, term()}
+  def validate_health(%Target{} = target, health, opts \\ [])
+      when is_map(health) and is_list(opts) do
     with :ok <- validate_protocol_version(health),
          :ok <- validate_worker_id(target, health, opts),
          :ok <- validate_health_status(health, opts),
@@ -76,8 +95,12 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
       |> Keyword.get(:worker_daemon_worker_id)
       |> normalize_optional_string()
       |> case do
-        worker_id when is_binary(worker_id) -> worker_id
-        nil -> Connection.metadata_value(target.metadata, :worker_daemon_worker_id) |> normalize_optional_string()
+        worker_id when is_binary(worker_id) ->
+          worker_id
+
+        nil ->
+          Connection.metadata_value(target.metadata, :worker_daemon_worker_id)
+          |> normalize_optional_string()
       end
 
     case {expected_worker_id, Map.get(health, :worker_id)} do
@@ -90,7 +113,10 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
   defp validate_health_status(health, opts) do
     accepted_statuses =
       opts
-      |> Keyword.get(:worker_daemon_accepted_health_statuses, ["ready"])
+      |> Keyword.get(
+        :worker_daemon_accepted_health_statuses,
+        HealthStatus.default_accepted_statuses()
+      )
       |> normalize_string_list()
 
     status = Map.get(health, :status)
@@ -123,7 +149,8 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
 
   defp validate_command_capability(nil, _health), do: :ok
 
-  defp validate_command_capability(%CommandSpec{argv: [command | _args]}, health) when is_binary(command) do
+  defp validate_command_capability(%CommandSpec{argv: [command | _args]}, health)
+       when is_binary(command) do
     capabilities = Map.get(health, :capabilities, [])
 
     cond do
@@ -142,7 +169,9 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
 
   defp executable_policy_any?(capabilities) when is_list(capabilities) do
     Enum.any?(capabilities, fn capability ->
-      map_value(capability, "kind") == "executable_policy" and map_value(capability, "scope") == "any" and map_value(capability, "available") != false
+      map_value(capability, @capability_kind_key) == CapabilityContract.executable_policy_kind() and
+        map_value(capability, @capability_scope_key) == CapabilityContract.any_scope() and
+        map_value(capability, @capability_available_key) != false
     end)
   end
 
@@ -150,14 +179,17 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
     command_name = Path.basename(command)
 
     Enum.any?(capabilities, fn capability ->
-      map_value(capability, "kind") == "executable" and map_value(capability, "available") != false and
-        (map_value(capability, "command") == command or map_value(capability, "path") == command or map_value(capability, "name") == command_name)
+      map_value(capability, @capability_kind_key) == CapabilityContract.executable_kind() and
+        map_value(capability, @capability_available_key) != false and
+        (map_value(capability, @capability_command_key) == command or
+           map_value(capability, @capability_path_key) == command or
+           map_value(capability, @capability_name_key) == command_name)
     end)
   end
 
   defp maybe_require_dynamic_tool_bridge(required_features, opts) do
     if dynamic_tool_bridge_requested?(opts) do
-      ["dynamic_tool_bridge_proxy" | required_features]
+      [Features.dynamic_tool_bridge_proxy() | required_features]
     else
       required_features
     end
@@ -165,25 +197,40 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
 
   defp maybe_require_event_stream(required_features, opts) do
     if Keyword.get(opts, :worker_daemon_stream_events?, false) do
-      ["session_events" | required_features]
+      [Features.session_events() | required_features]
     else
       required_features
     end
   end
 
   defp dynamic_tool_bridge_requested?(opts) do
-    is_map(Keyword.get(opts, :dynamic_tool_bridge_spec)) or daemon_bridge_requested?(Keyword.get(opts, :dynamic_tool_bridge_runtime))
+    is_map(Keyword.get(opts, :dynamic_tool_bridge_spec)) or
+      daemon_bridge_requested?(Keyword.get(opts, :dynamic_tool_bridge_runtime))
   end
 
-  defp daemon_bridge_requested?(runtime) when is_map(runtime), do: is_map(Map.get(runtime, :daemon_bridge) || Map.get(runtime, "daemon_bridge"))
+  defp daemon_bridge_requested?(runtime) when is_map(runtime),
+    do: is_map(Map.get(runtime, :daemon_bridge) || Map.get(runtime, "daemon_bridge"))
+
   defp daemon_bridge_requested?(_runtime), do: false
 
-  defp map_value(map, "kind") when is_map(map), do: known_key_value(map, "kind", :kind)
-  defp map_value(map, "scope") when is_map(map), do: known_key_value(map, "scope", :scope)
-  defp map_value(map, "available") when is_map(map), do: known_key_value(map, "available", :available)
-  defp map_value(map, "command") when is_map(map), do: known_key_value(map, "command", :command)
-  defp map_value(map, "path") when is_map(map), do: known_key_value(map, "path", :path)
-  defp map_value(map, "name") when is_map(map), do: known_key_value(map, "name", :name)
+  defp map_value(map, @capability_kind_key) when is_map(map),
+    do: known_key_value(map, @capability_kind_key, :kind)
+
+  defp map_value(map, @capability_scope_key) when is_map(map),
+    do: known_key_value(map, @capability_scope_key, :scope)
+
+  defp map_value(map, @capability_available_key) when is_map(map),
+    do: known_key_value(map, @capability_available_key, :available)
+
+  defp map_value(map, @capability_command_key) when is_map(map),
+    do: known_key_value(map, @capability_command_key, :command)
+
+  defp map_value(map, @capability_path_key) when is_map(map),
+    do: known_key_value(map, @capability_path_key, :path)
+
+  defp map_value(map, @capability_name_key) when is_map(map),
+    do: known_key_value(map, @capability_name_key, :name)
+
   defp map_value(_map, _key), do: nil
 
   defp known_key_value(map, string_key, atom_key) do
@@ -203,7 +250,9 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemon.Client.Health do
     end
   end
 
-  defp normalize_optional_string(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_optional_string()
+  defp normalize_optional_string(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_optional_string()
+
   defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
   defp normalize_optional_string(_value), do: nil
 

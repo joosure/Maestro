@@ -1,7 +1,7 @@
 defmodule SymphonyWorkerDaemon.Auth.Clients do
   @moduledoc false
 
-  alias SymphonyWorkerDaemon.Auth.Values
+  alias SymphonyWorkerDaemon.Auth.{Defaults, Values}
 
   @spec build(keyword(), String.t(), String.t(), String.t() | nil) :: [map()]
   def build(opts, default_owner, admin_role, default_tenant_id) when is_list(opts) and is_binary(default_owner) and is_binary(admin_role) do
@@ -70,6 +70,6 @@ defmodule SymphonyWorkerDaemon.Auth.Clients do
     end
   end
 
-  defp maybe_default_roles([]), do: ["session_owner"]
+  defp maybe_default_roles([]), do: [Defaults.session_owner_role()]
   defp maybe_default_roles(roles), do: Enum.uniq(roles)
 end

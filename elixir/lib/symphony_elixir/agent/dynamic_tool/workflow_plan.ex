@@ -3,11 +3,14 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlan do
   Builds the session-scoped Dynamic Tool allowlist from workflow requirements.
   """
 
-  alias SymphonyElixir.Agent.DynamicTool.{Context, Inventory}
+  alias SymphonyElixir.Agent.DynamicTool.{Context, Inventory, MetadataContract}
   alias SymphonyElixir.Config
   alias SymphonyElixir.Workflow.Capabilities
+  alias SymphonyElixir.Workflow.CapabilityNames
 
   @default_exposure :workflow_required
+  @operator_only_key MetadataContract.operator_only()
+  @workflow_capability_key MetadataContract.workflow_capability()
 
   @type exposure :: :workflow_required | :diagnostics | :all
 
@@ -85,8 +88,8 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlan do
     metadata = Map.get(tool_context.tool_metadata, name, %{})
 
     cond do
-      Map.get(metadata, "operatorOnly") == true -> [name]
-      Map.get(metadata, "workflowCapability") == "tracker.provider_diagnostics" -> [name]
+      Map.get(metadata, @operator_only_key) == true -> [name]
+      MetadataContract.field_value(metadata, @workflow_capability_key) == CapabilityNames.tracker_provider_diagnostics() -> [name]
       true -> []
     end
   end
@@ -96,7 +99,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlan do
   defp put_diagnostics_plan(tool_context, tool_names) do
     Map.put(tool_context, :tool_plan, %{
       exposure: "diagnostics",
-      required_capabilities: ["tracker.provider_diagnostics"],
+      required_capabilities: [CapabilityNames.tracker_provider_diagnostics()],
       tool_names: tool_names,
       resolved_tools: []
     })

@@ -4,6 +4,12 @@ defmodule SymphonyWorkerDaemon.Api.Response do
   import Plug.Conn, only: [put_resp_content_type: 2, send_resp: 3]
 
   alias SymphonyElixir.Observability.Redaction
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
+
+  @code_key ProtocolFields.code()
+  @message_key ProtocolFields.message()
+  @retryable_key ProtocolFields.retryable()
+  @details_key ProtocolFields.details()
 
   @spec json(Plug.Conn.t(), Plug.Conn.status(), term()) :: Plug.Conn.t()
   def json(conn, status, payload) do
@@ -15,10 +21,10 @@ defmodule SymphonyWorkerDaemon.Api.Response do
   @spec error_payload(String.t(), term(), boolean()) :: map()
   def error_payload(code, details, retryable?) do
     %{
-      "code" => code,
-      "message" => code,
-      "retryable" => retryable?,
-      "details" => safe_details(details)
+      @code_key => code,
+      @message_key => code,
+      @retryable_key => retryable?,
+      @details_key => safe_details(details)
     }
   end
 

@@ -1,4 +1,4 @@
-defmodule SymphonyElixirWeb.ObservabilityPubSub do
+defmodule SymphonyElixirWeb.Observability.PubSub do
   @moduledoc """
   PubSub helpers for observability dashboard updates.
   """

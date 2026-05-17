@@ -2,11 +2,16 @@ defmodule SymphonyWorkerDaemon.CommandPolicy.Capabilities do
   @moduledoc false
 
   alias SymphonyWorkerDaemon.CommandPolicy.AllowedExecutables
+  alias SymphonyWorkerDaemon.CommandPolicy.CapabilityContract
+
+  @command_key CapabilityContract.command_key()
+  @name_key CapabilityContract.name_key()
+  @path_key CapabilityContract.path_key()
 
   @spec build(keyword()) :: [map()]
   def build(opts) when is_list(opts) do
     if Keyword.get(opts, :allow_any_executable?, false) do
-      [%{"kind" => "executable_policy", "scope" => "any", "available" => true}]
+      [CapabilityContract.executable_policy_any()]
     else
       opts
       |> Keyword.get(:allowed_executables, [])
@@ -16,8 +21,8 @@ defmodule SymphonyWorkerDaemon.CommandPolicy.Capabilities do
 
   defp capability_entries(entries) when is_list(entries) do
     Enum.flat_map(entries, fn
-      %{"command" => _command, "path" => _path, "name" => _name} = spec ->
-        [Map.merge(%{"kind" => "executable", "available" => true}, spec)]
+      %{@command_key => _command, @path_key => _path, @name_key => _name} = spec ->
+        [CapabilityContract.executable_available(spec)]
 
       entry ->
         entry
@@ -32,8 +37,8 @@ defmodule SymphonyWorkerDaemon.CommandPolicy.Capabilities do
 
   defp capability_entry(command) do
     case AllowedExecutables.resolve(command) do
-      {:ok, spec} -> [Map.merge(%{"kind" => "executable", "available" => true}, spec)]
-      {:error, _reason} -> [%{"kind" => "executable", "command" => command, "name" => Path.basename(command), "available" => false}]
+      {:ok, spec} -> [CapabilityContract.executable_available(spec)]
+      {:error, _reason} -> [CapabilityContract.executable_unavailable(command)]
     end
   end
 end

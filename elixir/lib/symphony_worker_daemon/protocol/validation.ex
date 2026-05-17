@@ -1,6 +1,7 @@
 defmodule SymphonyWorkerDaemon.Protocol.Validation do
   @moduledoc false
 
+  alias SymphonyWorkerDaemon.Protocol.Fields, as: ProtocolFields
   alias SymphonyWorkerDaemon.Protocol.Validation.{Fields, Payload}
 
   @default_request_bytes 1_048_576
@@ -9,37 +10,29 @@ defmodule SymphonyWorkerDaemon.Protocol.Validation do
   @default_env_bytes 65_536
   @default_dynamic_tool_bridge_bytes 65_536
   @default_input_bytes 1_048_576
-  @create_request_keys [
-    "protocol_version",
-    "request_id",
-    "session_id",
-    "run_id",
-    "caller",
-    "command",
-    "workspace",
-    "env",
-    "resource_budget",
-    "timeout_policy",
-    "required_features",
-    "dynamic_tool_bridge"
-  ]
-  @caller_keys ["provider_kind", "worker_pool", "owner", "tenant_id", "deployment_id"]
-  @command_keys ["mode", "argv", "command"]
-  @workspace_keys ["cwd", "workspace_path", "remote_workspace_path", "workspace_root"]
-  @timeout_policy_keys ["startup_timeout_ms", "idle_timeout_ms", "session_timeout_ms"]
-  @resource_budget_keys ["output_buffer_bytes", "output_buffer_limit", "max_output_bytes"]
-  @dynamic_tool_bridge_keys [
-    "type",
-    "transport",
-    "symphony_base_url",
-    "base_path",
-    "execute_path",
-    "token",
-    "provider_env"
-  ]
-  @input_request_keys ["protocol_version", "request_id", "input", "encoding"]
-  @stop_request_keys ["protocol_version", "request_id", "idempotency_key", "reason"]
-  @cleanup_request_keys ["protocol_version", "request_id", "idempotency_key"]
+  @create_request_keys ProtocolFields.create_request_keys()
+  @caller_keys ProtocolFields.caller_keys()
+  @command_keys ProtocolFields.command_keys()
+  @workspace_keys ProtocolFields.workspace_keys()
+  @timeout_policy_keys ProtocolFields.timeout_policy_keys()
+  @resource_budget_keys ProtocolFields.resource_budget_keys()
+  @dynamic_tool_bridge_keys ProtocolFields.dynamic_tool_bridge_keys()
+  @input_request_keys ProtocolFields.input_request_keys()
+  @stop_request_keys ProtocolFields.stop_request_keys()
+  @cleanup_request_keys ProtocolFields.cleanup_request_keys()
+  @protocol_version_key ProtocolFields.protocol_version()
+  @request_id_key ProtocolFields.request_id()
+  @caller_key ProtocolFields.caller()
+  @command_key ProtocolFields.command()
+  @workspace_key ProtocolFields.workspace()
+  @idempotency_key ProtocolFields.idempotency_key()
+  @input_key ProtocolFields.input()
+  @session_timeout_ms_key ProtocolFields.session_timeout_ms()
+  @startup_timeout_ms_key ProtocolFields.startup_timeout_ms()
+  @idle_timeout_ms_key ProtocolFields.idle_timeout_ms()
+  @output_buffer_bytes_key ProtocolFields.output_buffer_bytes()
+  @output_buffer_limit_key ProtocolFields.output_buffer_limit()
+  @max_output_bytes_key ProtocolFields.max_output_bytes()
 
   @spec validate_create_request(map(), [String.t()], keyword()) :: :ok | {:error, term()}
   def validate_create_request(request, supported_features, opts) when is_map(request) and is_list(supported_features) and is_list(opts) do
@@ -92,54 +85,54 @@ defmodule SymphonyWorkerDaemon.Protocol.Validation do
 
   defp protocol_version(opts), do: Keyword.fetch!(opts, :protocol_version)
 
-  defp validate_protocol_version(%{"protocol_version" => expected_version}, expected_version), do: :ok
+  defp validate_protocol_version(%{@protocol_version_key => expected_version}, expected_version), do: :ok
 
-  defp validate_protocol_version(%{"protocol_version" => protocol_version}, expected_version) do
+  defp validate_protocol_version(%{@protocol_version_key => protocol_version}, expected_version) do
     {:error, {:unsupported_protocol_version, expected_version, protocol_version}}
   end
 
   defp validate_protocol_version(_request, _expected_version), do: {:error, :protocol_version_missing}
 
-  defp validate_request_id(%{"request_id" => request_id}) when is_binary(request_id) and request_id != "", do: :ok
+  defp validate_request_id(%{@request_id_key => request_id}) when is_binary(request_id) and request_id != "", do: :ok
   defp validate_request_id(_request), do: {:error, :request_id_missing}
 
-  defp validate_caller(%{"caller" => caller}) when is_map(caller), do: :ok
+  defp validate_caller(%{@caller_key => caller}) when is_map(caller), do: :ok
   defp validate_caller(_request), do: {:error, :caller_missing}
 
   defp validate_create_nested_schema(request) when is_map(request) do
-    with :ok <- Fields.allowed_nested_keys(request, "caller", @caller_keys),
-         :ok <- Fields.allowed_nested_keys(request, "command", @command_keys),
-         :ok <- Fields.allowed_nested_keys(request, "workspace", @workspace_keys),
-         :ok <- Fields.optional_map(request, "env"),
+    with :ok <- Fields.allowed_nested_keys(request, @caller_key, @caller_keys),
+         :ok <- Fields.allowed_nested_keys(request, @command_key, @command_keys),
+         :ok <- Fields.allowed_nested_keys(request, @workspace_key, @workspace_keys),
+         :ok <- Fields.optional_map(request, ProtocolFields.env()),
          :ok <- validate_dynamic_tool_bridge_schema(request) do
       :ok
     end
   end
 
   defp validate_dynamic_tool_bridge_schema(request) when is_map(request) do
-    case Map.get(request, "dynamic_tool_bridge") do
+    case Map.get(request, ProtocolFields.dynamic_tool_bridge()) do
       nil ->
         :ok
 
       value when is_map(value) ->
-        with :ok <- Fields.allowed_keys(value, "dynamic_tool_bridge", @dynamic_tool_bridge_keys),
-             :ok <- Fields.optional_string(value, "type"),
-             :ok <- Fields.optional_string(value, "transport"),
-             :ok <- Fields.optional_string(value, "symphony_base_url"),
-             :ok <- Fields.optional_string(value, "base_path"),
-             :ok <- Fields.optional_string(value, "execute_path"),
-             :ok <- Fields.optional_string(value, "token"),
-             :ok <- Fields.optional_map(value, "provider_env") do
+        with :ok <- Fields.allowed_keys(value, ProtocolFields.dynamic_tool_bridge(), @dynamic_tool_bridge_keys),
+             :ok <- Fields.optional_string(value, ProtocolFields.type()),
+             :ok <- Fields.optional_string(value, ProtocolFields.transport()),
+             :ok <- Fields.optional_string(value, ProtocolFields.symphony_base_url()),
+             :ok <- Fields.optional_string(value, ProtocolFields.base_path()),
+             :ok <- Fields.optional_string(value, ProtocolFields.execute_path()),
+             :ok <- Fields.optional_string(value, ProtocolFields.token()),
+             :ok <- Fields.optional_map(value, ProtocolFields.provider_env()) do
           :ok
         end
 
       _value ->
-        {:error, {:payload_invalid, "dynamic_tool_bridge"}}
+        {:error, {:payload_invalid, ProtocolFields.dynamic_tool_bridge()}}
     end
   end
 
   defp validate_required_features(request, supported_features) do
-    case Map.get(request, "required_features") do
+    case Map.get(request, ProtocolFields.required_features()) do
       nil ->
         :ok
 
@@ -152,16 +145,16 @@ defmodule SymphonyWorkerDaemon.Protocol.Validation do
         end
 
       _required_features ->
-        {:error, {:payload_invalid, "required_features"}}
+        {:error, {:payload_invalid, ProtocolFields.required_features()}}
     end
   end
 
   defp validate_timeout_policy(request) when is_map(request) do
-    validate_positive_integer_map(request, "timeout_policy", @timeout_policy_keys)
+    validate_positive_integer_map(request, ProtocolFields.timeout_policy(), @timeout_policy_keys)
   end
 
   defp validate_resource_budget(request) when is_map(request) do
-    validate_positive_integer_map(request, "resource_budget", @resource_budget_keys)
+    validate_positive_integer_map(request, ProtocolFields.resource_budget(), @resource_budget_keys)
   end
 
   defp validate_positive_integer_map(request, field, allowed_keys)
@@ -203,12 +196,12 @@ defmodule SymphonyWorkerDaemon.Protocol.Validation do
     end
   end
 
-  defp known_policy_atom_key("session_timeout_ms"), do: :session_timeout_ms
-  defp known_policy_atom_key("startup_timeout_ms"), do: :startup_timeout_ms
-  defp known_policy_atom_key("idle_timeout_ms"), do: :idle_timeout_ms
-  defp known_policy_atom_key("output_buffer_bytes"), do: :output_buffer_bytes
-  defp known_policy_atom_key("output_buffer_limit"), do: :output_buffer_limit
-  defp known_policy_atom_key("max_output_bytes"), do: :max_output_bytes
+  defp known_policy_atom_key(@session_timeout_ms_key), do: :session_timeout_ms
+  defp known_policy_atom_key(@startup_timeout_ms_key), do: :startup_timeout_ms
+  defp known_policy_atom_key(@idle_timeout_ms_key), do: :idle_timeout_ms
+  defp known_policy_atom_key(@output_buffer_bytes_key), do: :output_buffer_bytes
+  defp known_policy_atom_key(@output_buffer_limit_key), do: :output_buffer_limit
+  defp known_policy_atom_key(@max_output_bytes_key), do: :max_output_bytes
   defp known_policy_atom_key(_key), do: nil
 
   defp validate_mutation_request(request, opts, allowed_keys) do
@@ -219,27 +212,27 @@ defmodule SymphonyWorkerDaemon.Protocol.Validation do
     end
   end
 
-  defp validate_idempotency_key(%{"idempotency_key" => idempotency_key}) when is_binary(idempotency_key) and idempotency_key != "", do: :ok
+  defp validate_idempotency_key(%{@idempotency_key => idempotency_key}) when is_binary(idempotency_key) and idempotency_key != "", do: :ok
   defp validate_idempotency_key(_request), do: {:error, :idempotency_key_missing}
 
-  defp validate_input_payload(%{"input" => input} = request) when is_binary(input) do
-    case Map.get(request, "encoding", "utf-8") do
+  defp validate_input_payload(%{@input_key => input} = request) when is_binary(input) do
+    case Map.get(request, ProtocolFields.encoding(), "utf-8") do
       "utf-8" -> :ok
-      _encoding -> {:error, {:payload_invalid, "encoding"}}
+      _encoding -> {:error, {:payload_invalid, ProtocolFields.encoding()}}
     end
   end
 
-  defp validate_input_payload(_request), do: {:error, {:payload_invalid, "input"}}
+  defp validate_input_payload(_request), do: {:error, {:payload_invalid, ProtocolFields.input()}}
 
   defp validate_create_payload_limits(request, opts) do
     with :ok <- Payload.size("request", request, Payload.limit(opts, :max_protocol_request_bytes, @default_request_bytes)),
-         :ok <- Payload.size("caller", Map.get(request, "caller", %{}), Payload.limit(opts, :max_protocol_caller_bytes, @default_caller_bytes)),
-         :ok <- Payload.size("command", Map.get(request, "command", %{}), Payload.limit(opts, :max_protocol_command_bytes, @default_command_bytes)),
-         :ok <- Payload.size("env", Map.get(request, "env", %{}), Payload.limit(opts, :max_protocol_env_bytes, @default_env_bytes)),
+         :ok <- Payload.size(ProtocolFields.caller(), Map.get(request, ProtocolFields.caller(), %{}), Payload.limit(opts, :max_protocol_caller_bytes, @default_caller_bytes)),
+         :ok <- Payload.size(ProtocolFields.command(), Map.get(request, ProtocolFields.command(), %{}), Payload.limit(opts, :max_protocol_command_bytes, @default_command_bytes)),
+         :ok <- Payload.size(ProtocolFields.env(), Map.get(request, ProtocolFields.env(), %{}), Payload.limit(opts, :max_protocol_env_bytes, @default_env_bytes)),
          :ok <-
            Payload.size(
-             "dynamic_tool_bridge",
-             Map.get(request, "dynamic_tool_bridge", %{}),
+             ProtocolFields.dynamic_tool_bridge(),
+             Map.get(request, ProtocolFields.dynamic_tool_bridge(), %{}),
              Payload.limit(opts, :max_protocol_dynamic_tool_bridge_bytes, @default_dynamic_tool_bridge_bytes)
            ) do
       :ok

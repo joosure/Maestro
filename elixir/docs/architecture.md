@@ -18,6 +18,96 @@ It complements:
 - [`./logging.md`](./logging.md): observability and status-surface implementation contract
 - [`./agent_providers/README.md`](./agent_providers/README.md): provider-specific runtime and protocol guides
 
+## Maintenance Notes
+
+- Workflow capability names are external protocol strings and must be added
+  through `SymphonyElixir.Workflow.CapabilityNames` before being referenced by
+  profiles, provider adapters, readiness checks, Dynamic Tool inventory, or
+  observability projections.
+- Dynamic Tool bridge paths, environment variable names, and transport labels
+  are shared process contract strings. Keep the canonical definitions in
+  `SymphonyElixir.Platform.DynamicToolBridgeContract` so the worker daemon can
+  consume them without depending on higher-level agent modules.
+- Dynamic Tool bridge response envelope keys are owned by
+  `SymphonyElixir.Platform.DynamicToolBridgeContract.Response`. Main-process
+  bridge handlers, Web controllers, worker-daemon proxies, and provider-facing
+  clients should use that owner instead of duplicating `"success"`, `"payload"`,
+  `"error"`, `"code"`, or `"message"`.
+- Dynamic Tool observability metric keys are owned by
+  `SymphonyElixir.Observability.DynamicToolMetrics`; operator alert envelope
+  keys and severity/status values are owned by
+  `SymphonyElixir.Observability.AlertContract`. Event-store projections and
+  dashboards should consume those owners instead of duplicating alert keys such
+  as `"severity"`, `"metric"`, `"count"`, or severity values such as
+  `"critical"`, `"warning"`, and `"info"`.
+- Worker daemon session status labels are owned by
+  `SymphonyWorkerDaemon.Session.Status`. Server, protocol, ledger, API, and
+  sweeper code should call that module instead of duplicating status strings or
+  terminal-status lists.
+- Worker daemon health status labels are owned by
+  `SymphonyWorkerDaemon.Protocol.HealthStatus`; non-session mutation response
+  status labels, such as accepted input acknowledgements, are owned by
+  `SymphonyWorkerDaemon.Protocol.ResponseStatus`.
+- Worker daemon HTTP API paths are owned by
+  `SymphonyWorkerDaemon.Protocol.Paths`; Web browser paths and static-asset
+  paths are owned by `SymphonyElixirWeb.BrowserPaths`; Web observability API
+  paths are owned by `SymphonyElixirWeb.Observability.Paths`, with dashboard
+  PubSub and display-status helpers under the same Web observability namespace.
+- Orchestrator retry status payload labels are owned by
+  `SymphonyElixir.Orchestrator.Retry.Status`; retry result-summary labels are
+  owned by `SymphonyElixir.Orchestrator.Retry.ResultSummary`.
+- Workflow readiness and completion-validation payload labels are owned by
+  `SymphonyElixir.Workflow.ReadinessContract`. Orchestrator dispatch code
+  should read readiness facts through that contract instead of duplicating
+  `"status"`, `"gate"`, or evidence-field strings.
+- Provider-neutral operation lifecycle status labels for observability events
+  are owned by `SymphonyElixir.Observability.OperationStatus`. Turn terminal
+  statuses remain owned by `SymphonyElixir.AgentProvider.TurnStatus`.
+- Repo-core runtime environment variable names are owned by
+  `SymphonyElixir.Repo.RuntimeEnv`; repo-provider runtime environment variable
+  names and fallback lookup order are owned by
+  `SymphonyElixir.RepoProvider.RuntimeEnv`.
+- CNB provider runtime environment variable names are owned by
+  `SymphonyElixir.RepoProvider.CNB.RuntimeEnv`.
+- Worker-daemon client runtime environment variable names are owned by
+  `SymphonyElixir.Agent.Runtime.WorkerDaemon.RuntimeEnv`.
+- AGPL source metadata runtime environment lookup is owned by
+  `SymphonyElixir.LegalSourceInfo.RuntimeEnv`; Web and Worker Daemon surfaces
+  must pass their own notice path explicitly when rendering
+  `SymphonyElixir.LegalSourceInfo.payload/1`.
+- Provider-neutral agent turn status labels are owned by
+  `SymphonyElixir.AgentProvider.TurnStatus`.
+- Agent provider kind strings and supported aliases are owned by
+  `SymphonyElixir.AgentProvider.Kinds`; registries, defaults, app-server
+  metadata, and managed-credential code should use that module.
+- Provider-specific managed-credential environment contracts are owned by the
+  concrete provider namespace, such as
+  `SymphonyElixir.AgentProvider.ClaudeCode.CredentialEnv` and
+  `SymphonyElixir.AgentProvider.Codex.CredentialEnv`. Account environment
+  generation and adapter materialization should consume those modules instead
+  of duplicating credential-kind or environment-variable names.
+- Tracker kind strings for bundled adapters are owned by
+  `SymphonyElixir.Tracker.Kinds`; tracker registries, adapters, validation
+  errors, and observability defaults should use that owner.
+- Repo provider kind strings and labels are owned by
+  `SymphonyElixir.RepoProvider.Kinds`; registries, adapters, command rendering,
+  smoke validation, and config schema code should use that owner.
+- Repo provider defaults are owned by `SymphonyElixir.RepoProvider.Defaults`.
+  Config schema defaults, runtime env fallbacks, and facade defaults should use
+  that module instead of hardcoding the default provider kind.
+- Repo-provider normalized check-run status and conclusion helpers are owned by
+  `SymphonyElixir.RepoProvider.CheckRun`. Repo-provider command output and
+  land-watch logic should use that owner instead of duplicating completed or
+  successful-conclusion literals.
+- Repo-provider land-watch review environment variable names and defaults are
+  owned by `SymphonyElixir.RepoProvider.LandWatch.RuntimeEnv`.
+- `SymphonyElixir.Workflow.ExecutionProfile` is a boot-registered descriptor
+  contract. Handlers declare supported actions and required capabilities; they
+  must explicitly declare the behaviour so the registry can reject accidental
+  duck-typed modules. They are not an execution callback surface and should not
+  define or rely on `run/1` unless a future orchestrator execution path is
+  introduced with tests.
+
 ## Goals
 
 - Keep public entry modules stable even as internals grow.
@@ -111,13 +201,15 @@ The table below is the quickest way to decide where code belongs.
 | `issue.ex` | core issue model | normalized issue struct and issue-level accessors | tracker API code, lifecycle coordination | `SymphonyElixir.Issue` |
 | `issue/` | issue domain helpers | issue lifecycle interpretation or issue-specific policy | orchestrator loop control, tracker HTTP | `Lifecycle` |
 | `tracker.ex` | tracker boundary facade | behaviour, adapter lookup, shared facade calls | vendor-specific request building, response normalization | `SymphonyElixir.Tracker` |
-| `tracker/` | provider-neutral tracker internals | config access, registry, normalized errors, serialization, project refs, smoke validation, memory adapter | tracker-vendor transport details, repo-provider behavior | `Config`, `ConfigAccess`, `Registry`, `Error`, `ProjectRef`, `Smoke` |
+| `tracker/` | provider-neutral tracker internals | config access, registry, kind identifiers, normalized errors, serialization, project refs, smoke validation, memory adapter | tracker-vendor transport details, repo-provider behavior | `Config`, `ConfigAccess`, `Kinds`, `Registry`, `Error`, `ProjectRef`, `Smoke` |
 | `tracker/<kind>/` | one tracker integration | adapter, client facade, query definitions, transport helpers, pagination, provider-option extraction, payload decoding, ID lookup, relation enrichment, error classification, normalizer, codecs and codec internals, dynamic-tool executor internals, tracker-specific workspace preparation, tracker-specific workflow helpers | orchestrator state machine code, generic workspace logic, test-only client forwarding APIs for internal reader or pagination modules | `Linear.Adapter`, `Linear.GraphQL`, `Linear.IssueReader`, `Tapd.Client.Reader`, `Tapd.Client.Request`, `Tapd.WorkspacePreparation`, `Tapd.CommentCodec`, `Tapd.CommentCodec.DescriptionEncoder`, `Tapd.ToolExecutor.TypedTools` |
 | `repo.ex` | repository boundary facade | stable repository API for branch, status, preflight, and Git-backed operations | Git command mechanics, repo-provider API calls, tracker behavior | `SymphonyElixir.Repo` |
 | `repo/` | provider-neutral repository internals | branch/status/error data, preflight checks, Git facade, repository context helpers, Dynamic Tool repo context resolution | raw Git command execution, repo-provider transport details, tracker workflow behavior, orchestration state | `Branch`, `Status`, `Error`, `Preflight`, `Git`, `DynamicToolContext` |
 | `repo/git/` | Git implementation internals | command execution, scoped arguments, Git config projection, argument builders, repository inspection, remote/clone/push operations, branch/merge operations, commit/stage operations, status parsing, reference parsing, error classification, invocation validation | public repository API expansion, repo-provider adapter behavior, workflow/orchestrator policy | `Command`, `Arguments`, `Inspection`, `Remote`, `Branches`, `Commits`, `StatusParser`, `References`, `Errors`, `Validation` |
 | `repo_provider.ex` | repo-provider boundary facade | adapter lookup, capability checks, public repo-provider operations | provider-specific API calls, workflow text, CLI parsing details | `SymphonyElixir.RepoProvider` |
-| `repo_provider/` | provider-neutral repo-provider internals | config access, registry, command dispatch, result/output shaping, errors, land-watch orchestration, smoke orchestration | tracker behavior, provider-specific API details | `Config`, `ConfigAccess`, `Registry`, `Command`, `LandWatch`, `Error` |
+| `repo_provider/` | provider-neutral repo-provider internals | config access, registry, kind identifiers, normalized check-run helpers, command dispatch, result/output shaping, errors, land-watch orchestration, smoke orchestration | tracker behavior, provider-specific API details | `Config`, `ConfigAccess`, `Kinds`, `CheckRun`, `Registry`, `Command`, `LandWatch`, `Error` |
+| `repo_provider/cli/` | repo-provider CLI runtime adapter internals | environment loading, runtime config resolution, invocation evaluation, observability events, and CLI result tuples | argv option parsing, command execution internals, provider-specific transport | `CLI.Evaluator` |
+| `repo_provider/command/` | repo-provider command execution internals | parsed invocation option projection, command-specific result rendering, watch loops, and exit-code policy | argv parsing, provider-specific transport, shell command execution | `Command.Options`, `Command.Checks` |
 | `repo_provider/invocation/` | repo-provider CLI invocation parser internals | provider override parsing, command routing, PR/API/run option parsing, body-file reads, JSON field lists | provider adapter execution, output rendering, shell command execution | `CommandParser`, `PullRequest`, `Reviews`, `Api`, `Runs`, `Options` |
 | `repo_provider/smoke/` | repo-provider smoke test implementation | probe construction/execution, mode selection, smoke report rendering, event emission, destructive smoke flows, CNB auto-provision context, git setup, PR flow, run polling, and cleanup | provider adapter API clients, generic CLI parsing, tracker behavior | `Smoke.ProbeRunner`, `Smoke.ReadOnly`, `Smoke.Destructive`, `Smoke.Report`, `Smoke.CNBProvisioner.Context`, `Smoke.CNBProvisioner.PRFlow` |
 | `repo_provider/<kind>/` | one repo-provider integration | adapter, client, handler facades and focused handler submodules, base branch resolution, normalizer facade and focused normalizer submodules, provider-specific command execution, runtime HTTP option parsing | tracker transport, generic orchestrator policy | `GitHub.Adapter`, `CNB.HttpClient`, `CNB.PullRequestHandler.Resolution`, `CNB.ApiHandler.Router`, `CNB.Normalizer.Pull` |
@@ -137,7 +229,7 @@ The table below is the quickest way to decide where code belongs.
 | `agent_provider/` | provider-neutral AI agent-provider internals | adapter contract, registry, config resolution, shared provider settings normalization and validation, capabilities, session lifecycle, runtime-start validation, event/session/usage data shapes, event-summary shape, shared message presentation, message routing, workspace preparation, provider-owned workspace automation destination selection | concrete provider protocol parsing, execution loop control, bundled automation source resolution, provider-specific settings semantics | `Adapter`, `Registry`, `ConfigResolver`, `SettingsNormalizer`, `Capabilities`, `SessionLifecycle`, `RuntimeStart`, `EventFields`, `MessageRouting`, `WorkspacePreparation`, `Session`, `Usage` |
 | `agent_provider/app_server/` | provider-neutral app-server support | callback message emission, issue-title formatting, structured event-field assembly, prompt/stream summaries, provider process metadata, turn-context metadata merging | provider protocol parsing, process startup, provider-specific message redaction, provider-specific lifecycle events | `Messages`, `EventFields`, `PortMetadata` |
 | `agent_provider/event_summary_mapper/` | event-summary mapping primitives | nested payload access, reason/usage formatting, compact text normalization shared by provider mappers | provider-specific event taxonomy, provider protocol parsing, dashboard rendering | `Access`, `Text` |
-| `agent_provider/<kind>/` | one AI coding-agent integration | adapter, CLI/app-server client, event mapping, provider-specific failure classification, provider-specific message summary mapping | provider-neutral execution lifecycle, orchestrator state machine | `Codex.Adapter`, `Codex.EventSummaryMapper`, `ClaudeCode.EventSummaryMapper`, `OpenCode.EventSummaryMapper` |
+| `agent_provider/<kind>/` | one AI coding-agent integration | adapter, CLI/app-server client, event mapping, provider-specific credential environment contracts, provider-specific failure classification, provider-specific message summary mapping | provider-neutral execution lifecycle, orchestrator state machine | `Codex.Adapter`, `Codex.CredentialEnv`, `Codex.EventSummaryMapper`, `ClaudeCode.CredentialEnv`, `ClaudeCode.EventSummaryMapper`, `OpenCode.EventSummaryMapper` |
 | `agent_provider/<kind>/app_server/` | provider app-server/client internals | command launch, protocol writes/reads, turn request handling, usage extraction, provider event-field base context, provider-specific callback payload shaping, process cleanup | adapter option finalization, provider-neutral runtime target selection policy, shared dashboard rendering, shared callback/metadata helpers | `Codex.AppServer.Launcher`, `ClaudeCode.AppServer.StreamProtocol`, `OpenCode.AppServer.EventStream` |
 | `agent_provider/<kind>/tooling/` | provider workspace tooling internals | provider-owned config rendering, generated source rendering, remote bootstrap scripts, tool file manifests, provider-visible tool spec shaping | provider-neutral Dynamic Tool execution, credential materialization, workspace lifecycle policy | `ClaudeCode.Tooling.McpConfig`, `AgentProvider.PlannedToolMcpServer.Protocol`, `OpenCode.Tooling.Manifest`, `OpenCode.Tooling.PlannedToolPlugin.SchemaRenderer` |
 | `workspace.ex` | workspace facade | public create/remove entrypoints | path helpers, hook execution details, remote shell composition | `SymphonyElixir.Workspace` |
@@ -177,9 +269,16 @@ The table below is the quickest way to decide where code belongs.
 - Provider-neutral tracker support belongs under `tracker/` with responsibility names such as `ConfigAccess`; do not move it into a top-level shared helper module.
 - Provider-neutral repository API and data shapes belong under `repo/`; Git command mechanics belong under `repo/git/`.
 - Repo-provider-neutral support belongs under `repo_provider/`; provider-specific code belongs under `repo_provider/<kind>/`.
-- Repo-provider CLI invocation parsing belongs under
-  `repo_provider/invocation/`; command execution and output shaping remain
-  under `repo_provider/`.
+- Repo-provider command-line handling is layered:
+  - `repo_provider/invocation/` parses argv into `%RepoProvider.Invocation{}`.
+  - `repo_provider/command.ex` and `repo_provider/command/` execute parsed
+    command semantics and shape command-specific results.
+  - `repo_provider/cli/` adapts that execution to a CLI runtime by loading env,
+    resolving runtime config, emitting evaluator-level observability events, and
+    returning stdout/stderr/exit-code tuples.
+  Keep these layers separate so parser code does not execute provider actions,
+  command execution does not own process IO, and CLI adapters stay reusable by
+  smoke runners or future non-escript entrypoints.
 - Provider-neutral AI agent run lifecycle belongs under `agent/`.
 - Provider-neutral AI agent adapter contracts and registry logic belong under `agent_provider/`.
 - Provider settings normalization and validation that is identical across at
@@ -559,6 +658,13 @@ each module answers a distinct question. A split such as `Workspace.Part1` and
   `repo/git/`
 - New repo-provider facade, config, registry, command, output, or provider-neutral adapter support:
   `repo_provider/`
+- New repo-provider CLI runtime adapter behavior such as environment loading,
+  runtime config resolution, evaluator-level observability, or stdout/stderr
+  tuple shaping:
+  `repo_provider/cli/`
+- New repo-provider command execution helper, result rendering, watch-loop, or
+  provider-option projection from a parsed invocation:
+  `repo_provider/command/`
 - New repo-provider CLI command-line option parsing:
   `repo_provider/invocation/`
 - New repo-provider-specific API, CLI, handler, or normalization logic:

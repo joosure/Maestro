@@ -15,6 +15,7 @@ defmodule SymphonyElixir.RepoProvider.CNB.HttpClient do
   @default_retry_backoff_seconds 1
   @retryable_statuses [408, 425, 429, 500, 502, 503, 504]
 
+  alias SymphonyElixir.RepoProvider.CNB.RuntimeEnv
   alias SymphonyElixir.RepoProvider.Config, as: RepoConfig
 
   @type repo_config :: map()
@@ -27,7 +28,7 @@ defmodule SymphonyElixir.RepoProvider.CNB.HttpClient do
 
   @spec access_token(keyword()) :: {:ok, String.t()} | {:error, :missing_cnb_token}
   def access_token(opts) do
-    case opts[:token] || System.get_env("CNB_TOKEN") do
+    case opts[:token] || RuntimeEnv.token() do
       token when is_binary(token) and token != "" -> {:ok, token}
       _other -> {:error, :missing_cnb_token}
     end

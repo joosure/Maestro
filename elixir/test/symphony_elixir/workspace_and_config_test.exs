@@ -92,7 +92,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     def supported_actions, do: [:dispatch]
     def required_capabilities, do: []
-    def run(_context), do: {:ok, %{}}
   end
 
   defmodule WaitOnlyExecutionProfile do
@@ -100,7 +99,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     def supported_actions, do: [:wait]
     def required_capabilities, do: []
-    def run(_context), do: {:ok, %{}}
   end
 
   defmodule ShipWithMergeExecutionProfile do
@@ -108,7 +106,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     def supported_actions, do: [:dispatch]
     def required_capabilities, do: ["repo_provider.merge"]
-    def run(_context), do: {:ok, %{}}
   end
 
   defmodule TriageDispatchExecutionProfile do
@@ -116,10 +113,13 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     def supported_actions, do: [:dispatch]
     def required_capabilities, do: []
-    def run(_context), do: {:ok, %{}}
   end
 
-  defmodule MissingRunExecutionProfile do
+  defmodule MissingRequiredCapabilitiesExecutionProfile do
+    def supported_actions, do: [:dispatch]
+  end
+
+  defmodule DuckTypedExecutionProfile do
     def supported_actions, do: [:dispatch]
     def required_capabilities, do: []
   end
@@ -1987,18 +1987,36 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   test "execution profile registry rejects handlers that do not implement the behaviour callbacks" do
     Application.put_env(:symphony_elixir, :workflow_execution_profiles, [
       %{
-        name: "missing_run",
+        name: "missing_required_capabilities",
         profile_kind: "coding_pr_delivery",
         profile_versions: [1],
         supported_actions: ["dispatch"],
         required_capabilities: [],
-        runtime_handler: MissingRunExecutionProfile
+        runtime_handler: MissingRequiredCapabilitiesExecutionProfile
       }
     ])
 
     on_exit(fn -> Application.delete_env(:symphony_elixir, :workflow_execution_profiles) end)
 
-    assert {:error, {:invalid_workflow_execution_profile_registry, {:invalid_registry_entry_runtime_handler_contract, MissingRunExecutionProfile, {:run, 1}}}} =
+    assert {:error, {:invalid_workflow_execution_profile_registry, {:invalid_registry_entry_runtime_handler_contract, MissingRequiredCapabilitiesExecutionProfile, {:required_capabilities, 0}}}} =
+             SymphonyElixir.Workflow.ExecutionProfileRegistry.validate_registry()
+  end
+
+  test "execution profile registry rejects handlers that only match callbacks by duck typing" do
+    Application.put_env(:symphony_elixir, :workflow_execution_profiles, [
+      %{
+        name: "duck_typed",
+        profile_kind: "coding_pr_delivery",
+        profile_versions: [1],
+        supported_actions: ["dispatch"],
+        required_capabilities: [],
+        runtime_handler: DuckTypedExecutionProfile
+      }
+    ])
+
+    on_exit(fn -> Application.delete_env(:symphony_elixir, :workflow_execution_profiles) end)
+
+    assert {:error, {:invalid_workflow_execution_profile_registry, {:invalid_registry_entry_runtime_handler_behaviour, DuckTypedExecutionProfile, SymphonyElixir.Workflow.ExecutionProfile}}} =
              SymphonyElixir.Workflow.ExecutionProfileRegistry.validate_registry()
   end
 

@@ -171,8 +171,8 @@ defmodule SymphonyElixir.Config do
       %RepoProviderError{operation: :validate_config, message: message} when is_binary(message) and message != "" ->
         "Invalid WORKFLOW.md config: #{message}"
 
-      {:unsupported_repo_provider_option, kind, :required_pr_label} ->
-        "repo.provider.options.required_pr_label requires repo.provider.kind to be github; current provider: #{kind}"
+      {:unsupported_repo_provider_option, kind, option} ->
+        RepoProviderError.unsupported_option(kind, option).message
 
       {:unsupported_agent_provider_kind, kind} ->
         "Unsupported agent_provider.kind: #{inspect(kind)}"

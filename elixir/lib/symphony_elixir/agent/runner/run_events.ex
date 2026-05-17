@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Agent.Runner.RunEvents do
 
   alias SymphonyElixir.Agent.Runner.EventFields
   alias SymphonyElixir.Agent.Runner.TurnEvents
+  alias SymphonyElixir.AgentProvider.TurnStatus
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
 
   @type worker_host :: String.t() | nil
@@ -28,7 +29,7 @@ defmodule SymphonyElixir.Agent.Runner.RunEvents do
         %{
           run_id: run_id,
           correlation_id: run_id,
-          status: "failed",
+          status: TurnStatus.failed(),
           attempt: attempt,
           duration_ms: elapsed_ms(started_at_ms),
           failure_class: "agent_run_exception"
@@ -51,8 +52,8 @@ defmodule SymphonyElixir.Agent.Runner.RunEvents do
         ) :: term()
   def emit_catch_terminal(kind, reason, stacktrace, issue, worker_host, workspace, run_id, started_at_ms, attempt) do
     event = catch_terminal_event(kind, reason)
-    status = if event == :agent_run_cancelled, do: "cancelled", else: "failed"
-    failure_class = if event == :agent_run_cancelled, do: "cancelled", else: TurnEvents.run_failure_class(reason, worker_host)
+    status = if event == :agent_run_cancelled, do: TurnStatus.cancelled(), else: TurnStatus.failed()
+    failure_class = if event == :agent_run_cancelled, do: TurnStatus.cancelled(), else: TurnEvents.run_failure_class(reason, worker_host)
     level = if event == :agent_run_cancelled, do: :warning, else: :error
 
     ObsLogger.emit(

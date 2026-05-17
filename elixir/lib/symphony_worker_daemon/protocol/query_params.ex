@@ -1,8 +1,10 @@
 defmodule SymphonyWorkerDaemon.Protocol.QueryParams do
   @moduledoc false
 
-  @session_filter_keys ["owner", "tenant_id", "run_id", "status"]
-  @event_filter_keys ["after_event_id", "limit"]
+  alias SymphonyWorkerDaemon.Protocol.Fields
+
+  @session_filter_keys Fields.session_filter_keys()
+  @event_filter_keys Fields.event_filter_keys()
 
   @spec session(map() | keyword()) :: String.t()
   def session(filters) when is_map(filters) or is_list(filters) do

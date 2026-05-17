@@ -3,6 +3,11 @@ defmodule SymphonyElixir.AgentProvider.AppServer.Messages do
 
   require Logger
 
+  alias SymphonyElixir.AgentProvider.Kinds
+
+  @claude_code_kind Kinds.claude_code()
+  @opencode_kind Kinds.opencode()
+
   @type event_name :: atom() | String.t()
 
   @spec emit((map() -> term()), event_name(), map(), map(), keyword()) :: :ok
@@ -39,8 +44,8 @@ defmodule SymphonyElixir.AgentProvider.AppServer.Messages do
     Map.get(metadata, :agent_provider_kind) || Map.get(metadata, "agent_provider_kind")
   end
 
-  defp provider_label_from_kind("claude_code"), do: "Claude Code"
-  defp provider_label_from_kind("opencode"), do: "OpenCode"
+  defp provider_label_from_kind(@claude_code_kind), do: "Claude Code"
+  defp provider_label_from_kind(@opencode_kind), do: "OpenCode"
   defp provider_label_from_kind(kind) when is_binary(kind) and kind != "", do: kind
   defp provider_label_from_kind(_kind), do: "Agent provider"
 end

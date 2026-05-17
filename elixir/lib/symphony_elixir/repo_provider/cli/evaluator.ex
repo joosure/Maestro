@@ -1,4 +1,4 @@
-defmodule SymphonyElixir.RepoProvider.CommandEvaluator do
+defmodule SymphonyElixir.RepoProvider.CLI.Evaluator do
   @moduledoc false
 
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
@@ -170,7 +170,7 @@ defmodule SymphonyElixir.RepoProvider.CommandEvaluator do
   end
 
   defp infer_provider_kind(["--provider", provider | _rest], _env_map) when is_binary(provider), do: provider
-  defp infer_provider_kind(_argv, env_map), do: Map.get(env_map, "SYMPHONY_REPO_PROVIDER_KIND", "github")
+  defp infer_provider_kind(_argv, env_map), do: RuntimeConfig.current_kind(RuntimeConfig.from_env(env_map))
 
   defp infer_command_name(["--provider", _provider, command | _rest]) when is_binary(command), do: command
   defp infer_command_name([command | _rest]) when is_binary(command), do: command

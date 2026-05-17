@@ -3,26 +3,31 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Environment do
 
   alias SymphonyElixir.Agent.Credential.Accounts.Secret
   alias SymphonyElixir.Agent.Credential.Store
+  alias SymphonyElixir.AgentProvider.ClaudeCode.CredentialEnv, as: ClaudeCredentialEnv
+  alias SymphonyElixir.AgentProvider.Kinds
+  alias SymphonyElixir.AgentProvider.OpenCode.CredentialEnv, as: OpenCodeCredentialEnv
+
+  @claude_code_kind Kinds.claude_code()
+  @claude_oauth_token_credential_kind ClaudeCredentialEnv.oauth_token_credential_kind()
+  @claude_config_credential_kind ClaudeCredentialEnv.config_credential_kind()
+  @anthropic_api_key_env ClaudeCredentialEnv.anthropic_api_key_env()
+  @opencode_kind Kinds.opencode()
+  @opencode_env_token_credential_kind OpenCodeCredentialEnv.env_token_credential_kind()
 
   @spec credential_env(Store.account() | nil) :: [{String.t(), String.t()}]
   def credential_env(nil), do: []
 
-  def credential_env(%{agent_provider_kind: "claude_code", credential_kind: "claude_oauth_token"} = account) do
-    [
-      {"CLAUDE_CODE_OAUTH_TOKEN", Secret.read(account.secret_file)},
-      {"CLAUDE_CONFIG_DIR", account.auth_dir},
-      {"ANTHROPIC_API_KEY", ""}
-    ]
-    |> reject_blank_env()
+  def credential_env(%{agent_provider_kind: @claude_code_kind, credential_kind: @claude_oauth_token_credential_kind} = account) do
+    ClaudeCredentialEnv.oauth_token_env(Secret.read(account.secret_file), account.auth_dir)
   end
 
-  def credential_env(%{agent_provider_kind: "claude_code", credential_kind: "claude_config"} = account) do
-    [{"CLAUDE_CONFIG_DIR", account.auth_dir}, {"ANTHROPIC_API_KEY", ""}]
+  def credential_env(%{agent_provider_kind: @claude_code_kind, credential_kind: @claude_config_credential_kind} = account) do
+    ClaudeCredentialEnv.config_env(account.auth_dir)
   end
 
-  def credential_env(%{agent_provider_kind: "opencode", credential_kind: "opencode_env_token", env_name: env_name} = account)
+  def credential_env(%{agent_provider_kind: @opencode_kind, credential_kind: @opencode_env_token_credential_kind, env_name: env_name} = account)
       when is_binary(env_name) and env_name != "" do
-    [{env_name, Secret.read(account.secret_file)}]
+    OpenCodeCredentialEnv.env_token_env(env_name, Secret.read(account.secret_file))
     |> reject_blank_env()
   end
 
@@ -30,7 +35,7 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Environment do
 
   defp reject_blank_env(env) do
     Enum.reject(env, fn
-      {"ANTHROPIC_API_KEY", ""} -> false
+      {@anthropic_api_key_env, ""} -> false
       {_key, value} -> is_nil(value) or value == ""
     end)
   end

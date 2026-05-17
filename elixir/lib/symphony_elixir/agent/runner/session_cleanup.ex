@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Agent.Runner.SessionCleanup do
   alias SymphonyElixir.Agent.Runner.ProviderOptions
   alias SymphonyElixir.AgentProvider
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationStatus
 
   @type worker_host :: String.t() | nil
 
@@ -18,7 +19,7 @@ defmodule SymphonyElixir.Agent.Runner.SessionCleanup do
       EventFields.event(issue, worker_host, workspace, %{
         run_id: run_id,
         correlation_id: run_id,
-        status: "started",
+        status: OperationStatus.started(),
         operation: "stop_session",
         session_id: EventFields.session_value(session, :session_id),
         thread_id: EventFields.session_value(session, :thread_id),
@@ -42,7 +43,7 @@ defmodule SymphonyElixir.Agent.Runner.SessionCleanup do
           :info,
           :agent_cleanup_completed,
           Map.merge(cleanup_fields, %{
-            status: "completed",
+            status: OperationStatus.completed(),
             duration_ms: elapsed_ms(cleanup_started_at_ms)
           })
         )
@@ -55,7 +56,7 @@ defmodule SymphonyElixir.Agent.Runner.SessionCleanup do
           :agent_cleanup_failed,
           cleanup_fields
           |> Map.merge(%{
-            status: "failed",
+            status: OperationStatus.failed(),
             duration_ms: elapsed_ms(cleanup_started_at_ms)
           })
           |> Map.merge(ObsLogger.error_details(cleanup_error))
