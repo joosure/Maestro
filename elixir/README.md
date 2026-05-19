@@ -50,16 +50,21 @@ the active agent for that item and cleans up matching workspaces.
 ## Quick Start
 
 Use [mise](https://mise.jdx.dev/) to install the Elixir/Erlang versions pinned
-by this repository:
+by this repository. The Makefile runs Mix through `mise exec` by default:
 
 ```bash
 git clone <maestro-repository-url> maestro
 cd maestro/elixir
 mise trust
 mise install
-mise exec -- mix setup
-mise exec -- mix build
+make setup
+make build
 ```
+
+Run direct Mix commands as `mise exec -- mix ...`. The project fails early when
+the active Elixir/OTP versions do not match `mise.toml`; errors mentioning
+unexpected OTP application versions such as `stdlib 8.x` usually mean the shell
+is using a non-pinned Erlang/OTP installation.
 
 Start the local memory/mock workflow. This path does not require Linear, TAPD,
 GitHub, CNB, Codex, Claude Code, OpenCode, or external credentials:
@@ -260,12 +265,12 @@ workflows.
 
 ## Tracker Smoke
 
-Use `mix tracker.smoke` for deployment-scoped tracker validation. It is
+Use `mise exec -- mix tracker.smoke` for deployment-scoped tracker validation. It is
 read-only by default and validates workflow tracker config, tracker
 connectivity, and optional targeted issue refresh:
 
 ```bash
-mix tracker.smoke --template memory/no_repo/mock --issue local-memory-1 --json
+mise exec -- mix tracker.smoke --template memory/no_repo/mock --issue local-memory-1 --json
 ```
 
 State-write validation requires `--confirm-state-write` and sends

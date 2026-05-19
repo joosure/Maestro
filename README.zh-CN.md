@@ -229,7 +229,7 @@ git clone https://github.com/joosure/Maestro.git
 cd Maestro
 ```
 
-先准备仓库固定的 Erlang / Elixir 工具链。推荐使用 `mise`，版本由 `elixir/mise.toml` 固定：
+先准备仓库固定的 Erlang / Elixir 工具链。项目构建命令默认通过 `mise` 运行，版本由 `elixir/mise.toml` 固定：
 
 ```bash
 cd elixir
@@ -238,23 +238,23 @@ mise install
 cd ..
 ```
 
-安装依赖并运行测试。如果当前 shell 已激活 `mise` 工具链，可以直接使用 `make`：
+安装依赖并运行测试。`make` 默认会调用 `mise exec -- mix`：
 
 ```bash
 make -C elixir deps
 make -C elixir test
 ```
 
-也可以从 `elixir/` 目录使用 `mise exec -- mix setup` 和 `mise exec -- mix test`。
+直接调用 `mix` 时，也应从 `elixir/` 目录使用 `mise exec -- mix ...`。如果 `mix.exs` 报告 Elixir/OTP 版本不匹配，或错误中出现异常的 OTP 应用版本，例如 `stdlib 8.x`，通常说明当前 shell 使用了不同于 `elixir/mise.toml` 的 Erlang/OTP；请运行 `mise trust`、`mise install`，再通过 `mise exec` 重试。
 
 ### 快速体验 workflow template
 
 构建 CLI，并从 `elixir/` 启动本地 memory/mock workflow：
 
 ```bash
-make -C elixir build
 cd elixir
-./bin/symphony \
+make build
+mise exec -- ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
   --template memory/no_repo/mock \
   --port 4000

@@ -30,9 +30,9 @@ jobs:
           path: |
             elixir/deps
             elixir/_build
-          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mix.lock') }}
+          key: ${{ runner.os }}-mix-${{ hashFiles('elixir/mise.toml') }}-${{ hashFiles('elixir/mix.lock') }}
           restore-keys: |
-            ${{ runner.os }}-mix-
+            ${{ runner.os }}-mix-${{ hashFiles('elixir/mise.toml') }}-
 
       - name: Clean application build artifacts
         run: rm -rf _build/*/lib/symphony_elixir _build/*/phoenix-colocated/symphony_elixir

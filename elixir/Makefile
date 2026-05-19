@@ -1,6 +1,6 @@
 .PHONY: help all setup deps build fmt fmt-check lint test coverage ci dialyzer secret-scan tracker-smoke repo-provider-smoke agent-provider-smoke worker-daemon-check worker-daemon-simulated-provider-turn worker-daemon-provider-smoke worker-daemon-provider-turn worker-daemon-dynamic-tool-turn e2e e2e-linear e2e-linear-local-ssh e2e-tapd e2e-tapd-pr e2e-tapd-land e2e-tapd-rework
 
-MIX ?= mix
+MIX ?= mise exec -- mix
 COVERAGE_THRESHOLD ?= 70
 
 help:

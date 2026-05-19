@@ -26,8 +26,8 @@ jobs:
         env:
           PR_BODY_JSON: ${{ toJson(github.event.pull_request.body) }}
         run: |
-          mix local.hex --force
-          mix local.rebar --force
-          mix deps.get
+          mise exec -- mix local.hex --force
+          mise exec -- mix local.rebar --force
+          make setup
           printf '%s' "$PR_BODY_JSON" | jq -r '.' > /tmp/pr_body.md
-          mix pr_body.check --file /tmp/pr_body.md
+          mise exec -- mix pr_body.check --file /tmp/pr_body.md
