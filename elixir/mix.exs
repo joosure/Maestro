@@ -4,6 +4,8 @@ defmodule SymphonyElixir.MixProject do
   @default_coverage_threshold 70
 
   def project do
+    ensure_pinned_toolchain!()
+
     [
       app: :symphony_elixir,
       version: "0.1.0",
@@ -179,6 +181,72 @@ defmodule SymphonyElixir.MixProject do
         raise """
         Invalid SYMPHONY_TEST_COVERAGE_THRESHOLD=#{inspect(value)}.
         Expected an integer between 0 and 100.
+        """
+    end
+  end
+
+  defp ensure_pinned_toolchain! do
+    pinned = pinned_toolchain!()
+    actual_elixir = System.version()
+    actual_otp = System.otp_release()
+
+    unless actual_elixir == pinned.elixir and actual_otp == pinned.otp do
+      raise """
+      Elixir/OTP toolchain mismatch.
+
+      Expected: Elixir #{pinned.elixir} / OTP #{pinned.otp}
+      Actual:   Elixir #{actual_elixir} / OTP #{actual_otp}
+
+      This project is pinned by elixir/mise.toml. Use the pinned toolchain:
+
+          cd elixir
+          mise trust
+          mise install
+          mise exec -- mix <task>
+      """
+    end
+  end
+
+  defp pinned_toolchain! do
+    mise_path = Path.join(__DIR__, "mise.toml")
+    contents = File.read!(mise_path)
+
+    erlang_version = parse_mise_tool!(contents, "erlang")
+    elixir_version = parse_mise_tool!(contents, "elixir")
+
+    case Regex.run(~r/^(.+)-otp-(\d+)$/, elixir_version) do
+      [_, pinned_elixir, elixir_otp] ->
+        erlang_otp = erlang_version |> String.split(".", parts: 2) |> hd()
+
+        unless erlang_otp == elixir_otp do
+          raise """
+          Invalid elixir/mise.toml toolchain pin.
+
+          Erlang OTP #{erlang_otp} does not match Elixir build suffix OTP #{elixir_otp}.
+          """
+        end
+
+        %{elixir: pinned_elixir, otp: erlang_otp}
+
+      _other ->
+        raise """
+        Invalid elixir/mise.toml Elixir pin: #{inspect(elixir_version)}.
+
+        Expected a value like "1.19.5-otp-28".
+        """
+    end
+  end
+
+  defp parse_mise_tool!(contents, tool) do
+    pattern = ~r/^\s*#{Regex.escape(tool)}\s*=\s*"([^"]+)"\s*$/m
+
+    case Regex.run(pattern, contents) do
+      [_, version] ->
+        version
+
+      _other ->
+        raise """
+        Missing #{tool} tool pin in elixir/mise.toml.
         """
     end
   end

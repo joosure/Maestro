@@ -11,11 +11,6 @@ defmodule SymphonyElixir.Observability.EventStore.State do
             run_events: %{},
             session_events: %{}
 
-  @type record :: %{
-          required(:seq) => pos_integer(),
-          required(:payload) => map()
-        }
-
   @type t :: %__MODULE__{
           next_seq: pos_integer(),
           config: Config.t(),

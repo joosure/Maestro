@@ -229,7 +229,7 @@ git clone https://github.com/joosure/Maestro.git
 cd Maestro
 ```
 
-Prepare the pinned Erlang / Elixir toolchain first. `mise` is recommended; versions are pinned in `elixir/mise.toml`:
+Prepare the pinned Erlang / Elixir toolchain first. Project build commands use `mise` by default, and versions are pinned in `elixir/mise.toml`:
 
 ```bash
 cd elixir
@@ -238,23 +238,23 @@ mise install
 cd ..
 ```
 
-Install dependencies and run the test suite. If the current shell has the `mise` toolchain active, you can use `make` directly:
+Install dependencies and run the test suite. `make` invokes `mise exec -- mix` by default:
 
 ```bash
 make -C elixir deps
 make -C elixir test
 ```
 
-You can also run `mise exec -- mix setup` and `mise exec -- mix test` from `elixir/`.
+Direct `mix` commands should also go through `mise exec -- mix ...` from `elixir/`. If `mix.exs` reports an Elixir/OTP mismatch, or errors mention unexpected OTP applications such as `stdlib 8.x`, the active shell is using a different Erlang/OTP than `elixir/mise.toml`; run `mise trust`, `mise install`, and retry through `mise exec`.
 
 ### Try a workflow template
 
 Build the CLI and start the local memory/mock workflow from `elixir/`:
 
 ```bash
-make -C elixir build
 cd elixir
-./bin/symphony \
+make build
+mise exec -- ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
   --template memory/no_repo/mock \
   --port 4000
@@ -296,7 +296,7 @@ pushes to `main` and pull requests.
 Use the lowest-risk path for local experimentation:
 
 - Configure `tracker.kind: memory` and `repo.provider.kind: memory` when you want to exercise orchestration without external credentials.
-- Use `mix tracker.smoke --template memory/no_repo/mock --issue local-memory-1 --json` from `elixir/` to validate tracker smoke wiring before using real tracker credentials.
+- Use `mise exec -- mix tracker.smoke --template memory/no_repo/mock --issue local-memory-1 --json` from `elixir/` to validate tracker smoke wiring before using real tracker credentials.
 - Use the built-in `mock` agent provider for local no-credential validation; keep additional fake or simulated adapters limited to tests or extension work through the adapter registry. The built-in real agent providers are `codex`, `claude_code`, and `opencode`.
 - Move to Linear/TAPD, GitHub/CNB, or destructive smoke tests only after the memory path is stable.
 
