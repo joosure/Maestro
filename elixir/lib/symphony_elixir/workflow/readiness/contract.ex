@@ -1,4 +1,4 @@
-defmodule SymphonyElixir.Workflow.ReadinessContract do
+defmodule SymphonyElixir.Workflow.Readiness.Contract do
   @moduledoc """
   Shared string contract for workflow readiness and completion-validation payloads.
   """

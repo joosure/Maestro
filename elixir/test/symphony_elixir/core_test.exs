@@ -51,6 +51,14 @@ defmodule SymphonyElixir.CoreTest do
     })
   end
 
+  defp tapd_cnb_codebuddy_code_workflow_template_path do
+    bundled_workflow_template_path(%{
+      tracker: "tapd",
+      repo_provider: "cnb",
+      agent_provider: "codebuddy_code"
+    })
+  end
+
   defp linear_github_claude_code_workflow_template_path do
     bundled_workflow_template_path(%{
       tracker: "linear",
@@ -585,6 +593,57 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Do not use `--target-branch`, `--description`, `curl`, `gh`, `glab`, `brew`"
     refute prompt =~ "repo-provider\" pr-create"
     refute prompt =~ "repo-provider\" pr-view --json"
+  end
+
+  test "bundled TAPD CNB CodeBuddy Code workflow template is valid for full-flow validation" do
+    original_workflow_path = Workflow.workflow_file_path()
+
+    env_overrides = %{
+      "TAPD_API_USER" => "tapd-user",
+      "TAPD_API_PASSWORD" => "tapd-password",
+      "TAPD_WORKSPACE_ID" => "123456",
+      "SOURCE_REPO_URL" => "https://cnb.cool/acme/widgets",
+      "SOURCE_REPO_PROVIDER_REPOSITORY" => "acme/widgets",
+      "SOURCE_REPO_BASE_BRANCH" => "main",
+      "CNB_TOKEN" => "test-cnb-token"
+    }
+
+    previous_env = Map.new(env_overrides, fn {key, _value} -> {key, System.get_env(key)} end)
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(original_workflow_path)
+      Enum.each(previous_env, fn {key, value} -> restore_env(key, value) end)
+    end)
+
+    Enum.each(env_overrides, fn {key, value} -> System.put_env(key, value) end)
+    Workflow.set_workflow_file_path(tapd_cnb_codebuddy_code_workflow_template_path())
+
+    assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
+    assert :ok = Config.validate!()
+
+    assert get_in(config, ["tracker", "kind"]) == "tapd"
+    assert get_in(config, ["repo", "provider", "kind"]) == "cnb"
+
+    assert get_in(config, ["agent", "credentials", "enabled"]) == true
+    assert get_in(config, ["agent", "quota", "preflight"]) == "off"
+
+    assert get_in(config, ["agent_provider", "kind"]) == "codebuddy_code"
+    assert get_in(config, ["agent_provider", "options", "transport"]) == "acp_stdio"
+    assert get_in(config, ["agent_provider", "options", "command_argv"]) == ["codebuddy"]
+    assert get_in(config, ["agent_provider", "options", "credential_ref"]) == "credential://codebuddy_code/default"
+    assert get_in(config, ["agent_provider", "options", "permission_mode"]) == "bypass_permissions"
+    assert get_in(config, ["agent_provider", "options", "mcp", "enabled"]) == true
+    assert get_in(config, ["agent_provider", "options", "plugin", "enabled"]) == false
+    assert get_in(config, ["agent_provider", "options", "http", "enabled"]) == false
+
+    assert prompt =~ "## Provider Runtime: CodeBuddy Code MCP Dynamic-Tool Bridge"
+    assert prompt =~ "session-scoped MCP"
+    assert prompt =~ "repository-authored CodeBuddy plugins"
+    assert prompt =~ "provider-specific callable names"
+    assert prompt =~ "## CNB Provider Notes"
+    assert prompt =~ "Use the inventory `repo.create_or_update_change_proposal` typed tool"
+    refute prompt =~ "The Open Code CLI"
+    refute prompt =~ "opencode"
   end
 
   test "bundled Linear GitHub Claude Code workflow template is valid for full-flow validation" do

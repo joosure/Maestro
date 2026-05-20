@@ -1,12 +1,13 @@
 defmodule SymphonyElixir.Agent.Credential.Accounts.Options do
   @moduledoc false
 
+  alias SymphonyElixir.AgentProvider.CodeBuddyCode.CredentialEnv, as: CodeBuddyCredentialEnv
   alias SymphonyElixir.AgentProvider.OpenCode.CredentialEnv, as: OpenCodeCredentialEnv
 
   @spec attrs(keyword(), keyword()) :: keyword()
   def attrs(opts, extra_attrs) do
     opts
-    |> Keyword.take([:email, :worker_host, :daily_token_budget, :enabled, :env_name])
+    |> Keyword.take([:email, :worker_host, :daily_token_budget, :enabled, :env_name, :internet_environment])
     |> Keyword.merge(extra_attrs)
   end
 
@@ -34,6 +35,13 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Options do
       :missing -> {:error, :missing_opencode_env_name}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @spec codebuddy_internet_environment(keyword()) :: {:ok, String.t()} | {:error, term()}
+  def codebuddy_internet_environment(opts) do
+    opts
+    |> Keyword.get(:internet_environment)
+    |> CodeBuddyCredentialEnv.normalize_internet_environment()
   end
 
   defp normalize_env_name(env_name) when is_binary(env_name) do

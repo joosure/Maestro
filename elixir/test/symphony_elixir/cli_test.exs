@@ -123,9 +123,11 @@ defmodule SymphonyElixir.CLITest do
 
     assert "tapd/cnb/opencode" in aliases
     assert "tapd/cnb/claude_code" in aliases
+    assert "tapd/cnb/codebuddy_code" in aliases
     assert "tapd/github/codex" in aliases
     assert "linear/github/codex" in aliases
     assert "linear/github/claude_code" in aliases
+    assert "linear/github/codebuddy_code" in aliases
     assert "linear/github/opencode.canary" in aliases
     refute "README" in aliases
     assert Enum.all?(aliases, &(length(Path.split(&1)) == 3))
@@ -347,6 +349,47 @@ defmodule SymphonyElixir.CLITest do
     assert_received {:login, "codex", "openai", opts}
     assert Keyword.get(opts, :token) == "codex-cli-token"
     refute Keyword.has_key?(opts, :env_name)
+    refute Keyword.has_key?(opts, :token_env)
+  end
+
+  test "accounts login supports CodeBuddy API-key token source and internet environment" do
+    parent = self()
+    token_env = "SYMPHONY_CLI_TEST_CODEBUDDY_TOKEN_#{System.unique_integer([:positive])}"
+    System.put_env(token_env, "codebuddy-cli-token")
+    on_exit(fn -> System.delete_env(token_env) end)
+
+    deps =
+      account_cli_deps(%{
+        accounts_login: fn provider_kind, id, opts ->
+          send(parent, {:login, provider_kind, id, opts})
+          {:ok, %{agent_provider_kind: "codebuddy_code", id: id, email: Keyword.get(opts, :email)}}
+        end
+      })
+
+    output =
+      capture_io(fn ->
+        assert :ok =
+                 CLI.evaluate(
+                   [
+                     "accounts",
+                     "login",
+                     "codebuddy",
+                     "china",
+                     "--email",
+                     "codebuddy@example.com",
+                     "--internet-environment",
+                     "internal",
+                     "--token-env",
+                     token_env
+                   ],
+                   deps
+                 )
+      end)
+
+    assert output =~ "Stored codebuddy_code account china (codebuddy@example.com)"
+    assert_received {:login, "codebuddy", "china", opts}
+    assert Keyword.get(opts, :token) == "codebuddy-cli-token"
+    assert Keyword.get(opts, :internet_environment) == "internal"
     refute Keyword.has_key?(opts, :token_env)
   end
 

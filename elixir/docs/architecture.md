@@ -60,6 +60,15 @@ It complements:
   `SymphonyElixir.Workflow.ReadinessContract`. Orchestrator dispatch code
   should read readiness facts through that contract instead of duplicating
   `"status"`, `"gate"`, or evidence-field strings.
+- State-transition readiness policy interfaces are owned by
+  `SymphonyElixir.Workflow.StateTransitionReadiness.Policy`; policy dispatch
+  and recorder registration are owned by
+  `SymphonyElixir.Workflow.StateTransitionReadiness.PolicyRegistry`. Shared
+  state-transition readiness envelope, evidence, result, and enum-like strings
+  are owned by the `SymphonyElixir.Workflow.StateTransitionReadiness.Contract`
+  namespace. Policy-specific check keys, reason codes, observed-evidence codes,
+  and tool-name mappings should stay under the owning policy namespace such as
+  `SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDelivery`.
 - Provider-neutral operation lifecycle status labels for observability events
   are owned by `SymphonyElixir.Observability.OperationStatus`. Turn terminal
   statuses remain owned by `SymphonyElixir.AgentProvider.TurnStatus`.

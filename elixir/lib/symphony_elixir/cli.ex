@@ -145,6 +145,7 @@ defmodule SymphonyElixir.CLI do
       symphony [--logs-root <path>] [--port <port>] [--template <alias>]
       symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]
       symphony accounts login claude_code <id> [--email <email>] [--token-stdin|--token-file <path>|--token-env <VAR>] [path-to-WORKFLOW.md]
+      symphony accounts login codebuddy_code <id> [--internet-environment public|internal|ioa] [--email <email>] [--token-stdin|--token-file <path>|--token-env <VAR>] [path-to-WORKFLOW.md]
       symphony accounts login opencode <id> --env-name <MODEL_PROVIDER_API_KEY_ENV> [--email <email>] [--token-stdin|--token-file <path>|--token-env <VAR>] [path-to-WORKFLOW.md]
       symphony accounts import claude_code <id> [--email <email>] [--from <CLAUDE_CONFIG_DIR>] [path-to-WORKFLOW.md]
       symphony accounts list [provider] [path-to-WORKFLOW.md]
@@ -156,7 +157,7 @@ defmodule SymphonyElixir.CLI do
       symphony accounts remove <provider> <id> [path-to-WORKFLOW.md]
       symphony worker-daemon --workspace-root <path> [--host 127.0.0.1] [--port 4001] [--token-env SYMPHONY_WORKER_DAEMON_TOKEN]
 
-    Provider aliases accepted for operator convenience: claude -> claude_code, opencode -> opencode.
+    Provider aliases accepted for operator convenience: claude -> claude_code, codebuddy -> codebuddy_code, opencode -> opencode.
     """
     |> String.trim()
   end

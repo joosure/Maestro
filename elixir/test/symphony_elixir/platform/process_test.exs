@@ -133,6 +133,48 @@ defmodule SymphonyElixir.Platform.ProcessTest do
     refute PlatformProcess.os_process_alive?(os_pid)
   end
 
+  test "terminate_os_process_tree/2 terminates descendants that outlive the parent" do
+    test_root = tmp_dir!("terminate-tree")
+
+    on_exit(fn -> File.rm_rf(test_root) end)
+
+    executable = Path.join(test_root, "parent-with-child")
+    child_pid_file = Path.join(test_root, "child.pid")
+
+    File.write!(executable, """
+    #!/bin/sh
+    sleep 60 &
+    printf '%s\\n' "$!" > "#{child_pid_file}"
+    printf 'ready\\n'
+    wait
+    """)
+
+    File.chmod!(executable, 0o755)
+
+    assert {:ok, port} = PlatformProcess.start_argv([executable], cwd: test_root, line: 1024)
+    parent_pid = wait_for_port_os_pid!(port)
+    assert_receive {^port, {:data, {:eol, "ready"}}}, @port_receive_timeout
+
+    child_pid = wait_for_pid_file!(child_pid_file)
+    assert PlatformProcess.os_process_alive?(parent_pid)
+    assert PlatformProcess.os_process_alive?(child_pid)
+
+    result =
+      PlatformProcess.terminate_os_process_tree(parent_pid,
+        process_group?: true,
+        grace_ms: 50,
+        kill_wait_ms: 1_000,
+        poll_ms: 25
+      )
+
+    assert :ok = PlatformProcess.close_port(port)
+    assert result.os_pid == parent_pid
+    assert child_pid in result.descendant_pids
+    refute result.alive?
+    refute PlatformProcess.os_process_alive?(parent_pid)
+    refute PlatformProcess.os_process_alive?(child_pid)
+  end
+
   defp wait_for_port_os_pid!(port, attempts_remaining \\ 20)
 
   defp wait_for_port_os_pid!(port, attempts_remaining) when attempts_remaining > 0 do
@@ -147,6 +189,28 @@ defmodule SymphonyElixir.Platform.ProcessTest do
   end
 
   defp wait_for_port_os_pid!(_port, 0), do: flunk("port os_pid was not available")
+
+  defp wait_for_pid_file!(path, attempts_remaining \\ 40)
+
+  defp wait_for_pid_file!(path, attempts_remaining) when attempts_remaining > 0 do
+    case File.read(path) do
+      {:ok, contents} ->
+        case Integer.parse(String.trim(contents)) do
+          {pid, ""} when pid > 0 -> pid
+          _other -> retry_pid_file(path, attempts_remaining)
+        end
+
+      {:error, _reason} ->
+        retry_pid_file(path, attempts_remaining)
+    end
+  end
+
+  defp wait_for_pid_file!(_path, 0), do: flunk("pid file was not written")
+
+  defp retry_pid_file(path, attempts_remaining) do
+    Process.sleep(25)
+    wait_for_pid_file!(path, attempts_remaining - 1)
+  end
 
   defp path_variants(path) do
     expanded = Path.expand(path)

@@ -14,9 +14,11 @@ defmodule SymphonyElixir.Application do
 
     children = [
       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
+      SymphonyElixir.Agent.Runner.ActiveSessions,
       {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
       SymphonyElixir.Observability.EventStore,
       SymphonyElixir.Workflow.Runtime.Store,
+      SymphonyElixir.Workflow.StateTransitionReadiness.Store,
       SymphonyElixir.ChangeProposalReconciliation.CandidateInbox,
       SymphonyElixir.ChangeProposalReconciliation.KnownTarget.Registry,
       SymphonyElixir.ChangeProposalReconciliation.Producer.Watcher,

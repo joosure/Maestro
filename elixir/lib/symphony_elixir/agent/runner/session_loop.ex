@@ -1,7 +1,7 @@
 defmodule SymphonyElixir.Agent.Runner.SessionLoop do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.Runner.{ProviderOptions, RunContext, SessionCleanup, TurnLoop}
+  alias SymphonyElixir.Agent.Runner.{ActiveSessions, ProviderOptions, RunContext, SessionCleanup, TurnLoop}
   alias SymphonyElixir.{AgentProvider, Config, Tracker}
 
   @type worker_host :: String.t() | nil
@@ -55,6 +55,13 @@ defmodule SymphonyElixir.Agent.Runner.SessionLoop do
          run_id,
          max_turns
        ) do
+    ActiveSessions.register(session, %{
+      issue: issue,
+      worker_host: worker_host,
+      workspace: workspace,
+      run_id: run_id
+    })
+
     result =
       TurnLoop.run(
         session,
@@ -79,6 +86,8 @@ defmodule SymphonyElixir.Agent.Runner.SessionLoop do
       "normal"
     )
 
+    ActiveSessions.unregister()
+
     result
   rescue
     exception ->
@@ -95,6 +104,8 @@ defmodule SymphonyElixir.Agent.Runner.SessionLoop do
         run_id,
         "exception"
       )
+
+      ActiveSessions.unregister()
 
       reraise(exception, __STACKTRACE__)
   catch
@@ -114,6 +125,8 @@ defmodule SymphonyElixir.Agent.Runner.SessionLoop do
         run_id,
         "exception"
       )
+
+      ActiveSessions.unregister()
 
       :erlang.raise(kind, reason, stacktrace)
   end

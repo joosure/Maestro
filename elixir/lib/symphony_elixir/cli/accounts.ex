@@ -46,7 +46,8 @@ defmodule SymphonyElixir.CLI.Accounts do
              token_stdin: :boolean,
              token_file: :string,
              token_env: :string,
-             env_name: :string
+             env_name: :string,
+             internet_environment: :string
            ),
          {:ok, opts} <- TokenSource.resolve_login_opts(opts),
          :ok <- maybe_set_workflow_path(workflow_path, deps),

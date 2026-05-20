@@ -6,30 +6,33 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
   @behaviour SymphonyElixir.Workflow.Profile
 
   alias SymphonyElixir.Workflow.CapabilityNames, as: Capabilities
+  alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
 
-  @route_keys [:planning, :developing, :review, :merging, :rework, :resolved, :rejected]
+  @kind "coding_pr_delivery"
+  @review_route_key :review
+  @route_keys [:planning, :developing, @review_route_key, :merging, :rework, :resolved, :rejected]
   @land_execution_profile "land"
   @default_allowed_execution_profiles [@land_execution_profile]
 
   @default_raw_state_by_route_key %{
-    planning: "planning",
-    developing: "developing",
-    review: "review",
-    merging: "merging",
-    rework: "rework",
-    resolved: "resolved",
-    rejected: "rejected"
+    :planning => "planning",
+    :developing => "developing",
+    @review_route_key => "review",
+    :merging => "merging",
+    :rework => "rework",
+    :resolved => "resolved",
+    :rejected => "rejected"
   }
 
   @default_policy_by_route_key %{
-    planning: %{action: :transition_then_dispatch, transition_target: :developing},
-    developing: %{action: :dispatch},
-    review: %{action: :wait},
-    merging: %{action: :dispatch, execution_profile: @land_execution_profile},
-    rework: %{action: :dispatch},
-    resolved: %{action: :stop},
-    rejected: %{action: :stop}
+    :planning => %{action: :transition_then_dispatch, transition_target: :developing},
+    :developing => %{action: :dispatch},
+    @review_route_key => %{action: :wait},
+    :merging => %{action: :dispatch, execution_profile: @land_execution_profile},
+    :rework => %{action: :dispatch},
+    :resolved => %{action: :stop},
+    :rejected => %{action: :stop}
   }
 
   @default_options %{
@@ -108,13 +111,13 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
                          |> List.flatten()
 
   @lifecycle_phase_by_route_key %{
-    planning: "todo",
-    developing: "in_progress",
-    review: "human_review",
-    merging: "merging",
-    rework: "rework",
-    resolved: "done",
-    rejected: "canceled"
+    :planning => WorkflowLifecycle.todo(),
+    :developing => WorkflowLifecycle.in_progress(),
+    @review_route_key => WorkflowLifecycle.human_review(),
+    :merging => WorkflowLifecycle.merging(),
+    :rework => WorkflowLifecycle.rework(),
+    :resolved => WorkflowLifecycle.done(),
+    :rejected => WorkflowLifecycle.canceled()
   }
 
   @completion_contract %{
@@ -135,7 +138,10 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
   }
 
   @impl true
-  def kind, do: "coding_pr_delivery"
+  def kind, do: @kind
+
+  @spec review_route_key() :: atom()
+  def review_route_key, do: @review_route_key
 
   @impl true
   def version, do: 1

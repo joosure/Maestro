@@ -3,11 +3,14 @@ defmodule SymphonyElixir.Agent.Credential.Store.AccountRecord do
 
   alias SymphonyElixir.Agent.Credential.Store.{Normalization, Paths, RateLimits, State}
   alias SymphonyElixir.AgentProvider.ClaudeCode.CredentialEnv, as: ClaudeCredentialEnv
+  alias SymphonyElixir.AgentProvider.CodeBuddyCode.CredentialEnv, as: CodeBuddyCredentialEnv
   alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.AgentProvider.OpenCode.CredentialEnv, as: OpenCodeCredentialEnv
 
   @claude_code_kind Kinds.claude_code()
   @claude_oauth_token_credential_kind ClaudeCredentialEnv.oauth_token_credential_kind()
+  @codebuddy_code_kind Kinds.codebuddy_code()
+  @codebuddy_env_token_credential_kind CodeBuddyCredentialEnv.env_token_credential_kind()
   @opencode_env_token_credential_kind OpenCodeCredentialEnv.env_token_credential_kind()
   @opencode_kind Kinds.opencode()
 
@@ -20,6 +23,7 @@ defmodule SymphonyElixir.Agent.Credential.Store.AccountRecord do
       enabled: Map.get(metadata, "enabled", true),
       credential_kind: Map.get(metadata, "credential_kind") || default_credential_kind(provider_kind),
       env_name: Normalization.normalize_optional_string(Map.get(metadata, "env_name")),
+      internet_environment: Normalization.normalize_optional_string(Map.get(metadata, "internet_environment")),
       worker_host: Normalization.normalize_optional_string(Map.get(metadata, "worker_host")),
       state: State.effective_state(State.normalize_state(Map.get(state, "state")), metadata),
       account_dir: account_dir,
@@ -56,6 +60,7 @@ defmodule SymphonyElixir.Agent.Credential.Store.AccountRecord do
           Map.get(existing, "credential_kind", default_credential_kind(provider_kind))
         ),
       "env_name" => Map.get(attrs, "env_name", Map.get(existing, "env_name")),
+      "internet_environment" => Map.get(attrs, "internet_environment", Map.get(existing, "internet_environment")),
       "email" => Map.get(attrs, "email", Map.get(existing, "email")),
       "worker_host" => Map.get(attrs, "worker_host", Map.get(existing, "worker_host")),
       "daily_token_budget" => Map.get(attrs, "daily_token_budget", Map.get(existing, "daily_token_budget")),
@@ -108,6 +113,7 @@ defmodule SymphonyElixir.Agent.Credential.Store.AccountRecord do
       enabled: Map.get(account, :enabled),
       credential_kind: Map.get(account, :credential_kind),
       env_name: Map.get(account, :env_name),
+      internet_environment: Map.get(account, :internet_environment),
       worker_host: Map.get(account, :worker_host),
       exhausted_until: Map.get(account, :exhausted_until),
       paused_until: Map.get(account, :paused_until),
@@ -121,6 +127,7 @@ defmodule SymphonyElixir.Agent.Credential.Store.AccountRecord do
 
   @spec default_credential_kind(String.t()) :: String.t()
   def default_credential_kind(@claude_code_kind), do: @claude_oauth_token_credential_kind
+  def default_credential_kind(@codebuddy_code_kind), do: @codebuddy_env_token_credential_kind
   def default_credential_kind(@opencode_kind), do: @opencode_env_token_credential_kind
   def default_credential_kind(_provider_kind), do: "provider_profile"
 end

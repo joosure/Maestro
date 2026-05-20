@@ -16,7 +16,7 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.AppServer.ProcessLifecycle do
       _ ->
         port
         |> PlatformProcess.port_os_pid()
-        |> PlatformProcess.terminate_os_process(
+        |> PlatformProcess.terminate_os_process_tree(
           process_group?: true,
           grace_ms: @shutdown_grace_ms,
           kill_wait_ms: @shutdown_kill_wait_ms
