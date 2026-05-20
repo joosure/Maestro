@@ -41,6 +41,45 @@ defmodule SymphonyElixir.Agent.Credential.AccountsTest do
     refute Map.has_key?(metadata, "token")
   end
 
+  test "CodeBuddy operator login stores API-key credentials with internet environment metadata" do
+    store_root = temp_store_root!("codebuddy-login")
+    opts = store_opts(store_root)
+
+    assert {:ok, account} =
+             Accounts.login(
+               "codebuddy",
+               "china",
+               [email: "codebuddy@example.com", internet_environment: "internal", token: "ck-test"],
+               opts
+             )
+
+    assert account.agent_provider_kind == "codebuddy_code"
+    assert account.credential_kind == "codebuddy_env_token"
+    assert account.internet_environment == "internal"
+    assert File.read!(account.secret_file) == "ck-test\n"
+
+    assert Accounts.credential_env(account) == [
+             {"CODEBUDDY_API_KEY", "ck-test"},
+             {"CODEBUDDY_API_KEY_DISABLED", nil},
+             {"CODEBUDDY_AUTH_TOKEN", nil},
+             {"CODEBUDDY_BASE_URL", nil},
+             {"CODEBUDDY_INTERNET_ENVIRONMENT", "internal"}
+           ]
+
+    assert {:ok, metadata} = account.account_dir |> Path.join("metadata.json") |> File.read!() |> Jason.decode()
+    assert metadata["internet_environment"] == "internal"
+    refute Map.has_key?(metadata, "token")
+    refute Map.has_key?(metadata, "CODEBUDDY_API_KEY")
+  end
+
+  test "CodeBuddy login validates internet environment" do
+    store_root = temp_store_root!("codebuddy-invalid-env")
+    opts = store_opts(store_root)
+
+    assert {:error, {:invalid_codebuddy_internet_environment, "moon"}} =
+             Accounts.login("codebuddy_code", "primary", [internet_environment: "moon", token: "ck-test"], opts)
+  end
+
   test "Codex operator login stores API-key credentials without env metadata" do
     store_root = temp_store_root!("codex-login")
     opts = store_opts(store_root)
@@ -145,6 +184,37 @@ defmodule SymphonyElixir.Agent.Credential.AccountsTest do
 
     assert_received {:provider_command, "opencode", ["--version"], env}
     assert {"OPENROUTER_API_KEY", "sk-or-verify"} in env
+  end
+
+  test "verify uses materialized CodeBuddy API-key environment" do
+    parent = self()
+    store_root = temp_store_root!("codebuddy-verify")
+    opts = store_opts(store_root)
+
+    {:ok, _account} =
+      Accounts.login(
+        "codebuddy",
+        "china",
+        [internet_environment: "ioa", token: "ck-verify"],
+        opts
+      )
+
+    runner = fn executable, args, env, _run_opts ->
+      send(parent, {:provider_command, executable, args, env})
+      {:ok, "2.97.2"}
+    end
+
+    assert {:ok, result} = Accounts.verify("codebuddy", "china", [runner: runner], opts)
+    assert result.account.agent_provider_kind == "codebuddy_code"
+    assert result.account.credential_kind == "codebuddy_env_token"
+    assert result.account.internet_environment == "ioa"
+    assert result.output == "2.97.2"
+
+    assert_received {:provider_command, "codebuddy", ["--version"], env}
+    assert {"CODEBUDDY_API_KEY", "ck-verify"} in env
+    assert {"CODEBUDDY_INTERNET_ENVIRONMENT", "ioa"} in env
+    assert {"CODEBUDDY_AUTH_TOKEN", ""} in env
+    assert {"CODEBUDDY_BASE_URL", ""} in env
   end
 
   test "verify uses materialized Codex CODEX_HOME instead of OPENAI_API_KEY env injection" do
@@ -252,6 +322,34 @@ defmodule SymphonyElixir.Agent.Credential.AccountsTest do
     refute output =~ "sk-or-redact"
   end
 
+  test "verify redacts CodeBuddy API-key output on command failure" do
+    store_root = temp_store_root!("codebuddy-verify-redaction")
+    opts = store_opts(store_root)
+    command = Path.join(store_root, "fake-codebuddy")
+
+    {:ok, _account} =
+      Accounts.login(
+        "codebuddy",
+        "china",
+        [internet_environment: "internal", token: "ck-redact"],
+        opts
+      )
+
+    File.write!(command, """
+    #!/bin/sh
+    printf 'CODEBUDDY_API_KEY=%s\\n' "$CODEBUDDY_API_KEY"
+    exit 1
+    """)
+
+    File.chmod!(command, 0o755)
+
+    assert {:error, %{exit_status: 1, output: output}} =
+             Accounts.verify("codebuddy", "china", [command: command], opts)
+
+    assert output =~ "CODEBUDDY_API_KEY=[REDACTED]"
+    refute output =~ "ck-redact"
+  end
+
   test "account lifecycle commands operate through canonical provider records" do
     store_root = temp_store_root!("lifecycle")
     opts = store_opts(store_root)
@@ -314,6 +412,9 @@ defmodule SymphonyElixir.Agent.Credential.AccountsTest do
 
     assert {:error, :missing_codex_api_key} =
              Accounts.login("codex", "primary", [], opts)
+
+    assert {:error, :missing_codebuddy_api_key} =
+             Accounts.login("codebuddy", "primary", [], opts)
 
     assert {:error, {:unsupported_account_login_provider, "future_provider"}} =
              Accounts.login("future_provider", "primary", [token: "secret"], opts)

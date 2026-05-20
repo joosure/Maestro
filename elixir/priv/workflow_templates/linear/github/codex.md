@@ -343,7 +343,7 @@ Use this only when completion is blocked by missing required tools or missing au
 6.  Re-check all acceptance criteria and close any gaps.
 7.  Before every push attempt, run the required validation for your scope and confirm it passes; if it fails, address issues and rerun until green, then commit and push changes.
     - Before the final push, use `"${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo" sync-base` when available to merge latest `origin/{{ repo.base_branch }}` into the branch, resolve conflicts, rerun required validation, and push the merged branch.
-    - After the final commit and after any `sync-base`, run a final PR-diff whitespace check against the base branch: `"${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo" diff-check "origin/{{ repo.base_branch }}...HEAD"` when the helper exists, otherwise `git diff --check "origin/{{ repo.base_branch }}...HEAD"`.
+    - After the final commit and after any `sync-base`, run a final PR-diff whitespace check against the base branch through the inventory `repo.diff` typed tool when it is listed: pass `args: ["origin/{{ repo.base_branch }}...HEAD"]` and `check: true` so Symphony records structured validation evidence. If `repo.diff` is not listed, use `"${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo" diff-check "origin/{{ repo.base_branch }}...HEAD"` when the helper exists, otherwise `git diff --check "origin/{{ repo.base_branch }}...HEAD"`.
     - Do not substitute plain `git diff --check` on a clean working tree for the final PR-diff check; it does not validate already-committed whitespace.
 8.  Create or update the PR through the inventory `repo.create_or_update_change_proposal` typed tool when it is listed.
     - For a new PR, pass `mode: "create"`, `title`, `base: "{{ repo.base_branch }}"`, and the pushed head branch.
@@ -355,6 +355,7 @@ Use this only when completion is blocked by missing required tools or missing au
 9.  Attach PR URL to the issue through the inventory `tracker.attach_change_proposal` typed tool. If it is missing, stop as blocked and record the missing typed tracker capability. Prefer tracker attachment/link fields and use the workpad comment only when the typed attach flow reports that attachment/link storage is unavailable.
 10. Update the workpad comment with final checklist status and validation notes.
     - Mark completed plan/acceptance/validation checklist items as checked.
+    - The final workpad refresh is reviewer-facing and freshness-gated. Backend review readiness is derived from typed-tool results for repo, PR, validation, checks, feedback, tracker linkage, and a workpad write observed after those facts, not from `sections` or Markdown checkbox parsing.
     - Add final handoff notes (commit + validation summary) in the same workpad comment.
     - Do not include PR URL in the workpad comment when an issue attachment/link exists; keep PR linkage on the issue via attachment/link fields. Only record the PR URL in the workpad when attachment/link storage was unavailable, and include the fallback reason.
     - Add a short `### Confusions` section at the bottom when any part of task execution was unclear/confusing, with concise bullets.
@@ -366,7 +367,7 @@ Use this only when completion is blocked by missing required tools or missing au
     - Confirm the final PR-diff whitespace check passed after the latest commit and push.
     - Confirm every required ticket-provided validation/test-plan item is explicitly marked complete in the workpad.
     - Repeat this check-address-verify loop until no outstanding comments remain and checks are fully passing.
-    - Re-open and refresh the workpad before state transition so `Plan`, `Acceptance Criteria`, and `Validation` exactly match completed work.
+    - Call the workpad upsert typed tool after these checks/feedback reads so the backend observes a fresh handoff record before state transition.
 12. Only then move issue to `In Review`.
     - Exception: if blocked by missing required non-repo-provider tools/auth per the blocked-access escape hatch, move to `In Review` with the blocker brief and explicit unblock actions only when tracker state-transition tooling is available.
 13. For `Todo` tickets that already had a PR attached at kickoff:

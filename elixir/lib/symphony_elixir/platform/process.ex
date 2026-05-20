@@ -8,9 +8,10 @@ defmodule SymphonyElixir.Platform.Process do
   @default_poll_ms 25
 
   @type terminate_result :: %{
-          os_pid: pos_integer() | nil,
-          signals_sent: [String.t()],
-          alive?: boolean() | nil
+          required(:os_pid) => pos_integer() | nil,
+          required(:signals_sent) => [String.t()],
+          required(:alive?) => boolean() | nil,
+          optional(:descendant_pids) => [pos_integer()]
         }
 
   @spec start_argv([String.t()], keyword()) :: {:ok, port()} | {:error, term()}
@@ -87,6 +88,41 @@ defmodule SymphonyElixir.Platform.Process do
 
   def terminate_os_process(_os_pid, _opts), do: %{os_pid: nil, signals_sent: [], alive?: nil}
 
+  @spec terminate_os_process_tree(pos_integer() | nil, keyword()) :: terminate_result()
+  def terminate_os_process_tree(os_pid, opts \\ [])
+
+  def terminate_os_process_tree(nil, _opts), do: %{os_pid: nil, signals_sent: [], alive?: nil, descendant_pids: []}
+
+  def terminate_os_process_tree(os_pid, opts) when is_integer(os_pid) and os_pid > 0 and is_list(opts) do
+    descendant_pids = descendant_os_pids(os_pid)
+    root_result = terminate_os_process(os_pid, opts)
+
+    remaining_descendant_pids =
+      (descendant_pids ++ descendant_os_pids(os_pid))
+      |> Enum.uniq()
+      |> Enum.reject(&(&1 == os_pid))
+
+    descendant_opts = Keyword.put(opts, :process_group?, false)
+
+    descendant_results =
+      Enum.map(remaining_descendant_pids, fn descendant_pid ->
+        terminate_os_process(descendant_pid, descendant_opts)
+      end)
+
+    alive? =
+      root_result.alive? or
+        Enum.any?(descendant_results, fn
+          %{alive?: true} -> true
+          _result -> false
+        end)
+
+    root_result
+    |> Map.put(:alive?, alive?)
+    |> Map.put(:descendant_pids, remaining_descendant_pids)
+  end
+
+  def terminate_os_process_tree(_os_pid, _opts), do: %{os_pid: nil, signals_sent: [], alive?: nil, descendant_pids: []}
+
   @spec signal_os_process(pos_integer(), String.t(), keyword()) :: :ok
   def signal_os_process(os_pid, signal, opts \\ [])
       when is_integer(os_pid) and os_pid > 0 and is_binary(signal) and is_list(opts) do
@@ -135,6 +171,13 @@ defmodule SymphonyElixir.Platform.Process do
   end
 
   def os_process_alive?(_os_pid), do: false
+
+  @spec descendant_os_pids(pos_integer() | nil) :: [pos_integer()]
+  def descendant_os_pids(os_pid) when is_integer(os_pid) and os_pid > 0 do
+    collect_descendant_os_pids([os_pid], MapSet.new([os_pid]), [])
+  end
+
+  def descendant_os_pids(_os_pid), do: []
 
   @spec wait_for_os_process_exit(pos_integer(), non_neg_integer(), pos_integer()) :: boolean()
   def wait_for_os_process_exit(os_pid, remaining_ms, poll_ms)
@@ -211,6 +254,65 @@ defmodule SymphonyElixir.Platform.Process do
     not wait_for_os_process_exit(os_pid, wait_ms, poll_ms)
   end
 
+  defp collect_descendant_os_pids([], _seen, descendants), do: Enum.reverse(descendants)
+
+  defp collect_descendant_os_pids([parent_pid | rest], seen, descendants) do
+    child_pids =
+      parent_pid
+      |> child_os_pids()
+      |> Enum.reject(&MapSet.member?(seen, &1))
+
+    seen = Enum.reduce(child_pids, seen, &MapSet.put(&2, &1))
+    collect_descendant_os_pids(rest ++ child_pids, seen, child_pids ++ descendants)
+  end
+
+  defp child_os_pids(os_pid) do
+    case child_os_pids_with_pgrep(os_pid) do
+      :unavailable -> child_os_pids_with_ps(os_pid)
+      child_pids -> child_pids
+    end
+  end
+
+  defp child_os_pids_with_pgrep(os_pid) do
+    case System.find_executable("pgrep") do
+      nil ->
+        :unavailable
+
+      pgrep_executable ->
+        case CommandEnv.system_cmd(pgrep_executable, ["-P", Integer.to_string(os_pid)], stderr_to_stdout: true) do
+          {output, 0} -> positive_integer_lines(output)
+          {_output, 1} -> []
+          _other -> :unavailable
+        end
+    end
+  rescue
+    _error -> :unavailable
+  end
+
+  defp child_os_pids_with_ps(os_pid) do
+    case System.find_executable("ps") do
+      nil ->
+        []
+
+      ps_executable ->
+        case CommandEnv.system_cmd(ps_executable, ["-eo", "pid=,ppid="], stderr_to_stdout: true) do
+          {output, 0} ->
+            output
+            |> String.split("\n", trim: true)
+            |> Enum.flat_map(&pid_ppid_pair/1)
+            |> Enum.flat_map(fn
+              {pid, ^os_pid} -> [pid]
+              _pair -> []
+            end)
+
+          _other ->
+            []
+        end
+    end
+  rescue
+    _error -> []
+  end
+
   defp do_wait_for_os_process_exit(os_pid, 0, _poll_ms), do: not os_process_alive?(os_pid)
 
   defp do_wait_for_os_process_exit(os_pid, remaining_ms, poll_ms) do
@@ -237,6 +339,32 @@ defmodule SymphonyElixir.Platform.Process do
           {_output, 0} -> true
           _other -> false
         end
+    end
+  end
+
+  defp positive_integer_lines(output) when is_binary(output) do
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.flat_map(fn line ->
+      case Integer.parse(String.trim(line)) do
+        {pid, ""} when pid > 0 -> [pid]
+        _other -> []
+      end
+    end)
+  end
+
+  defp pid_ppid_pair(line) when is_binary(line) do
+    case String.split(line, ~r/\s+/, trim: true) do
+      [pid_text, ppid_text | _rest] ->
+        with {pid, ""} when pid > 0 <- Integer.parse(pid_text),
+             {ppid, ""} when ppid > 0 <- Integer.parse(ppid_text) do
+          [{pid, ppid}]
+        else
+          _other -> []
+        end
+
+      _parts ->
+        []
     end
   end
 

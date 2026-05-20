@@ -4,6 +4,7 @@ defmodule SymphonyElixir.TestSupport do
   alias SymphonyElixir.ChangeProposalReconciliation.{CandidateInbox, KnownTarget}
   alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Workflow.Runtime.Store, as: WorkflowStore
+  alias SymphonyElixir.Workflow.StateTransitionReadiness.Store, as: ReadinessStore
 
   defmacro __using__(_opts) do
     quote do
@@ -58,6 +59,7 @@ defmodule SymphonyElixir.TestSupport do
         if Process.whereis(EventStore), do: EventStore.reset()
         if Process.whereis(CandidateInbox), do: CandidateInbox.reset()
         if Process.whereis(KnownTarget.Registry), do: KnownTarget.Registry.reset()
+        if Process.whereis(ReadinessStore), do: ReadinessStore.reset()
 
         stop_default_http_server()
 

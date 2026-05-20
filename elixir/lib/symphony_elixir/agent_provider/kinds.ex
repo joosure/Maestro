@@ -5,10 +5,12 @@ defmodule SymphonyElixir.AgentProvider.Kinds do
 
   @codex "codex"
   @claude_code "claude_code"
+  @codebuddy_code "codebuddy_code"
   @mock "mock"
   @opencode "opencode"
 
   @claude_code_aliases ["claude", "claudecode", @claude_code]
+  @codebuddy_code_aliases ["codebuddy", "codebuddycode", @codebuddy_code]
   @opencode_aliases [@opencode, "open_code"]
 
   @spec codex() :: String.t()
@@ -16,6 +18,9 @@ defmodule SymphonyElixir.AgentProvider.Kinds do
 
   @spec claude_code() :: String.t()
   def claude_code, do: @claude_code
+
+  @spec codebuddy_code() :: String.t()
+  def codebuddy_code, do: @codebuddy_code
 
   @spec mock() :: String.t()
   def mock, do: @mock
@@ -25,6 +30,9 @@ defmodule SymphonyElixir.AgentProvider.Kinds do
 
   @spec claude_code_aliases() :: [String.t()]
   def claude_code_aliases, do: @claude_code_aliases
+
+  @spec codebuddy_code_aliases() :: [String.t()]
+  def codebuddy_code_aliases, do: @codebuddy_code_aliases
 
   @spec opencode_aliases() :: [String.t()]
   def opencode_aliases, do: @opencode_aliases
@@ -36,6 +44,7 @@ defmodule SymphonyElixir.AgentProvider.Kinds do
     case provider_kind |> String.trim() |> String.downcase() do
       "" -> nil
       provider when provider in @claude_code_aliases -> @claude_code
+      provider when provider in @codebuddy_code_aliases -> @codebuddy_code
       provider when provider in @opencode_aliases -> @opencode
       provider -> provider
     end

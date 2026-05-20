@@ -19,8 +19,8 @@ Segments:
   Use `no_repo` for workflows that do not perform repo clone, push, PR, or merge
   operations.
 - `agent-provider`: the canonical agent runtime/provider kind, such as `codex`,
-  `opencode`, or `claude_code`. The Elixir runtime owns these strings and
-  supported aliases in `SymphonyElixir.AgentProvider.Kinds`.
+  `opencode`, `claude_code`, or `codebuddy_code`. The Elixir runtime owns these
+  strings and supported aliases in `SymphonyElixir.AgentProvider.Kinds`.
 - `variant`: optional detail for a specialized template that shares the same
   tracker, source, and agent provider. Keep variants as a suffix on the file
   name, for example `opencode.canary.md`, before adding another directory level.
@@ -31,9 +31,11 @@ Current aliases:
 memory/no_repo/mock
 tapd/cnb/opencode
 tapd/cnb/claude_code
+tapd/cnb/codebuddy_code
 tapd/github/codex
 linear/github/codex
 linear/github/claude_code
+linear/github/codebuddy_code
 linear/github/opencode.canary
 ```
 
@@ -49,6 +51,12 @@ Template safety notes:
   credential boundaries are explicitly prepared for unattended write access.
 - `tapd/cnb/claude_code` and `linear/github/claude_code` run Claude Code with
   `bypassPermissions`; treat them as the same trusted-environment class.
+- `linear/github/codebuddy_code` and `tapd/cnb/codebuddy_code` run CodeBuddy
+  Code over ACP stdio with `permission_mode: bypass_permissions`,
+  session-scoped generated MCP Dynamic Tools, and a managed credential
+  reference at `credential://codebuddy_code/default`. Store that account locally
+  before starting the template; plugin-hosted tools, auxiliary HTTP, usage
+  metrics, quota probing, and remote runtime are intentionally not enabled.
 - The Linear templates require `LINEAR_PROJECT_SLUG` so a bundled template
   cannot silently target a repository maintainer's private Linear project.
 - Templates that use `SYMPHONY_WORKSPACE_ROOT` fall back to Symphony's runtime
@@ -60,8 +68,10 @@ Examples:
 ```bash
 symphony --template memory/no_repo/mock
 symphony --template tapd/cnb/opencode
+symphony --template tapd/cnb/codebuddy_code
 symphony --template linear/github/codex
 symphony --template linear/github/claude_code
+symphony --template linear/github/codebuddy_code
 symphony --template linear/github/opencode.canary
 ```
 
@@ -75,6 +85,9 @@ Provider options inside templates should remain provider-native but portable:
 - For Claude Code, `model: sonnet` is a Claude Code model alias. It is useful
   when a template should follow Claude Code's current Sonnet selection. Replace
   it with a full model id when reproducible model pinning is required.
+- For CodeBuddy Code, use a managed `credential_ref` instead of placing
+  `CODEBUDDY_API_KEY`, `CODEBUDDY_AUTH_TOKEN`, or related auth environment
+  variables directly in template `agent_provider.options.env`.
 - For OpenCode, `agent` selects the OpenCode agent profile, while `model`
   selects the provider/model pair sent to OpenCode.
 

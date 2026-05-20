@@ -171,6 +171,17 @@ defmodule SymphonyElixir.Agent.DynamicTool.InventoryTest do
     assert Keyword.fetch!(opts, :provider_callable_label) == "Codex MCP tool"
   end
 
+  test "CodeBuddy Code provider adapter supplies MCP inventory callable naming" do
+    inventory = Inventory.render(tool_context(), ToolInventory.render_opts("codebuddy_code"))
+    opts = ToolInventory.render_opts("codebuddy_code")
+
+    assert inventory =~ "`mcp__symphony_dynamic_tools__linear_issue_snapshot`"
+    assert inventory =~ "CodeBuddy Code exposes Symphony Dynamic Tools through a session-scoped MCP server"
+    assert is_function(Keyword.fetch!(opts, :provider_callable_name), 1)
+    assert Keyword.fetch!(opts, :provider_callable_name).("repo_checkout") == "mcp__symphony_dynamic_tools__repo_checkout"
+    assert Keyword.fetch!(opts, :provider_callable_label) == "CodeBuddy MCP tool"
+  end
+
   test "raw provider tools do not satisfy typed capabilities without operator migration fallback policy" do
     assert {:error, {:missing_typed_workflow_tool, "tracker.issue_snapshot"}} =
              Inventory.resolve_required(raw_only_tool_context(), ["tracker.issue_snapshot"])

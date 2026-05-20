@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.Orchestrator.ServerOptions do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.Runner.ActiveSessions
   alias SymphonyElixir.ChangeProposalReconciliation.CandidateInbox
   alias SymphonyElixir.Config
   alias SymphonyElixir.Observability.StatusDashboard
@@ -70,6 +71,7 @@ defmodule SymphonyElixir.Orchestrator.ServerOptions do
       emit_event: emit_event,
       emit_issue_reconcile_event: &Events.emit_issue_reconcile/5,
       cleanup_issue_workspace: &cleanup_issue_workspace/3,
+      cleanup_active_agent_session: &ActiveSessions.cleanup_owner/2,
       record_session_completion_totals: &RunningState.record_session_completion/2,
       non_active_completion_grace_ms: non_active_completion_grace_ms,
       schedule_retry: fn state, issue_id, attempt, metadata ->

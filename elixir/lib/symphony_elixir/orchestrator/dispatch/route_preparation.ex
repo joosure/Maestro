@@ -11,7 +11,7 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
   alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Facts, as: ChangeProposalFacts
   alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.Readiness
-  alias SymphonyElixir.Workflow.ReadinessContract
+  alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
   alias SymphonyElixir.Workflow.RouteFacts
   alias SymphonyElixir.Workflow.RoutePolicy, as: WorkflowRoutePolicy
 

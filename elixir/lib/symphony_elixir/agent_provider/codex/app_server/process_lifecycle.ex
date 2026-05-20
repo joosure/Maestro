@@ -8,9 +8,9 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.ProcessLifecycle do
   @spec stop_port(term(), map()) :: :ok
   def stop_port(port, context_fields) when is_port(port) and is_map(context_fields) do
     os_pid = PlatformProcess.port_os_pid(port)
-    PlatformProcess.close_port(port)
 
     ensure_os_process_exit(os_pid, context_fields)
+    PlatformProcess.close_port(port)
   end
 
   def stop_port(handle, _context_fields), do: Handle.close(handle)
@@ -20,7 +20,8 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.ProcessLifecycle do
   defp ensure_os_process_exit(os_pid, context_fields)
        when is_integer(os_pid) and os_pid > 0 and is_map(context_fields) do
     result =
-      PlatformProcess.terminate_os_process(os_pid,
+      PlatformProcess.terminate_os_process_tree(os_pid,
+        process_group?: true,
         initial_signal?: false,
         grace_ms: 500,
         kill_wait_ms: 500,
@@ -51,7 +52,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.ProcessLifecycle do
       event,
       context_fields
       |> Map.put_new(:component, "codex.app_server")
-      |> Map.put(:operation_name, "terminate_os_process")
+      |> Map.put(:operation_name, "terminate_os_process_tree")
       |> Map.put(:message, "#{event} signal=#{signal} os_pid=#{os_pid}")
       |> Map.put(:result_summary, "signal=#{signal}")
       |> Map.put(:payload_summary, "os_pid=#{os_pid}")
@@ -65,7 +66,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.ProcessLifecycle do
       :codex_session_process_termination_incomplete,
       context_fields
       |> Map.put_new(:component, "codex.app_server")
-      |> Map.put(:operation_name, "terminate_os_process")
+      |> Map.put(:operation_name, "terminate_os_process_tree")
       |> Map.put(:message, "codex_session_process_termination_incomplete os_pid=#{os_pid}")
       |> Map.put(:error, "os_process_still_alive")
       |> Map.put(:payload_summary, "os_pid=#{os_pid}")

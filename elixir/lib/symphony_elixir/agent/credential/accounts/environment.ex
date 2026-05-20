@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Environment do
   alias SymphonyElixir.Agent.Credential.Accounts.Secret
   alias SymphonyElixir.Agent.Credential.Store
   alias SymphonyElixir.AgentProvider.ClaudeCode.CredentialEnv, as: ClaudeCredentialEnv
+  alias SymphonyElixir.AgentProvider.CodeBuddyCode.CredentialEnv, as: CodeBuddyCredentialEnv
   alias SymphonyElixir.AgentProvider.Kinds
   alias SymphonyElixir.AgentProvider.OpenCode.CredentialEnv, as: OpenCodeCredentialEnv
 
@@ -11,6 +12,8 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Environment do
   @claude_oauth_token_credential_kind ClaudeCredentialEnv.oauth_token_credential_kind()
   @claude_config_credential_kind ClaudeCredentialEnv.config_credential_kind()
   @anthropic_api_key_env ClaudeCredentialEnv.anthropic_api_key_env()
+  @codebuddy_code_kind Kinds.codebuddy_code()
+  @codebuddy_env_token_credential_kind CodeBuddyCredentialEnv.env_token_credential_kind()
   @opencode_kind Kinds.opencode()
   @opencode_env_token_credential_kind OpenCodeCredentialEnv.env_token_credential_kind()
 
@@ -29,6 +32,10 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Environment do
       when is_binary(env_name) and env_name != "" do
     OpenCodeCredentialEnv.env_token_env(env_name, Secret.read(account.secret_file))
     |> reject_blank_env()
+  end
+
+  def credential_env(%{agent_provider_kind: @codebuddy_code_kind, credential_kind: @codebuddy_env_token_credential_kind} = account) do
+    CodeBuddyCredentialEnv.env_token_env(Secret.read(account.secret_file), Map.get(account, :internet_environment))
   end
 
   def credential_env(_account), do: []

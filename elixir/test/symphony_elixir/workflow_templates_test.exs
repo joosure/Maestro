@@ -236,7 +236,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
       end)
       |> Enum.sort()
 
-    assert enabled_aliases == ["tapd/cnb/claude_code", "tapd/cnb/opencode"]
+    assert enabled_aliases == ["tapd/cnb/claude_code", "tapd/cnb/codebuddy_code", "tapd/cnb/opencode"]
 
     for template_alias <- enabled_aliases do
       {:ok, path} = Templates.resolve(template_alias)

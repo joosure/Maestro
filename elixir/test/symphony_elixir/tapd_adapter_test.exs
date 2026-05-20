@@ -59,6 +59,11 @@ defmodule SymphonyElixir.TapdAdapterTest do
              "workflowCapability" => "tracker.provider_diagnostics",
              "sideEffect" => "read_only"
            } = Enum.find(ToolExecutor.tool_specs(), &(&1["name"] == "tapd_provider_diagnostics"))
+
+    workpad_spec = Enum.find(ToolExecutor.tool_specs(), &(&1["name"] == "tapd_upsert_workpad"))
+
+    assert get_in(workpad_spec, ["inputSchema", "properties", "sections", "items", "properties", "key", "enum"]) ==
+             ["plan", "acceptance_criteria", "validation"]
   end
 
   test "tapd config validation rejects missing workspace_id and blank optional platform values" do

@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Linear.Client
   alias SymphonyElixir.Workflow.CapabilityNames
+  alias SymphonyElixir.Workflow.StateTransitionReadiness
 
   @source_kind Kinds.linear()
   @schema_version "1"
@@ -14,6 +15,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   @metadata_risk_flags_key MetadataContract.risk_flags()
   @metadata_workflow_capability_key MetadataContract.workflow_capability()
   @metadata_source_kind_key MetadataContract.source_kind()
+  @review_handoff_comment_limit 50
 
   @issue_snapshot_tool "linear_issue_snapshot"
   @move_issue_tool "linear_move_issue"
@@ -292,6 +294,27 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
             "issue_id" => %{"type" => "string", "description" => "Linear issue id or identifier."},
             "heading" => %{"type" => "string", "description" => "Workpad title or Markdown heading used as the stable comment identity."},
             "body" => %{"type" => "string", "description" => "Workpad body. The executor prefixes the canonical heading if it is omitted."},
+            "sections" => %{
+              "type" => ["array", "null"],
+              "description" => "Deprecated agent-declared section status hints. The backend accepts this field for compatibility, but it is not authoritative review-handoff readiness evidence.",
+              "items" => %{
+                "type" => "object",
+                "additionalProperties" => false,
+                "required" => ["key", "status"],
+                "properties" => %{
+                  "key" => %{
+                    "type" => "string",
+                    "enum" => ["plan", "acceptance_criteria", "validation"],
+                    "description" => "Canonical section key."
+                  },
+                  "status" => %{
+                    "type" => "string",
+                    "enum" => ["complete", "incomplete", "missing", "unknown"],
+                    "description" => "Backend-readable section completion status."
+                  }
+                }
+              }
+            },
             "comment_id" => %{"type" => ["string", "null"], "description" => "Existing Linear comment id to update."},
             "match_heading" => %{"type" => ["string", "null"], "description" => "Optional alternate workpad title or Markdown heading used to find an existing workpad."},
             "mode" => %{"type" => ["string", "null"], "description" => "Upsert mode. The current contract supports replace."}
@@ -412,10 +435,13 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
 
   defp move_issue(tracker, arguments, opts) do
     with {:ok, args} <- move_issue_args(arguments),
-         {:ok, response} <- graphql(tracker, @issue_team_states_query, %{issueId: args.issue_id}, opts, :move_issue),
+         workflow <- workflow(tracker),
+         review_handoff_target? <- StateTransitionReadiness.governed_target?(workflow, args.state_name),
+         {:ok, response} <- fetch_issue_for_move(tracker, args, review_handoff_target?, opts),
          {:ok, issue} <- response_issue(response),
          :ok <- expected_current_state(issue, args.expected_current_state),
-         {:ok, state} <- resolve_state(issue, args.state_name) do
+         {:ok, state} <- resolve_state(issue, args.state_name),
+         :ok <- maybe_validate_review_handoff(review_handoff_target?, workflow, issue, args, opts) do
       if get_in(issue, ["state", "name"]) == args.state_name do
         {:success, success_payload(%{"issue" => moved_issue(issue, state)})}
       else
@@ -486,6 +512,48 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     else
       {:error, reason} -> typed_failure(reason)
     end
+  end
+
+  defp fetch_issue_for_move(tracker, args, true, opts) do
+    graphql(
+      tracker,
+      @issue_snapshot_query,
+      %{issueId: args.issue_id, commentFirst: @review_handoff_comment_limit},
+      opts,
+      :move_issue
+    )
+  end
+
+  defp fetch_issue_for_move(tracker, args, false, opts) do
+    graphql(tracker, @issue_team_states_query, %{issueId: args.issue_id}, opts, :move_issue)
+  end
+
+  defp maybe_validate_review_handoff(false, _workflow, _issue, _args, _opts), do: :ok
+
+  defp maybe_validate_review_handoff(true, workflow, issue, args, opts) do
+    StateTransitionReadiness.validate(
+      workflow,
+      issue,
+      target_state_name: args.state_name,
+      issue_key: args.issue_id,
+      run_id: readiness_run_id(opts)
+    )
+  end
+
+  defp readiness_run_id(opts) when is_list(opts) do
+    Keyword.get(opts, :run_id) || tool_context_run_id(Keyword.get(opts, :tool_context))
+  end
+
+  defp tool_context_run_id(%{runtime_metadata: metadata}) when is_map(metadata),
+    do: Map.get(metadata, :run_id) || Map.get(metadata, "run_id")
+
+  defp tool_context_run_id(%{"runtime_metadata" => metadata}) when is_map(metadata),
+    do: Map.get(metadata, :run_id) || Map.get(metadata, "run_id")
+
+  defp tool_context_run_id(_tool_context), do: nil
+
+  defp workflow(tracker) do
+    SymphonyElixir.Tracker.Linear.WorkflowConfig.global_workflow(tracker)
   end
 
   defp upsert_general_comment(tracker, %{comment_id: comment_id, body: body}, opts) when is_binary(comment_id) do
@@ -1101,6 +1169,10 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   defp typed_error({:state_not_found, state_name}), do: {"state_not_found", "The issue's team does not contain the requested state.", %{"stateName" => state_name}}
   defp typed_error({:ambiguous_state, state_name}), do: {"ambiguous_state", "The issue's team contains multiple states with the requested name.", %{"stateName" => state_name}}
   defp typed_error({:conflict, message, details}) when is_map(details), do: {"conflict", message, details}
+
+  defp typed_error({:review_handoff_not_ready, details}) when is_map(details),
+    do: {"review_handoff_not_ready", "Review handoff is not ready. Structured readiness evidence is incomplete.", details}
+
   defp typed_error(:issue_update_failed), do: {"provider_request_failed", "Linear issue state update did not report success.", %{}}
   defp typed_error(:comment_update_failed), do: {"provider_request_failed", "Linear comment update did not report success.", %{}}
   defp typed_error(:comment_create_failed), do: {"provider_request_failed", "Linear comment create did not report success.", %{}}

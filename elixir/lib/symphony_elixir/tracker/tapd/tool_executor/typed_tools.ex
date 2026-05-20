@@ -98,6 +98,27 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
             "issue_id" => %{"type" => "string", "description" => "Full TAPD Story id or TAPD-<id> identifier."},
             "heading" => %{"type" => "string", "description" => "Workpad title or Markdown heading used as the stable comment identity."},
             "body" => %{"type" => "string", "description" => "Workpad body. The executor prefixes the canonical heading if omitted."},
+            "sections" => %{
+              "type" => ["array", "null"],
+              "description" => "Deprecated agent-declared section status hints. The backend accepts this field for compatibility, but it is not authoritative review-handoff readiness evidence.",
+              "items" => %{
+                "type" => "object",
+                "additionalProperties" => false,
+                "required" => ["key", "status"],
+                "properties" => %{
+                  "key" => %{
+                    "type" => "string",
+                    "enum" => ["plan", "acceptance_criteria", "validation"],
+                    "description" => "Canonical section key."
+                  },
+                  "status" => %{
+                    "type" => "string",
+                    "enum" => ["complete", "incomplete", "missing", "unknown"],
+                    "description" => "Backend-readable section completion status."
+                  }
+                }
+              }
+            },
             "comment_id" => %{"type" => ["string", "null"], "description" => "Existing TAPD comment id to update."},
             "match_heading" => %{"type" => ["string", "null"], "description" => "Optional alternate workpad title or Markdown heading used to find an existing workpad."},
             "mode" => %{"type" => ["string", "null"], "description" => "Upsert mode. The current contract supports replace."},

@@ -8,6 +8,7 @@ defmodule SymphonyElixir.RepoProvider.DynamicToolSource do
   alias SymphonyElixir.Repo.DynamicToolContext
   alias SymphonyElixir.RepoProvider
   alias SymphonyElixir.RepoProvider.Config, as: RepoConfig
+  alias SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorder
 
   @spec default_context(keyword()) :: RepoConfig.t()
   def default_context(_opts \\ []), do: RepoConfig.current!()
@@ -40,8 +41,13 @@ defmodule SymphonyElixir.RepoProvider.DynamicToolSource do
 
   def execute(source_context, tool, arguments, opts) when is_map(source_context) and is_list(opts) do
     case resolve_repo_context(source_context, opts) do
-      {:ok, repo} -> RepoProvider.execute_dynamic_tool(repo, tool, arguments, opts)
-      {:error, reason} -> DynamicToolContext.failure(reason)
+      {:ok, repo} ->
+        result = RepoProvider.execute_dynamic_tool(repo, tool, arguments, opts)
+        _record_readiness = EvidenceRecorder.record_typed_tool_result("repo_provider", repo, tool, arguments, result, opts)
+        result
+
+      {:error, reason} ->
+        DynamicToolContext.failure(reason)
     end
   end
 

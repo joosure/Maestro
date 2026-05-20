@@ -9,14 +9,15 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.ProcessLifecycle do
   @spec stop_port(port()) :: :ok
   def stop_port(port) when is_port(port) do
     os_pid = PlatformProcess.port_os_pid(port)
-    PlatformProcess.close_port(port)
 
-    PlatformProcess.terminate_os_process(os_pid,
+    PlatformProcess.terminate_os_process_tree(os_pid,
       process_group?: true,
       initial_signal?: false,
       grace_ms: @shutdown_grace_ms,
       kill_wait_ms: @shutdown_kill_wait_ms
     )
+
+    PlatformProcess.close_port(port)
 
     :ok
   end

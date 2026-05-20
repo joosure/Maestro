@@ -16,6 +16,7 @@ defmodule SymphonyElixir.Orchestrator.Running.Termination do
           cleanup_workspace(opts, identifier, running_entry)
         end
 
+        cleanup_active_agent_session(opts, pid)
         terminate_task(pid)
         demonitor(ref)
 
@@ -81,4 +82,14 @@ defmodule SymphonyElixir.Orchestrator.Running.Termination do
   end
 
   defp cleanup_workspace(_opts, _identifier, _running_entry), do: :ok
+
+  defp cleanup_active_agent_session(opts, pid) when is_pid(pid) do
+    case Keyword.get(opts, :cleanup_active_agent_session) do
+      cleanup when is_function(cleanup, 2) -> cleanup.(pid, :running_issue_terminated)
+      cleanup when is_function(cleanup, 1) -> cleanup.(pid)
+      _cleanup -> :ok
+    end
+  end
+
+  defp cleanup_active_agent_session(_opts, _pid), do: :ok
 end

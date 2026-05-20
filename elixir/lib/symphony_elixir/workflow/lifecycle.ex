@@ -3,13 +3,50 @@ defmodule SymphonyElixir.Workflow.Lifecycle do
   Shared lifecycle semantics for workflow state handling.
   """
 
-  @phases ~w[backlog todo in_progress human_review merging rework done canceled unknown]
-  @dispatch_blocker_phases ~w[todo in_progress merging rework]
+  @backlog "backlog"
+  @todo "todo"
+  @in_progress "in_progress"
+  @human_review "human_review"
+  @merging "merging"
+  @rework "rework"
+  @done "done"
+  @canceled "canceled"
+  @unknown "unknown"
+
+  @phases [@backlog, @todo, @in_progress, @human_review, @merging, @rework, @done, @canceled, @unknown]
+  @dispatch_blocker_phases [@todo, @in_progress, @merging, @rework]
   @active_execution_phases MapSet.new(@dispatch_blocker_phases)
-  @terminal_phases MapSet.new(~w[done canceled])
+  @terminal_phases MapSet.new([@done, @canceled])
 
   @spec phases() :: [String.t()]
   def phases, do: @phases
+
+  @spec backlog() :: String.t()
+  def backlog, do: @backlog
+
+  @spec todo() :: String.t()
+  def todo, do: @todo
+
+  @spec in_progress() :: String.t()
+  def in_progress, do: @in_progress
+
+  @spec human_review() :: String.t()
+  def human_review, do: @human_review
+
+  @spec merging() :: String.t()
+  def merging, do: @merging
+
+  @spec rework() :: String.t()
+  def rework, do: @rework
+
+  @spec done() :: String.t()
+  def done, do: @done
+
+  @spec canceled() :: String.t()
+  def canceled, do: @canceled
+
+  @spec unknown() :: String.t()
+  def unknown, do: @unknown
 
   @spec normalize_tracker_state(term()) :: String.t()
   def normalize_tracker_state(state_name) when is_binary(state_name) do
