@@ -1,222 +1,162 @@
 # Maestro
 
 [![GitHub](https://img.shields.io/badge/GitHub-joosure%2FMaestro-black?logo=github)](https://github.com/joosure/Maestro)
-[![Status](https://img.shields.io/badge/status-platformizing-orange)](https://github.com/joosure/Maestro)
+[![Status](https://img.shields.io/badge/status-early%20stage-orange)](https://github.com/joosure/Maestro)
 [![Origin](https://img.shields.io/badge/origin-openai%2Fsymphony-412991)](https://github.com/openai/symphony)
 
-[English](./README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-TW.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Español](./README.es.md) | [Português (Brasil)](./README.pt-BR.md) | [Deutsch](./README.de.md) | [Français](./README.fr.md) | [Русский](./README.ru.md) | [Bahasa Indonesia](./README.id.md)
+语言：[English](./README.md) · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Español](./README.es.md) · [Português](./README.pt-BR.md) · [更多语言](./LANGUAGES.md)
 
-## 面向自治工程 Agent 的 Tracker 驱动控制平面。
+## 让 AI Agent 从真实项目任务开始工作。
 
-Maestro 是一个面向工程团队的 Tracker 驱动 AI Agent 控制平面。它把工单系统、需求文档、代码仓库、Agent Provider、运行环境和交付证据连接起来，让 Codex、Claude Code、OpenCode 等 Coding Agent 可以从真实项目任务中自动接单、执行、提交和留痕。
+Maestro 是一个把**项目系统、Git 仓库和 Coding Agent** 连接起来的工程任务执行平台。
+
+你不需要一个个盯着 Agent 聊天窗口。Maestro 可以从 Linear、TAPD 等项目管理平台读取新增或待处理的任务，为每个任务创建独立工作区，准备目标 Git 仓库，启动合适的 AI Agent，记录执行过程，并把结果写回项目系统。
 
 它不是另一个 Coding Agent。
 
-它要解决的是 Agent 进入团队生产环境之后真正困难的问题：任务从哪里来、由谁执行、跑在哪里、做到哪一步、结果是否可信、失败后如何恢复、交付过程如何审计。
+它解决的是团队真正使用 Codex、Claude Code、OpenCode 等 Agent 时会遇到的问题：任务从哪里来、代码从哪里来、Agent 跑在哪里、多个任务如何并行、结果是否可信、失败后怎么恢复、过程如何复盘。
 
-> **Symphony 证明了工单可以驱动 Agent。Maestro 要构建的是一套真正可运营的 Agent 工程平台。**
+> **Symphony 证明了项目任务可以驱动 Agent。Maestro 要做的是把这个模式变成一套真正可运营的工程平台。**
+
+---
+
+## 一个例子说明 Maestro 是什么
+
+假设 TAPD 或 Linear 里新增了一个任务：
+
+> 用户同时使用两个优惠券时，结算页会报错。
+
+使用 Maestro 后，这个任务可以变成一次可追踪的 Agent 执行：
+
+1. Maestro 从 TAPD、Linear 或其他项目系统同步到这个待处理任务。
+2. Maestro 在自己的运行环境中为这个任务创建一个独立工作区。
+3. Maestro 根据配置把目标 Git 仓库 clone / checkout 到这个工作区。
+4. Maestro 启动 Codex、Claude Code、OpenCode 或其他支持的 Agent，并提供任务内容、仓库副本和可用工具。
+5. Agent 在这个独立仓库副本中分析代码，准备代码变更、分析结论或评审建议。
+6. Maestro 记录 diff、日志、工具调用、执行摘要和相关链接。
+7. Maestro 把结果写回项目系统，团队可以继续评审、修改或接手。
+
+这里的关键不是“让 Agent 自己随便跑”，而是：
+
+> **一个项目任务变成了一次有隔离环境、有执行记录、可复盘、可接手的 Agent 工程执行。**
+
+独立工作区的意义在于：每个任务都有自己的目录、仓库副本、日志和临时文件。这样多个项目、多个任务可以并行处理，彼此不会互相污染；失败后也更容易清理、复盘和重新执行。
 
 ---
 
 ## 为什么需要 Maestro
 
-OpenAI Symphony 提出了一个关键理念：**管理工作，而不是管理一个个 Agent 会话**。
+Coding Agent 越来越会写代码，但团队真正需要的不只是“让 Agent 写一段代码”。
 
-它证明了项目管理系统可以成为 Agent 执行工程任务的入口，而不是让工程师在一个个聊天窗口里手动监督 Agent。
+团队还需要回答这些问题：
 
-Maestro 将这个模式继续向前推进。
+- 任务从哪个项目系统来？
+- 对应哪个 Git 仓库和分支？
+- 应该交给哪个 Agent？
+- Agent 在哪里运行？
+- 多个任务如何并行且互不影响？
+- 它到底改了什么？
+- 人能不能 review？
+- 失败后怎么恢复？
+- 怎么知道整个过程发生了什么？
 
-它把原始的 `Linear + Codex` 参考实现，泛化为一个 **由 Tracker 驱动、对 Provider 中立、面向真实工程流程的 AI Agent 调度平台**。
+Maestro 围绕这些问题设计。
 
-换句话说，Maestro 想帮助团队完成这个转变：
+---
+
+## 你可以用 Maestro 做什么？
+
+### 1. 从 Bug 任务到 Pull Request
+
+TAPD 或 Linear 里出现一个 Bug。Maestro 读取任务，创建独立工作区，准备目标 Git 仓库，启动 Agent，让 Agent 分析并修改代码，然后把 PR 链接、执行摘要和待确认事项写回任务。
+
+### 2. 先分析需求，而不是直接写代码
+
+如果一个需求还不清楚，Maestro 可以让 Agent 先输出影响范围、风险、验收标准和待确认问题，帮助团队决定是否可以进入开发。
+
+### 3. 澄清还不能开始的任务
+
+如果任务缺少关键上下文，Maestro 可以帮助列出假设、阻塞点和需要人工确认的问题，而不是让 Agent 盲目开始写代码。
+
+### 4. 自动分诊新任务
+
+新任务进入项目系统后，Maestro 可以帮助判断它是 Bug、需求、技术债还是评审任务，并给出优先级、风险和下一步建议。
+
+### 5. 对比不同 Coding Agent
+
+同类任务可以分别交给 Codex、Claude Code 或 OpenCode，团队可以比较结果、失败原因、日志和交付记录。
+
+### 6. 先在本地安全体验
+
+使用本地 memory/mock 流程，不需要连接 Linear、TAPD、GitHub、CNB 或真实 Agent，就可以先理解 Maestro 如何调度任务。
+
+---
+
+## 当前已有的接入能力
+
+下面说的是 Maestro 当前代码中已有的**适配能力和模板**，不是说这些外部系统“内置在 Maestro 里”。Linear、TAPD、GitHub、CNB、Codex、Claude Code 和 OpenCode 都是外部系统或外部工具；Maestro 负责连接和编排它们。
+
+项目系统适配：
+
+- Linear
+- TAPD
+- Memory，用于本地测试和演示
+
+Agent 适配：
+
+- Codex
+- Claude Code
+- OpenCode
+- Mock，用于本地测试和演示
+
+代码平台适配：
+
+- GitHub
+- CNB
+- Memory，用于本地测试和演示
+
+已有流程模板包括：
+
+- `memory/no_repo/mock`
+- `linear/github/codex`
+- `linear/github/claude_code`
+- `linear/github/opencode.canary`
+- `tapd/github/codex`
+- `tapd/cnb/opencode`
+- `tapd/cnb/claude_code`
+
+Maestro 也会继续支持更多项目系统、代码平台、Agent 和任务流程。
+
+---
+
+## 它是怎么工作的？
 
 ```text
-人工管理一个个 Agent 聊天会话
+项目系统里的任务
+   ↓
+Maestro 读取/同步任务，并判断是否应该处理
+   ↓
+Maestro 在自己的运行环境中为该任务创建独立工作区
+   ↓
+根据配置把目标 Git 仓库准备到这个工作区
+   ↓
+启动 AI Agent，并提供任务内容、仓库副本和可用工具
+   ↓
+Agent 产出代码变更、分析结果或评审建议
+   ↓
+Maestro 记录 diff、日志、工具调用、摘要和相关链接
+   ↓
+Maestro 把结果写回项目系统，供团队继续评审或接手
 ```
 
-变成：
+对开发者来说，可以把 Maestro 理解成几个可扩展部分：
 
-```text
-由项目系统驱动的 Agent 工程平台
-```
-
-这不是语义差异，而是生产化差异。一次演示可以只依赖单个 Agent、单个 Issue 和单个仓库；真实团队需要调度、隔离、凭据、额度、审计、日志、评审、状态流转和失败恢复。
-
-Maestro 就是为这种团队级、生产级使用场景设计的。
-
----
-
-## Maestro 做什么
-
-Maestro 编排一个 AI 工程任务的完整生命周期：
-
-```text
-Ticket / Story / Issue
-        ↓
-Workflow Profile
-        ↓
-Agent Provider
-        ↓
-Runtime / Workspace / Tool Bridge
-        ↓
-Repo / Pull Request / Review / Evidence
-        ↓
-Tracker State Update / Audit Trail
-```
-
-它把任务系统、Agent Provider、代码平台、运行环境和可观测性连接成一个统一的工程执行与运营层。
-
-| 层级 | Maestro 提供的能力 |
-| --- | --- |
-| Tracker | Linear、TAPD、Memory，并可扩展 Jira、YouTrack、飞书项目、GitHub Issues 等 |
-| Agent Provider | Codex、Claude Code、OpenCode，并可扩展未来 CLI Agent 或远端 Agent 服务 |
-| Repo | provider-neutral 的 Git 操作，例如 clone、branch、commit、diff、push |
-| Repo Provider | GitHub、CNB、Memory，并可扩展 GitLab、Gitea、Bitbucket、Gerrit 等 |
-| Workflow | coding delivery、requirement analysis、refinement、review routing、triage 等可复用流程 |
-| Runtime | local、SSH、Worker Daemon 等执行模式 |
-| Tool Bridge | 面向 Agent 暴露 provider-neutral 的动态工具 |
-| Governance | accounts、credential store、lease、quota polling、redaction、human gate |
-| Observability | structured events、JSON logs、event store、dashboard drilldown、production evidence |
-
----
-
-## Maestro 解决的问题
-
-Coding Agent 已经越来越强，但强大的 Agent 并不会自动变成可靠的工程系统。
-
-| 没有 Maestro | 使用 Maestro |
-| --- | --- |
-| Agent 工作散落在独立聊天会话中 | 工作从真实 Tracker 分发，并关联到真实 Issue / Story |
-| 每个 Provider 都有自己的 session 形态 | 用统一生命周期 contract 包装不同 Provider |
-| Agent 说“完成了”，但难以审计 | diff、PR、tool call、log、状态流转和 evidence 都可追踪 |
-| 团队被单一 Tracker 或代码平台锁住 | Tracker 和 Repo Provider 都通过 Adapter 接入 |
-| 流程逻辑写死在脚本里 | Workflow Profile 定义策略、状态、路由和交付物 |
-| 凭据和额度管理分散 | accounts、lease、quota polling、redaction 进入平台治理 |
-| 扩展执行能力依赖人工盯会话 | Worker Daemon 支持容量感知和运营控制 |
-
-Maestro 的判断很简单：
-
-> **未来不是某一个完美 Coding Agent 独自完成所有工作，而是团队拥有一套能够调度、追踪、治理多个 Agent 的工程运营体系。**
-
----
-
-## 核心设计原则
-
-### 1. Tracker 是任务入口
-
-团队已经运行在项目管理系统之上。Maestro 不把任务藏进私有队列，而是让 Linear、TAPD、Memory 和未来更多 Tracker 成为 Agent 工作的调度入口。
-
-### 2. Agent 是执行单元
-
-Codex、Claude Code、OpenCode 和未来更多 Agent 都被视为可替换 Provider。Maestro 统一编排层真正需要的生命周期：创建 session、执行 turn、捕获 tool call、收集 evidence、感知 quota、清理运行状态。
-
-### 3. Workflow Profile 承载业务意图
-
-编码、需求分析、需求澄清、评审路由和任务分诊是不同流程。Maestro 将 profile 作为一等对象，定义什么时候 dispatch、什么时候 wait、什么时候 stop、需要什么 evidence、什么时候必须人工确认。
-
-### 4. Evidence 优先于口头结果
-
-Agent 说“完成了”不够。Maestro 关注的是可以审计的工程产物：branch、commit、diff、PR、review note、CI result、tracker comment、tool call、event 和 log。
-
-### 5. Adapter 防止平台锁定
-
-每个外部系统都通过 contract 接入。Orchestrator 不应该变成特定 provider 的分支逻辑堆叠。新的集成应该通过 adapter、contract test、smoke test 和 capability discovery 进入平台。
-
----
-
-## 架构
-
-```mermaid
-flowchart LR
-    Workflow[Workflow File\nYAML config + Agent prompt] --> Config[Config / Workflow Profile\nRoute Policy / Capabilities]
-    Tracker[Tracker Adapter\nLinear / TAPD / Memory / extensible] --> Orchestrator[Maestro Orchestrator]
-    Config --> Orchestrator
-    Orchestrator --> Runner[Agent Runner]
-    Runner --> Workspace[Per-work-item Workspace\nhooks / automation]
-    Workspace --> Agent[Agent Provider\nCodex / Claude Code / OpenCode / Mock]
-    Agent --> Runtime[Agent Runtime\nlocal / ssh / worker_daemon]
-    Runtime --> Session[Provider Process / Session]
-    Session --> ToolBridge[Dynamic Tool Bridge]
-    ToolBridge --> Tracker
-    ToolBridge --> Repo[Repo Facade\nlocal Git operations]
-    ToolBridge --> RepoProvider
-    RepoProvider[Repo Provider\nGitHub / CNB / Memory / extensible]
-    Orchestrator --> Events[Observability\nEvent Store / JSON Logs / Dashboard]
-    Runner --> Events
-    Agent --> Events
-    Runtime --> Events
-    ToolBridge --> Events
-```
-
-### 主要边界
-
-| 边界 | 职责 |
-| --- | --- |
-| `Workflow File` | 通过 YAML front matter 提供运行配置，并用 Markdown 正文提供 Agent prompt |
-| `Workflow Profile` | 定义 route policy、capabilities、completion contract、停止条件和人工 gate |
-| `Tracker Adapter` | 读取候选工作项、同步状态、写入评论、暴露 tracker typed tools |
-| `Orchestrator` | polling、reconciliation、调度、重试、运行状态跟踪和终止清理 |
-| `Agent Runner` | 为单个工作项创建 workspace、运行 hooks、启动并驱动 Agent session |
-| `Workspace` | 隔离每个工作项的运行目录、workspace automation、仓库副本和本地证据 |
-| `Agent Provider` | 启动、驱动、流式输出、停止和清理 Codex / Claude Code / OpenCode / Mock session |
-| `Agent Runtime` | 将 provider 进程放置到 local、SSH 或 Worker Daemon，并解析 sandbox / executor context |
-| `Repo` | provider-neutral 的本地 Git 操作：clone、branch、commit、diff、push |
-| `Repo Provider` | GitHub、CNB、Memory 等代码平台能力：PR / MR、review、checks、merge、comments、status updates |
-| `Dynamic Tool Bridge` | 将 Tracker、Repo 和 Repo Provider 能力聚合为 session-scoped provider-neutral tools |
-| `Observability` | structured events、JSON logs、event store、redaction、dashboard、evidence、audit trail |
-
----
-
-## Workflow Profiles
-
-Maestro 不局限于“从 Issue 写代码”。它可以用同一套平台层编排多个工程流程。
-
-| Profile | 目标 | 典型 Evidence |
-| --- | --- | --- |
-| `coding_pr_delivery` | 将工作项转化为代码变更和 PR | branch、commit、diff、PR、CI result、review note |
-| `requirement_analysis` | 将需求转化为结构化分析 | scope、risk、impact、acceptance criteria、task breakdown |
-| `requirement_refinement` | 在实现前识别模糊点 | clarification questions、blockers、assumptions、refined acceptance criteria |
-| `review_routing` | 为需求或 PR 推荐合适 reviewer | reviewer suggestions、risk tags、checklist |
-| `triage` | 对工作项进行分类和路由 | priority、owner、type、risk、next state |
-
-Profile 是 Maestro 从自动化脚本走向平台的关键。它定义 Agent 应该做什么、不应该做什么、必须交付什么证据，以及什么时候应该交还给人。
-
----
-
-## 配置形态示例
-
-当前实现通过 workflow Markdown 文件的 YAML front matter 配置运行时，Markdown 正文作为 Agent prompt。下面是核心维度与当前字段位置的示意，不是完整可运行配置：
-
-```yaml
-workflow:
-  profile:
-    kind: coding_pr_delivery  # coding_pr_delivery | requirement_analysis | requirement_refinement | review_routing | triage
-tracker:
-  kind: linear                # linear | tapd | memory
-repo:
-  provider:
-    kind: github              # github | cnb | memory
-agent_provider:
-  kind: codex                 # codex | claude_code | opencode | mock
-agent_runtime:
-  placement: local            # local | ssh | worker_daemon
-```
-
-Agent provider kind 是规范化运行时字符串。当前内置值为 `codex`、
-`claude_code`、`opencode` 和 `mock`；支持的别名会先由 Elixir 的
-provider-kind owner 归一化，再进入 registry 查找。
-
-Tracker、repo-provider 和 agent-provider 的规范 kind 字符串分别由
-Elixir 的 `Tracker.Kinds`、`RepoProvider.Kinds` 和 `AgentProvider.Kinds`
-模块持有，确保 registry、默认值和文档保持一致。
-
-这些维度可以独立组合。例如：
-
-```text
-TAPD + Claude Code + CNB + Worker Daemon + requirement_analysis
-Linear + Codex + GitHub + Local Runtime + coding_pr_delivery
-Memory + Mock Agent + Memory Repo Provider + Contract Tests
-```
+- **项目系统**：任务从哪里来，例如 Linear 或 TAPD。
+- **Git 仓库和代码平台**：代码从哪里 clone，分支、PR、评审和检查在哪里发生。
+- **Agent**：谁来执行，例如 Codex、Claude Code 或 OpenCode。
+- **任务流程**：这次是修 Bug、分析需求、澄清需求、分诊任务，还是做评审建议。
+- **工作区和运行环境**：每次 Agent 执行在哪里运行，如何隔离，如何并行。
+- **执行记录**：日志、diff、任务评论、摘要和其他可复盘信息。
 
 ---
 
@@ -229,7 +169,7 @@ git clone https://github.com/joosure/Maestro.git
 cd Maestro
 ```
 
-先准备仓库固定的 Erlang / Elixir 工具链。项目构建命令默认通过 `mise` 运行，版本由 `elixir/mise.toml` 固定：
+安装仓库固定的 Erlang / Elixir 工具链。推荐使用 `mise`：
 
 ```bash
 cd elixir
@@ -238,31 +178,57 @@ mise install
 cd ..
 ```
 
-安装依赖并运行测试。`make` 默认会调用 `mise exec -- mix`：
+安装依赖并运行测试：
 
 ```bash
 make -C elixir deps
 make -C elixir test
 ```
 
-直接调用 `mix` 时，也应从 `elixir/` 目录使用 `mise exec -- mix ...`。如果 `mix.exs` 报告 Elixir/OTP 版本不匹配，或错误中出现异常的 OTP 应用版本，例如 `stdlib 8.x`，通常说明当前 shell 使用了不同于 `elixir/mise.toml` 的 Erlang/OTP；请运行 `mise trust`、`mise install`，再通过 `mise exec` 重试。
-
-### 快速体验 workflow template
-
-构建 CLI，并从 `elixir/` 启动本地 memory/mock workflow：
+启动本地 demo：
 
 ```bash
+make -C elixir build
 cd elixir
-make build
-mise exec -- ./bin/symphony \
+./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
   --template memory/no_repo/mock \
   --port 4000
 ```
 
-这会使用 `memory/no_repo/mock` template 启动服务，并在 `http://localhost:4000` 暴露可选 dashboard/API。它使用内存 Tracker、内存 repo provider 和 mock agent provider，不需要 Linear、GitHub、Codex、Claude Code、OpenCode 或 CNB 凭证。
+打开可选 dashboard：
 
-如果要接入真实 Tracker、仓库和 agent runtime，先配置所需凭证，再切换 template：
+```text
+http://localhost:4000
+```
+
+这个 demo 使用内存数据和 Mock Agent，是理解项目最安全的方式。
+
+> 对外品牌使用 **Maestro**。部分运行时名称仍然保留 `symphony` 兼容命名，包括 CLI 入口和部分环境变量。
+
+---
+
+## 连接真实系统
+
+本地 demo 跑通后，可以再接入真实项目系统、Git 仓库和 Coding Agent。
+
+### 示例：TAPD + GitHub + Codex
+
+```bash
+export TAPD_API_USER=...
+export TAPD_API_PASSWORD=...
+export TAPD_WORKSPACE_ID=...
+export SOURCE_REPO_URL=https://github.com/owner/repo.git
+export SOURCE_REPO_BASE_BRANCH=main
+export SOURCE_REPO_PROVIDER_REPOSITORY=owner/repo
+
+./bin/symphony \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  --template tapd/github/codex \
+  --port 4000
+```
+
+### 示例：Linear + GitHub + Codex
 
 ```bash
 export LINEAR_API_KEY=...
@@ -271,166 +237,76 @@ export SOURCE_REPO_URL=https://github.com/owner/repo.git
 export SOURCE_REPO_BASE_BRANCH=main
 export SOURCE_REPO_PROVIDER_REPOSITORY=owner/repo
 
-command -v codex
-gh auth status
-
 ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
   --template linear/github/codex \
   --port 4000
 ```
 
-`SOURCE_REPO_BRANCH_WORK_PREFIX` 和 `SOURCE_REPO_PROVIDER_REQUIRED_PR_LABEL` 是可选项。`SYMPHONY_WORKSPACE_ROOT` 在本地 quick start 中可以省略；接入真实 Tracker、真实仓库或进行完整流程验证前，建议显式设置到隔离的 workspace 根目录，避免工作区落在开发者本机路径中且难以清理。接入真实 Tracker 或仓库前，请先阅读 [workflow template aliases](./elixir/priv/workflow_templates/README.md) 和 [runtime configuration](./elixir/README.md)。
+在连接真实仓库或高权限凭据前，请先阅读：
 
-提交 PR 前，先运行和 CI 一致的本地门禁：
-
-```bash
-make -C elixir all
-make -C elixir secret-scan
-```
-
-`make -C elixir secret-scan` 会通过 `scripts/secret-scan.sh` 运行
-`gitleaks`、`trufflehog` 和 `detect-secrets`。CI 会在提交到 `main` 和 PR
-时运行同一套扫描门禁。
-
-本地实验建议按风险从低到高推进：
-
-- 在需要无外部凭证验证编排流程时，配置 `tracker.kind: memory` 和 `repo.provider.kind: memory`。
-- fake/simulated agent adapter 只通过 adapter registry 用于测试或扩展开发；当前内置 agent provider 是 `codex`、`claude_code` 和 `opencode`。
-- memory 路径稳定后，再接入 Linear/TAPD、GitHub/CNB 或 destructive smoke tests。
-
-> 对外品牌使用 **Maestro**。早期版本中，部分模块名、CLI 入口或环境变量可能仍沿用 `symphony` 命名；可以将其视为兼容命名，后续会随品牌和平台边界稳定逐步整理。
+- [Elixir 运行时指南](./elixir/README.zh-CN.md)
+- [Workflow templates](./elixir/priv/workflow_templates/README.zh-CN.md)
+- [Operations guide](./elixir/docs/operations.zh-CN.md)
 
 ---
 
-## 扩展模型
+## Maestro 是什么，不是什么
 
-Maestro 倾向于通过 contract 扩展，而不是通过硬编码分支扩展。
+Maestro 是：
 
-### 新增 Tracker Adapter
+- 连接项目系统、Git 仓库和 Coding Agent 的工程任务执行平台；
+- 让 AI Agent 从真实项目任务开始工作的系统；
+- 面向编码、需求分析、需求澄清、任务分诊和评审建议的流程层；
+- 帮团队安全试用、比较和管理不同 Coding Agent 的方式。
 
-需要实现：
+Maestro 不是：
 
-- 拉取候选工作项；
-- 读取标题、描述、标签、状态、负责人和 metadata；
-- claim 或 lock 工作项；
-- 写入评论和 evidence；
-- 将特定 provider 的状态映射到 Maestro workflow model；
-- 通过 contract tests 和 live smoke tests。
-
-### 新增 Agent Provider
-
-需要实现：
-
-- 创建 session；
-- 注入 prompt 和 context；
-- 执行 turn；
-- 流式输出事件；
-- 捕获 tool call；
-- 提取 evidence；
-- 取消和清理；
-- 报告 sandbox、tools、approval、quota、context window 等 capability。
-
-### 新增 Repo Provider
-
-需要实现：
-
-- PR / MR 创建；
-- review comments；
-- checks 和 statuses；
-- merge gates；
-- branch protection 检测；
-- evidence links；
-- 幂等更新。
-
-### 新增 Workflow Profile
-
-需要定义：
-
-- trigger states；
-- dispatch policy；
-- input context；
-- agent instructions；
-- allowed tools；
-- required evidence；
-- stop conditions；
-- human approval gates；
-- tracker transitions。
-
----
-
-## 可观测性与 Evidence
-
-Maestro 将可观测性视为产品能力，而不是事后补丁。
-
-每次运行都应该能回答：
-
-- 为什么 dispatch；
-- 使用哪个 workflow profile；
-- 选择了哪个 provider；
-- 运行在哪个 runtime / worker；
-- session 和 turn 的历史是什么；
-- 调用了哪些 tool；
-- stdout / stderr / structured event stream 是什么；
-- workspace 和仓库发生了什么变化；
-- 是否生成 PR、review 或其他交付物；
-- Tracker 状态和评论如何变化；
-- 日志是否经过 redaction；
-- 最终 evidence summary 是什么。
-
-这让 Maestro 不只是自动化工具，也能用于评估、排障、治理和生产 rollout。
+- 不是新的大模型；
+- 不是 Codex、Claude Code 或 OpenCode 的替代品；
+- 不是替团队跳过评审、测试和发布判断的工具；
+- 不是拿到仓库权限后就可以放任不管的无人值守系统。
 
 ---
 
 ## 项目状态
 
-Maestro 正处于积极的平台化阶段。
+Maestro 仍处于早期活跃开发阶段。
 
 适合用于：
 
-- 研究 tracker-driven agent orchestration；
-- 构建 adapter 原型；
-- 验证 workflow profile；
-- 运行 memory-provider 或本地测试闭环；
-- 在受控环境下接入真实 provider。
+- 学习任务驱动的 Agent 工作流；
+- 运行本地 memory/mock demo；
+- 原型验证新的系统接入；
+- 在受控环境中试验真实系统。
 
-在以下场景需要进一步生产加固：
+在以下场景需要额外谨慎：
 
-- 无限制生产执行；
-- destructive repository operations；
-- 高权限凭据；
-- 多租户 worker pool；
-- 无人值守 merge 或 deploy 自动化。
+- 允许 Agent 修改真实仓库或推送分支；
+- 允许 Agent 写回真实项目系统的状态或评论；
+- 使用高权限凭据或个人 token；
+- 让多个团队共享同一执行环境；
+- 跳过人工评审直接进入测试、发布或上线流程。
 
 基本原则是：
 
-> **大胆自动化，谨慎加 gate，完整保留 evidence。**
+> **大胆自动化，谨慎加关卡，让过程始终可见。**
 
 ---
 
-## Maestro 适合谁
+## 了解更多
 
-Maestro 适合：
-
-- 正在评估 Codex、Claude Code、OpenCode 或未来 Coding Agent 的工程团队；
-- 构建内部 AI 工程基础设施的平台团队；
-- 设计 Agent Ops 工作流的 DevTools 团队；
-- 希望让 Agent 基于现有 Tracker 工作的产品和研发组织；
-- 研究 Agent 可靠性、证据链和编排体系的研究者；
-- 希望建立结构化 Agent 贡献流程的开源维护者。
+- [路线图](./ROADMAP.zh-CN.md)
+- [多语言文档](./LANGUAGES.md)
+- [Elixir 运行时指南](./elixir/README.zh-CN.md)
+- [Workflow templates](./elixir/priv/workflow_templates/README.zh-CN.md)
+- [Operations guide](./elixir/docs/operations.zh-CN.md)
 
 ---
 
 ## 来源说明
 
-Maestro 始于 [OpenAI Symphony](https://github.com/openai/symphony) 的 fork。原始 Symphony reference implementation 聚焦于 Linear 驱动的 Codex 编排。Maestro 将这一思路扩展为覆盖 Tracker、Agent Provider、Repo Provider、Workflow Profile、Runtime、Tool Bridge 和 Evidence 的平台架构。
-
----
-
-## 仓库
-
-- GitHub: <https://github.com/joosure/Maestro>
-- Origin project: <https://github.com/openai/symphony>
+Maestro 始于 [OpenAI Symphony](https://github.com/openai/symphony) 的 fork。Symphony 证明了项目任务可以驱动 Coding Agent。Maestro 将这个想法扩展为面向真实工程流程的平台。
 
 ---
 
