@@ -130,6 +130,7 @@ defmodule SymphonyElixir.CLITest do
     assert "linear/github/codebuddy_code" in aliases
     assert "linear/github/opencode.canary" in aliases
     refute "README" in aliases
+    refute "README.zh-CN" in aliases
     assert Enum.all?(aliases, &(length(Path.split(&1)) == 3))
   end
 

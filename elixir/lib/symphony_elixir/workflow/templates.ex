@@ -19,7 +19,7 @@ defmodule SymphonyElixir.Workflow.Templates do
     root()
     |> Path.join("**/*.md")
     |> Path.wildcard()
-    |> Enum.reject(&(Path.basename(&1) == "README.md"))
+    |> Enum.reject(&documentation_path?/1)
     |> Enum.sort()
   end
 
@@ -77,7 +77,7 @@ defmodule SymphonyElixir.Workflow.Templates do
       Path.extname(relative_path) != ".md" ->
         {:error, "Workflow template alias must resolve to a .md file"}
 
-      List.last(segments) == "README.md" ->
+      documentation_basename?(List.last(segments)) ->
         {:error, "Workflow template alias must point to a workflow template"}
 
       true ->
@@ -89,6 +89,16 @@ defmodule SymphonyElixir.Workflow.Templates do
     path
     |> Path.relative_to(root())
     |> Path.rootname()
+  end
+
+  defp documentation_path?(path) do
+    path
+    |> Path.basename()
+    |> documentation_basename?()
+  end
+
+  defp documentation_basename?(basename) do
+    Regex.match?(~r/^README(?:\.[A-Za-z0-9_-]+)*\.md$/, basename)
   end
 
   defp source_root do

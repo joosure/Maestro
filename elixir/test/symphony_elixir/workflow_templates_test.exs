@@ -37,6 +37,9 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
     assert canary_path == canary_md_path
     assert Path.basename(canary_path) == "opencode.canary.md"
 
+    assert {:error, "Workflow template alias must point to a workflow template"} =
+             Templates.resolve("README.zh-CN")
+
     for template_alias <- Templates.aliases() do
       assert {:ok, _path} = Templates.resolve(template_alias)
     end
