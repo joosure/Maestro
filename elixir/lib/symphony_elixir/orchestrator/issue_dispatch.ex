@@ -12,7 +12,7 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
   alias SymphonyElixir.Orchestrator.WorkerHosts
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Workflow.Readiness
-  alias SymphonyElixir.Workflow.ReadinessContract
+  alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
 
   @spec choose_issues([Issue.t()], State.t()) :: State.t()
   def choose_issues(issues, %State{} = state) when is_list(issues) do

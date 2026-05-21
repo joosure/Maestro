@@ -189,11 +189,13 @@ defmodule SymphonyElixir.Repo.ToolExecutor do
   defp diff(repo, arguments, opts) do
     with {:ok, args} <- diff_args(arguments),
          {:ok, diff_output} <- Repo.diff(Context.path(repo), args.args, opts),
-         {:ok, check_output} <- maybe_diff_check(repo, args, opts) do
+         {:ok, check_output} <- maybe_diff_check(repo, args, opts),
+         {:ok, status} <- Repo.status(Context.path(repo), opts) do
       {:success,
        success_payload(%{
          "diff" => diff_output,
-         "diffCheck" => check_output
+         "diffCheck" => check_output,
+         "status" => status_payload(status)
        })}
     else
       {:error, reason} -> typed_failure(reason)

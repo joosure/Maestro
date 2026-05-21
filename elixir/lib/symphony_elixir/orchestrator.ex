@@ -10,6 +10,7 @@ defmodule SymphonyElixir.Orchestrator do
   alias SymphonyElixir.Orchestrator.PollCycle
   alias SymphonyElixir.Orchestrator.Polling
   alias SymphonyElixir.Orchestrator.Retry
+  alias SymphonyElixir.Orchestrator.Running.Termination
   alias SymphonyElixir.Orchestrator.ServerOptions
   alias SymphonyElixir.Orchestrator.Snapshot
   alias SymphonyElixir.Orchestrator.State
@@ -24,11 +25,25 @@ defmodule SymphonyElixir.Orchestrator do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
+
     state = State.initial()
     :ok = TerminalCleanup.run(terminal_cleanup_opts(opts))
     state = PollCycle.schedule_initial_poll(state, opts)
 
     {:ok, state}
+  end
+
+  @impl true
+  def terminate(_reason, %State{} = state) do
+    _state =
+      state.running
+      |> Map.keys()
+      |> Enum.reduce(state, fn issue_id, state_acc ->
+        Termination.terminate_running_issue(state_acc, issue_id, false, ServerOptions.running_opts(state_acc))
+      end)
+
+    :ok
   end
 
   defp terminal_cleanup_opts(opts) when is_list(opts) do

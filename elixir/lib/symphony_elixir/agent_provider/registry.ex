@@ -7,12 +7,14 @@ defmodule SymphonyElixir.AgentProvider.Registry do
 
   @codex_kind Kinds.codex()
   @claude_code_kind Kinds.claude_code()
+  @codebuddy_code_kind Kinds.codebuddy_code()
   @mock_kind Kinds.mock()
   @opencode_kind Kinds.opencode()
 
   @default_adapters %{
     @codex_kind => SymphonyElixir.AgentProvider.Codex.Adapter,
     @claude_code_kind => SymphonyElixir.AgentProvider.ClaudeCode.Adapter,
+    @codebuddy_code_kind => SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter,
     @mock_kind => SymphonyElixir.AgentProvider.Mock.Adapter,
     @opencode_kind => SymphonyElixir.AgentProvider.OpenCode.Adapter
   }

@@ -3,7 +3,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
   alias SymphonyElixir.Agent.Credential.Store
   alias SymphonyElixir.AgentProvider
-  alias SymphonyElixir.AgentProvider.{ClaudeCode, Codex, Mock, OpenCode}
+  alias SymphonyElixir.AgentProvider.{ClaudeCode, CodeBuddyCode, Codex, Mock, OpenCode}
   alias SymphonyElixir.AgentProvider.Config, as: ProviderConfig
   alias SymphonyElixir.AgentProvider.{EventSummary, Session, TurnResult}
   alias SymphonyElixir.Observability.EventStore
@@ -230,9 +230,11 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     supported_kinds = AgentProvider.Registry.supported_kinds()
 
     assert "claude_code" in supported_kinds
+    assert "codebuddy_code" in supported_kinds
     assert "mock" in supported_kinds
     assert "opencode" in supported_kinds
     assert AgentProvider.adapter_for("claude_code") == ClaudeCode.Adapter
+    assert AgentProvider.adapter_for("codebuddy_code") == CodeBuddyCode.Adapter
     assert AgentProvider.adapter_for("mock") == Mock.Adapter
     assert AgentProvider.adapter_for("opencode") == OpenCode.Adapter
 
@@ -243,6 +245,15 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
       assert "agent.usage.metrics" in adapter.capabilities()
       refute "agent.tools.dynamic" in adapter.capabilities()
     end
+
+    assert "agent.turn.run" in CodeBuddyCode.Adapter.capabilities()
+    assert "agent.session.stateful" in CodeBuddyCode.Adapter.capabilities()
+    assert "agent.events.streaming" in CodeBuddyCode.Adapter.capabilities()
+    refute "agent.usage.metrics" in CodeBuddyCode.Adapter.capabilities()
+    assert "agent.tools.dynamic" in CodeBuddyCode.Adapter.capabilities()
+    assert "agent.credentials.managed" in CodeBuddyCode.Adapter.capabilities()
+    refute "agent.runtime.remote_worker" in CodeBuddyCode.Adapter.capabilities()
+    refute "agent.quota.probe" in CodeBuddyCode.Adapter.capabilities()
 
     assert "agent.runtime.remote_worker" in ClaudeCode.Adapter.capabilities()
     assert "agent.credentials.managed" in ClaudeCode.Adapter.capabilities()
@@ -278,6 +289,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
   test "provider adapters own only workspace automation destination directories" do
     assert SymphonyElixir.AgentProvider.Codex.Adapter.workspace_automation_destination_dir() == ".codex"
     assert SymphonyElixir.AgentProvider.ClaudeCode.Adapter.workspace_automation_destination_dir() == ".claude"
+    assert SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter.workspace_automation_destination_dir() == ".codebuddy"
     assert SymphonyElixir.AgentProvider.Mock.Adapter.workspace_automation_destination_dir() == ".mock-agent"
     assert SymphonyElixir.AgentProvider.OpenCode.Adapter.workspace_automation_destination_dir() == ".opencode"
   end
@@ -830,6 +842,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
   test "native app-server adapters validate provider-owned options" do
     assert :ok = ClaudeCode.Adapter.validate_options(%{})
+    assert :ok = CodeBuddyCode.Adapter.validate_options(%{})
     assert :ok = Codex.Adapter.validate_options(%{})
     assert :ok = OpenCode.Adapter.validate_options(%{})
 
@@ -841,6 +854,9 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
     assert {:error, {:unsupported_agent_provider_options, "codex", ["api_key_env"]}} =
              Codex.Adapter.validate_options(%{command_argv: ["codex"], api_key_env: "OPENAI_API_KEY"})
+
+    assert {:error, {:unsupported_agent_provider_options, "codebuddy_code", ["legacy_env"]}} =
+             CodeBuddyCode.Adapter.validate_options(%{command_argv: ["codebuddy"], legacy_env: "CODEBUDDY_ENV"})
 
     assert {:error, %Ecto.Changeset{valid?: false}} =
              ClaudeCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], prompt_transport: "stdin"})
@@ -857,10 +873,33 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     assert {:error, %Ecto.Changeset{valid?: false}} =
              ClaudeCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], telemetry: %{enabled: "yes"}})
 
+    assert :ok =
+             CodeBuddyCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], transport: "acp_http"})
+
+    assert {:error, %Ecto.Changeset{valid?: false}} =
+             CodeBuddyCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], transport: "acp_http", mcp: %{enabled: true}})
+
+    assert {:error, %Ecto.Changeset{valid?: false}} =
+             CodeBuddyCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], acp: %{client_file_proxy: true}})
+
     assert {:error, %Ecto.Changeset{valid?: false}} =
              OpenCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], telemetry: %{unsupported: true}})
 
     assert :ok = ClaudeCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], prompt_transport: "stream_json"})
+
+    assert :ok =
+             CodeBuddyCode.Adapter.validate_options(%{
+               command_argv: ["/bin/echo"],
+               transport: "acp_stdio",
+               permission_mode: "restricted",
+               allowed_tools: ["Read"],
+               disallowed_tools: ["Bash"],
+               acp: %{handshake_timeout_ms: 1000},
+               mcp: %{enabled: false},
+               plugin: %{enabled: false},
+               http: %{enabled: false, mode: "auxiliary"},
+               telemetry: %{enabled: false}
+             })
 
     assert :ok =
              Codex.Adapter.validate_options(%{

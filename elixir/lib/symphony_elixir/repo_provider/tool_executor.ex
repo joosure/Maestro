@@ -205,7 +205,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
           },
           "branch" => %{
             "type" => ["string", "null"],
-            "description" => "Existing branch target for update when supported."
+            "description" => "Existing branch target for lookup/update when supported. Do not use branch as the source branch when mode is create; use head instead."
           },
           "title" => %{
             "type" => ["string", "null"],
@@ -221,14 +221,30 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
           },
           "head" => %{
             "type" => ["string", "null"],
-            "description" => "Source/head branch for create. Required when mode is create."
+            "description" => "Source/head branch for creating a change proposal. Required when mode is create; this is the source branch, not branch."
           },
           "labels" => %{
             "type" => "array",
             "items" => %{"type" => "string"},
             "description" => "Labels to apply after create or update when supported."
           }
-        }
+        },
+        "allOf" => [
+          %{
+            "if" => %{
+              "properties" => %{"mode" => %{"const" => "create"}},
+              "required" => ["mode"]
+            },
+            "then" => %{
+              "required" => ["title", "base", "head"],
+              "properties" => %{
+                "title" => %{"type" => "string", "minLength" => 1},
+                "base" => %{"type" => "string", "minLength" => 1},
+                "head" => %{"type" => "string", "minLength" => 1}
+              }
+            }
+          }
+        ]
       }
     )
   end
@@ -1052,7 +1068,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
         {:error, {:invalid_arguments, "Creating a change proposal requires base."}}
 
       blank?(args.head) ->
-        {:error, {:invalid_arguments, "Creating a change proposal requires head."}}
+        {:error, {:invalid_arguments, "Creating a change proposal requires head, the source branch. Use head for create; branch is only for lookup/update."}}
 
       true ->
         :ok

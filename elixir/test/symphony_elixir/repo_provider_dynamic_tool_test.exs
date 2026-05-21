@@ -64,6 +64,27 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
     assert get_in(create_spec, ["inputSchema", "properties", "body", "description"]) =~
              "configured deterministic default"
 
+    assert get_in(create_spec, ["inputSchema", "properties", "branch", "description"]) =~
+             "lookup/update"
+
+    assert get_in(create_spec, ["inputSchema", "properties", "head", "description"]) =~
+             "source branch"
+
+    assert %{
+             "if" => %{
+               "properties" => %{"mode" => %{"const" => "create"}},
+               "required" => ["mode"]
+             },
+             "then" => %{
+               "required" => ["title", "base", "head"],
+               "properties" => %{
+                 "title" => %{"type" => "string", "minLength" => 1},
+                 "base" => %{"type" => "string", "minLength" => 1},
+                 "head" => %{"type" => "string", "minLength" => 1}
+               }
+             }
+           } in get_in(create_spec, ["inputSchema", "allOf"])
+
     assert {:ok, resolved} =
              Inventory.resolve_required(context, [
                "repo.change_proposal_snapshot",
@@ -1320,6 +1341,27 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
                  "head" => "demo-missing-base"
                }
              )
+
+    assert {:failure,
+            %{
+              "error" => %{
+                "code" => "invalid_arguments",
+                "message" => "Creating a change proposal requires head, the source branch. Use head for create; branch is only for lookup/update."
+              }
+            }} =
+             DynamicTool.execute(
+               repo_tool_context(),
+               "repo_create_or_update_change_proposal",
+               %{
+                 "mode" => "create",
+                 "title" => "Missing head",
+                 "body" => "missing head",
+                 "base" => "main",
+                 "branch" => "demo-missing-head"
+               }
+             )
+
+    refute_received {:memory_repo_provider_pr_create, _missing_head_create_opts}
 
     assert {:failure,
             %{

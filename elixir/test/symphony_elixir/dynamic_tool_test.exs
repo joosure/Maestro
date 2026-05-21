@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
   alias SymphonyElixir.Agent.DynamicTool
   alias SymphonyElixir.Agent.DynamicTool.Bridge
   alias SymphonyElixir.Observability.EventStore
+  alias SymphonyElixir.Workflow.StateTransitionReadiness.Store, as: ReadinessStore
 
   defmodule InvalidResultAdapter do
     @behaviour SymphonyElixir.Tracker.Adapter
@@ -591,6 +592,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   test "typed linear issue move resolves state ids before calling issueUpdate" do
     test_pid = self()
+    record_review_ready_evidence("DEMO-16")
 
     response =
       Bridge.execute(
@@ -609,13 +611,15 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
               {:ok, linear_issue_update_response("In Review")}
 
             true ->
-              {:ok, linear_issue_states_response()}
+              {:ok, linear_issue_review_ready_response()}
           end
         end
       )
 
-    assert_received {:linear_client_called, states_query, %{issueId: "DEMO-16"}, []}
+    assert_received {:linear_client_called, states_query, %{issueId: "DEMO-16", commentFirst: 50}, []}
     assert states_query =~ "team"
+    assert states_query =~ "comments"
+    assert states_query =~ "attachments"
 
     assert_received {:linear_client_called, update_query, %{issueId: "DEMO-16", stateId: "state-review"}, []}
 
@@ -625,6 +629,77 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
     assert get_in(response["payload"], ["data", "issue", "state", "name"]) ==
              "In Review"
+  end
+
+  test "typed linear issue move blocks review handoff until structured evidence is complete" do
+    test_pid = self()
+
+    response =
+      Bridge.execute(
+        "linear_move_issue",
+        %{
+          "issue_id" => "DEMO-16",
+          "state_name" => "In Review",
+          "expected_current_state" => "In Progress"
+        },
+        linear_client: fn query, variables, opts ->
+          send(test_pid, {:linear_client_called, query, variables, opts})
+
+          if query =~ "issueUpdate" do
+            flunk("review handoff gate must fail before calling issueUpdate")
+          else
+            {:ok, linear_issue_review_incomplete_response()}
+          end
+        end
+      )
+
+    assert_received {:linear_client_called, snapshot_query, %{issueId: "DEMO-16", commentFirst: 50}, []}
+    assert snapshot_query =~ "comments"
+    assert snapshot_query =~ "attachments"
+
+    assert response["success"] == false
+    assert get_in(response["payload"], ["error", "code"]) == "review_handoff_not_ready"
+
+    missing = get_in(response["payload"], ["error", "details", "missing_evidence"])
+
+    assert Enum.any?(missing, &(Map.get(&1, "code") == "workpad_record_missing"))
+  end
+
+  test "typed linear issue move does not run review handoff checks for non-review states" do
+    test_pid = self()
+
+    response =
+      Bridge.execute(
+        "linear_move_issue",
+        %{
+          "issue_id" => "DEMO-16",
+          "state_name" => "Rework",
+          "expected_current_state" => "In Progress"
+        },
+        linear_client: fn query, variables, opts ->
+          send(test_pid, {:linear_client_called, query, variables, opts})
+
+          cond do
+            query =~ "issueUpdate" ->
+              assert variables == %{issueId: "DEMO-16", stateId: "state-rework"}
+              {:ok, linear_issue_update_response("Rework")}
+
+            true ->
+              {:ok, linear_issue_states_response()}
+          end
+        end
+      )
+
+    assert_received {:linear_client_called, states_query, %{issueId: "DEMO-16"}, []}
+    assert states_query =~ "team"
+    refute states_query =~ "comments"
+    refute states_query =~ "attachments"
+
+    assert_received {:linear_client_called, update_query, %{issueId: "DEMO-16", stateId: "state-rework"}, []}
+    assert update_query =~ "issueUpdate"
+
+    assert response["success"] == true
+    assert get_in(response["payload"], ["data", "issue", "state", "name"]) == "Rework"
   end
 
   test "typed linear workpad upsert updates the existing active workpad comment" do
@@ -691,7 +766,12 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
         %{
           "issue_id" => "DEMO-16",
           "heading" => "Claude Code Workpad",
-          "body" => body
+          "body" => body,
+          "sections" => [
+            %{"key" => "plan", "status" => "complete"},
+            %{"key" => "acceptance_criteria", "status" => "complete"},
+            %{"key" => "validation", "status" => "complete"}
+          ]
         },
         linear_client: fn query, variables, opts ->
           send(test_pid, {:linear_client_called, query, variables, opts})
@@ -719,6 +799,8 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
     assert response["success"] == true
     assert get_in(response["payload"], ["data", "comment", "created"]) == true
+    assert get_in(ReadinessStore.snapshot("DEMO-16"), ["observations", "workpad", "status"]) == "created"
+    refute get_in(ReadinessStore.snapshot("DEMO-16"), ["observations", "workpad", "sections"])
   end
 
   test "typed linear workpad upsert reuses legacy workpad comments that are missing the heading" do
@@ -985,6 +1067,117 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     put_in(linear_issue_snapshot_response(), ["data", "issue", "comments", "nodes"], comments)
   end
 
+  defp linear_issue_review_ready_response do
+    linear_issue_snapshot_response()
+    |> put_in(["data", "issue", "attachments", "nodes"], [linear_change_proposal_attachment()])
+    |> put_in(["data", "issue", "comments", "nodes"], [linear_workpad_comment(linear_review_ready_workpad_body())])
+  end
+
+  defp linear_issue_review_incomplete_response do
+    linear_issue_snapshot_response()
+    |> put_in(["data", "issue", "attachments", "nodes"], [linear_change_proposal_attachment()])
+    |> put_in(["data", "issue", "comments", "nodes"], [linear_workpad_comment(linear_review_incomplete_workpad_body())])
+  end
+
+  defp record_review_ready_evidence(issue_key) do
+    ReadinessStore.record(issue_key, %{
+      "observations" => %{
+        "workpad" => %{
+          "status" => "updated",
+          "source" => "typed_tool_observed",
+          "comment_id" => "comment-16",
+          "updated_at" => "2026-05-19T08:06:00Z"
+        },
+        "repo" => %{
+          "change_kind" => "code_change",
+          "source" => "repo_observed",
+          "head_sha" => "head-16",
+          "commits" => [%{"sha" => "head-16"}]
+        },
+        "change_proposal" => %{
+          "status" => "updated",
+          "source" => "repo_provider_observed",
+          "url" => "https://github.com/example-user/sample-repo/pull/17",
+          "head_sha" => "head-16",
+          "linked_to_tracker" => true
+        },
+        "validation" => %{
+          "status" => "passed",
+          "source" => "typed_tool_observed",
+          "head_sha" => "head-16",
+          "commands" => [%{"command" => "mix test", "exit_code" => 0, "head_sha" => "head-16"}]
+        },
+        "checks" => %{
+          "status" => "passed",
+          "source" => "repo_provider_observed",
+          "head_sha" => "head-16"
+        },
+        "feedback" => %{
+          "status" => "clear",
+          "source" => "repo_provider_observed",
+          "actionable_count" => 0
+        }
+      }
+    })
+  end
+
+  defp linear_workpad_comment(body) do
+    %{
+      "id" => "comment-workpad",
+      "body" => body,
+      "resolvedAt" => nil,
+      "createdAt" => "2026-05-08T00:00:00Z",
+      "updatedAt" => "2026-05-08T01:00:00Z",
+      "user" => %{"name" => "Agent"}
+    }
+  end
+
+  defp linear_change_proposal_attachment do
+    %{
+      "id" => "attachment-pr",
+      "title" => "DEMO-16 PR",
+      "url" => "https://github.com/example-user/sample-repo/pull/17",
+      "sourceType" => "github"
+    }
+  end
+
+  defp linear_review_ready_workpad_body do
+    """
+    ## CodeBuddy Code Workpad
+
+    ### Plan
+
+    - [x] Implement the fix
+
+    ### Acceptance Criteria
+
+    - [x] Behavior is corrected
+
+    ### Validation
+
+    - [x] mix test passed
+    """
+  end
+
+  defp linear_review_incomplete_workpad_body do
+    """
+    ## CodeBuddy Code Workpad
+
+    ### Plan
+
+    - [x] Reproduce the issue
+    - [ ] Implement the fix
+
+    ### Acceptance Criteria
+
+    - [ ] Behavior is corrected
+
+    ### Validation
+
+    - [ ] mix test passed
+    """
+  end
+
   defp linear_issue_states_response do
     %{
       "data" => %{
@@ -996,7 +1189,8 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
             "states" => %{
               "nodes" => [
                 %{"id" => "state-progress", "name" => "In Progress", "type" => "started"},
-                %{"id" => "state-review", "name" => "In Review", "type" => "unstarted"}
+                %{"id" => "state-review", "name" => "In Review", "type" => "unstarted"},
+                %{"id" => "state-rework", "name" => "Rework", "type" => "unstarted"}
               ]
             }
           }

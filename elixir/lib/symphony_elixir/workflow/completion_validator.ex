@@ -10,9 +10,9 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
   alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.ProfileRegistry
-  alias SymphonyElixir.Workflow.ReadinessContract
+  alias SymphonyElixir.Workflow.Profiles.CodingPrDelivery
+  alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
 
-  @coding_profile "coding_pr_delivery"
   @merge_capabilities MapSet.new(CapabilityNames.merge_gate())
   @passing_check_statuses ["passing", "passed", "success", "successful"]
   @approved_review_statuses ["approved", "approval", "passed"]
@@ -34,7 +34,7 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
     allowed_routes = string_list(map_field(contract, :allowed_completion_routes))
     route_key = completion_route(issue, opts, evidence)
 
-    if profile_context.kind == @coding_profile do
+    if profile_context.kind == CodingPrDelivery.kind() do
       checks = [
         check(
           "change_proposal_exists",
