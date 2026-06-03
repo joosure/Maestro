@@ -44,7 +44,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.Launcher do
 
     with {:ok, env} <- runtime_env(settings, workspace, opts),
          {:ok, command_spec} <- CommandRenderer.command_spec(workspace, settings, env, opts) do
-      target.executor.start(command_spec, target, Keyword.put(opts, :line, @port_line_bytes))
+      target.executor.start(command_spec, target, executor_opts(opts))
     end
   end
 
@@ -85,6 +85,12 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.Launcher do
       _target ->
         Target.new(workspace_path: workspace, worker_host: Keyword.get(opts, :worker_host))
     end
+  end
+
+  defp executor_opts(opts) do
+    opts
+    |> Keyword.put(:line, @port_line_bytes)
+    |> Keyword.put_new(:provider_kind, @provider_kind)
   end
 
   defp runtime_env(%Settings{} = settings, workspace, opts) do

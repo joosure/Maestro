@@ -6,18 +6,10 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementAnalysis do
   @behaviour SymphonyElixir.Workflow.Profile
 
   alias SymphonyElixir.Workflow.CapabilityNames, as: Capabilities
+  alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
 
   @route_keys [:intake, :analyzing, :needs_info, :review, :ready, :rejected]
-
-  @default_raw_state_by_route_key %{
-    intake: "intake",
-    analyzing: "analyzing",
-    needs_info: "needs_info",
-    review: "review",
-    ready: "ready",
-    rejected: "rejected"
-  }
 
   @default_policy_by_route_key %{
     intake: %{action: :transition_then_dispatch, transition_target: :analyzing},
@@ -29,12 +21,12 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementAnalysis do
   }
 
   @lifecycle_phase_by_route_key %{
-    intake: "todo",
-    analyzing: "in_progress",
-    needs_info: "human_review",
-    review: "human_review",
-    ready: "done",
-    rejected: "canceled"
+    intake: WorkflowLifecycle.todo(),
+    analyzing: WorkflowLifecycle.in_progress(),
+    needs_info: WorkflowLifecycle.human_review(),
+    review: WorkflowLifecycle.human_review(),
+    ready: WorkflowLifecycle.done(),
+    rejected: WorkflowLifecycle.canceled()
   }
 
   @completion_contract %{
@@ -54,9 +46,11 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementAnalysis do
     ]
   }
 
-  @default_options %{
-    "require_acceptance_criteria" => false,
-    "question_policy" => "blocking_and_non_blocking"
+  @question_policy_values ["blocking_only", "blocking_and_non_blocking"]
+
+  @options_schema %{
+    "require_acceptance_criteria" => %{type: :boolean, default: false},
+    "question_policy" => %{type: {:enum, @question_policy_values}, default: "blocking_and_non_blocking"}
   }
 
   @required_capabilities [
@@ -84,9 +78,6 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementAnalysis do
   def route_keys, do: @route_keys
 
   @impl true
-  def default_raw_state_by_route_key, do: @default_raw_state_by_route_key
-
-  @impl true
   def default_policy_by_route_key, do: @default_policy_by_route_key
 
   @impl true
@@ -111,22 +102,14 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementAnalysis do
   def execution_profile_required_capabilities(_execution_profile, _options), do: []
 
   @impl true
-  def default_options, do: @default_options
+  def options_schema, do: @options_schema
+
+  @impl true
+  def default_options, do: ProfileOptions.default_options(@options_schema)
 
   @impl true
   def validate_options(options) when is_map(options) do
-    with :ok <- ProfileOptions.reject_unknown(kind(), options, Map.keys(@default_options)),
-         :ok <- ProfileOptions.validate_boolean(kind(), options, @default_options, "require_acceptance_criteria"),
-         :ok <-
-           ProfileOptions.validate_enum(
-             kind(),
-             options,
-             @default_options,
-             "question_policy",
-             ["blocking_only", "blocking_and_non_blocking"]
-           ) do
-      :ok
-    end
+    ProfileOptions.validate(kind(), options, @options_schema)
   end
 
   def validate_options(options), do: {:error, {:invalid_profile_options, kind(), options}}

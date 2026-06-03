@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
   alias SymphonyElixir.Workflow.RoutePolicy
+  alias SymphonyElixir.Workflow.RouteRef
 
   @max_processed_issues_per_cycle_limit 100
 
@@ -11,7 +12,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
     "enabled",
     "candidates",
     "gates",
-    "transitions",
+    "outcome_routes",
     "thresholds"
   ]
 
@@ -32,7 +33,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
     "mergeable_required"
   ]
 
-  @transition_fields [
+  @outcome_route_fields [
     "ready",
     "changes_requested",
     "failed_checks",
@@ -43,36 +44,30 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
     "failed_checks_confirmation_count"
   ]
 
-  @target_route_requirements [
-    {:ready_target_route, "transitions.ready", "merging", [:dispatch]},
-    {:changes_requested_target_route, "transitions.changes_requested", "rework", [:dispatch]},
-    {:failed_checks_target_route, "transitions.failed_checks", "rework", [:dispatch]},
-    {:already_merged_target_route, "transitions.already_merged", "done", [:stop]}
+  @outcome_route_requirements [
+    {:ready, "outcome_routes.ready", "merging", [:dispatch]},
+    {:changes_requested, "outcome_routes.changes_requested", "rework", [:dispatch]},
+    {:failed_checks, "outcome_routes.failed_checks", "rework", [:dispatch]},
+    {:already_merged, "outcome_routes.already_merged", "done", [:stop]}
   ]
 
   defstruct enabled?: false,
             candidate_discovery: :source_route_scan,
             source_routes: [],
-            ready_target_route: nil,
-            changes_requested_target_route: nil,
-            failed_checks_target_route: nil,
-            already_merged_target_route: nil,
+            outcome_routes: %{},
             require_approval?: true,
             require_passing_checks?: true,
             require_mergeable?: true,
             failed_checks_confirmation_count: 2,
             max_processed_candidate_issues_per_cycle: 25
 
-  @type route_key :: atom()
+  @type outcome :: :ready | :changes_requested | :failed_checks | :already_merged
 
   @type t :: %__MODULE__{
           enabled?: boolean(),
           candidate_discovery: :source_route_scan | :runtime_targeted,
-          source_routes: [route_key()],
-          ready_target_route: route_key() | nil,
-          changes_requested_target_route: route_key() | nil,
-          failed_checks_target_route: route_key() | nil,
-          already_merged_target_route: route_key() | nil,
+          source_routes: [RouteRef.t()],
+          outcome_routes: %{optional(outcome()) => RouteRef.t()},
           require_approval?: boolean(),
           require_passing_checks?: boolean(),
           require_mergeable?: boolean(),
@@ -104,6 +99,23 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
   @spec enabled?(t()) :: boolean()
   def enabled?(%__MODULE__{enabled?: enabled?}), do: enabled? == true
 
+  @spec source_route_keys(t()) :: [atom()]
+  def source_route_keys(%__MODULE__{source_routes: source_routes}) do
+    Enum.map(source_routes, & &1.route_key)
+  end
+
+  @spec source_route?(t(), term()) :: boolean()
+  def source_route?(%__MODULE__{} = config, route_key) when is_atom(route_key) do
+    route_key in source_route_keys(config)
+  end
+
+  def source_route?(_config, _route_key), do: false
+
+  @spec outcome_route(t(), outcome()) :: RouteRef.t() | nil
+  def outcome_route(%__MODULE__{outcome_routes: outcome_routes}, outcome) when is_atom(outcome) do
+    Map.get(outcome_routes, outcome)
+  end
+
   defp resolve_profile_context(_settings, %{module: module} = profile_context) when is_atom(module) do
     {:ok, profile_context}
   end
@@ -127,7 +139,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
     with :ok <- validate_known_fields(attrs, @supported_fields),
          :ok <- validate_section_fields(attrs, "candidates", @candidate_fields),
          :ok <- validate_section_fields(attrs, "gates", @gate_fields),
-         :ok <- validate_section_fields(attrs, "transitions", @transition_fields),
+         :ok <- validate_section_fields(attrs, "outcome_routes", @outcome_route_fields),
          :ok <- validate_section_fields(attrs, "thresholds", @threshold_fields) do
       :ok
     end
@@ -164,7 +176,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
   defp parse(attrs, profile_context) when is_map(attrs) do
     candidates = section_attrs(attrs, "candidates")
     gates = section_attrs(attrs, "gates")
-    transitions = section_attrs(attrs, "transitions")
+    outcome_routes_attrs = section_attrs(attrs, "outcome_routes")
     thresholds = section_attrs(attrs, "thresholds")
 
     with {:ok, enabled?} <- boolean_field(attrs, "enabled", false),
@@ -172,19 +184,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
            candidate_discovery_field(candidates, "discovery", "candidates.discovery"),
          {:ok, source_routes} <-
            route_list_field(candidates, "source_routes", profile_context, "candidates.source_routes"),
-         {:ok, ready_target_route} <-
-           route_field(transitions, "ready", profile_context, "transitions.ready"),
-         {:ok, changes_requested_target_route} <-
-           route_field(
-             transitions,
-             "changes_requested",
-             profile_context,
-             "transitions.changes_requested"
-           ),
-         {:ok, failed_checks_target_route} <-
-           route_field(transitions, "failed_checks", profile_context, "transitions.failed_checks"),
-         {:ok, already_merged_target_route} <-
-           route_field(transitions, "already_merged", profile_context, "transitions.already_merged"),
+         {:ok, outcome_routes} <- outcome_routes_field(outcome_routes_attrs, profile_context),
          {:ok, require_approval?} <-
            boolean_field(gates, "approval_required", true, "gates.approval_required"),
          {:ok, require_passing_checks?} <-
@@ -212,10 +212,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
          enabled?: enabled?,
          candidate_discovery: candidate_discovery,
          source_routes: source_routes,
-         ready_target_route: ready_target_route,
-         changes_requested_target_route: changes_requested_target_route,
-         failed_checks_target_route: failed_checks_target_route,
-         already_merged_target_route: already_merged_target_route,
+         outcome_routes: outcome_routes,
          require_approval?: require_approval?,
          require_passing_checks?: require_passing_checks?,
          require_mergeable?: require_mergeable?,
@@ -239,7 +236,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
       config.source_routes == [] ->
         {:error, :missing_source_routes}
 
-      is_nil(config.ready_target_route) ->
+      is_nil(outcome_route(config, :ready)) ->
         {:error, :missing_ready_target_route}
 
       true ->
@@ -251,8 +248,8 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
   end
 
   defp validate_source_routes(source_routes, %{module: profile_module}) when is_list(source_routes) do
-    Enum.reduce_while(source_routes, :ok, fn source_route, :ok ->
-      phase = RoutePolicy.expected_lifecycle_phase(source_route, profile_module)
+    Enum.reduce_while(source_routes, :ok, fn %RouteRef{} = source_route, :ok ->
+      phase = RoutePolicy.expected_lifecycle_phase(source_route.route_key, profile_module)
 
       if WorkflowLifecycle.dispatch_blocker_phase?(phase) do
         {:halt, {:error, {:source_route_is_active_execution_phase, source_route, phase}}}
@@ -269,10 +266,10 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
        ) do
     policy_by_route_key = effective_policy_by_route_key(settings, profile_context)
 
-    Enum.reduce_while(@target_route_requirements, :ok, fn
-      {field, field_path, expected_phase, expected_actions}, :ok ->
+    Enum.reduce_while(@outcome_route_requirements, :ok, fn
+      {outcome, field_path, expected_phase, expected_actions}, :ok ->
         config
-        |> Map.get(field)
+        |> outcome_route(outcome)
         |> validate_target_route(
           field_path,
           expected_phase,
@@ -298,22 +295,23 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
        do: :ok
 
   defp validate_target_route(
-         route_key,
+         %RouteRef{} = route_ref,
          field_path,
          expected_phase,
          expected_actions,
          policy_by_route_key,
          profile_module
        ) do
+    route_key = route_ref.route_key
     phase = RoutePolicy.expected_lifecycle_phase(route_key, profile_module)
     action = route_policy_action(policy_by_route_key, route_key)
 
     cond do
       WorkflowLifecycle.normalize_phase(phase) != expected_phase ->
-        {:error, {:invalid_target_route_lifecycle_phase, field_path, route_key, phase, expected_phase}}
+        {:error, {:invalid_target_route_lifecycle_phase, field_path, route_ref, phase, expected_phase}}
 
       action not in expected_actions ->
-        {:error, {:invalid_target_route_policy_action, field_path, route_key, action, expected_actions}}
+        {:error, {:invalid_target_route_policy_action, field_path, route_ref, action, expected_actions}}
 
       true ->
         :ok
@@ -336,19 +334,41 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
   defp route_policy_action(policy_by_route_key, route_key)
        when is_map(policy_by_route_key) and is_atom(route_key) do
     policy_by_route_key
-    |> route_policy_entry(route_key)
+    |> effective_route_policy(route_key)
     |> Map.get(:action)
-    |> RoutePolicy.normalize_action()
   end
 
   defp route_policy_action(_policy_by_route_key, _route_key), do: nil
 
-  defp route_policy_entry(policy_by_route_key, route_key)
+  defp effective_route_policy(policy_by_route_key, route_key)
        when is_map(policy_by_route_key) and is_atom(route_key) do
-    Map.get(policy_by_route_key, route_key) ||
-      Map.get(policy_by_route_key, Atom.to_string(route_key)) ||
-      %{}
+    RoutePolicy.policy_for_route_key(policy_by_route_key, route_key)
   end
+
+  defp outcome_routes_field(outcome_routes, profile_context) when is_map(outcome_routes) do
+    with {:ok, ready_route} <- route_field(outcome_routes, "ready", profile_context, "outcome_routes.ready"),
+         {:ok, changes_requested_route} <-
+           route_field(
+             outcome_routes,
+             "changes_requested",
+             profile_context,
+             "outcome_routes.changes_requested"
+           ),
+         {:ok, failed_checks_route} <-
+           route_field(outcome_routes, "failed_checks", profile_context, "outcome_routes.failed_checks"),
+         {:ok, already_merged_route} <-
+           route_field(outcome_routes, "already_merged", profile_context, "outcome_routes.already_merged") do
+      {:ok,
+       %{}
+       |> maybe_put_outcome_route(:ready, ready_route)
+       |> maybe_put_outcome_route(:changes_requested, changes_requested_route)
+       |> maybe_put_outcome_route(:failed_checks, failed_checks_route)
+       |> maybe_put_outcome_route(:already_merged, already_merged_route)}
+    end
+  end
+
+  defp maybe_put_outcome_route(outcome_routes, _outcome, nil), do: outcome_routes
+  defp maybe_put_outcome_route(outcome_routes, outcome, %RouteRef{} = route_ref), do: Map.put(outcome_routes, outcome, route_ref)
 
   defp route_list_field(attrs, key, profile_context, field_path)
        when is_map(attrs) and is_binary(key) do
@@ -359,9 +379,9 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
       values when is_list(values) ->
         values
         |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
-          case normalize_route_key(value, profile_context) do
-            nil -> {:halt, {:error, {:invalid_route_key, field_path, value}}}
-            route_key -> {:cont, {:ok, acc ++ [route_key]}}
+          case route_ref(value, profile_context) do
+            {:ok, route_ref} -> {:cont, {:ok, acc ++ [route_ref]}}
+            {:error, reason} -> {:halt, {:error, {:invalid_route_key, field_path, reason}}}
           end
         end)
         |> case do
@@ -409,16 +429,14 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Config do
         {:ok, nil}
 
       value ->
-        case normalize_route_key(value, profile_context) do
-          nil -> {:error, {:invalid_route_key, field_path, value}}
-          route_key -> {:ok, route_key}
+        case route_ref(value, profile_context) do
+          {:ok, route_ref} -> {:ok, route_ref}
+          {:error, reason} -> {:error, {:invalid_route_key, field_path, reason}}
         end
     end
   end
 
-  defp normalize_route_key(value, %{module: profile_module}) do
-    RoutePolicy.normalize_route_key(value, profile_module)
-  end
+  defp route_ref(value, profile_context), do: RouteRef.new(profile_context, value)
 
   defp boolean_field(attrs, key, default, field_path \\ nil) when is_map(attrs) and is_binary(key) do
     field_path = field_path || key

@@ -6,6 +6,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
   alias SymphonyElixir.Agent.DynamicTool.{EventContract, MetadataContract, Serializer}
   alias SymphonyElixir.RepoProvider
   alias SymphonyElixir.RepoProvider.ChangeProposalBody
+  alias SymphonyElixir.RepoProvider.CheckRun
   alias SymphonyElixir.RepoProvider.Error
   alias SymphonyElixir.Workflow.CapabilityNames
 
@@ -19,6 +20,18 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
   @metadata_reason_key MetadataContract.reason()
   @metadata_description_key MetadataContract.description()
   @provider_capability_unavailable_reason MetadataContract.provider_capability_unavailable_reason()
+
+  @change_proposal_modes ["upsert", "create", "update"]
+  @default_change_proposal_mode "upsert"
+  @create_change_proposal_mode "create"
+  @change_proposal_mode_schema_enum @change_proposal_modes ++ [nil]
+
+  @merge_styles ["merge", "squash", "rebase"]
+  @default_merge_style "merge"
+  @merge_style_schema_enum @merge_styles ++ [nil]
+
+  @review_events ["comment", "approve", "request_changes"]
+  @review_event_hint Enum.join(@review_events, ", ")
 
   @snapshot_tool "repo_change_proposal_snapshot"
   @create_or_update_tool "repo_create_or_update_change_proposal"
@@ -192,7 +205,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
         "properties" => %{
           "mode" => %{
             "type" => ["string", "null"],
-            "enum" => ["upsert", "create", "update", nil],
+            "enum" => @change_proposal_mode_schema_enum,
             "description" => "Operation mode. Defaults to upsert."
           },
           "number" => %{
@@ -232,7 +245,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
         "allOf" => [
           %{
             "if" => %{
-              "properties" => %{"mode" => %{"const" => "create"}},
+              "properties" => %{"mode" => %{"const" => @create_change_proposal_mode}},
               "required" => ["mode"]
             },
             "then" => %{
@@ -383,7 +396,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
           },
           "event" => %{
             "type" => "string",
-            "enum" => ["comment", "approve", "request_changes"],
+            "enum" => @review_events,
             "description" => "Provider-neutral review decision."
           },
           "body" => %{"type" => "string", "description" => "Review body as one string."}
@@ -438,7 +451,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
           },
           "merge_style" => %{
             "type" => ["string", "null"],
-            "enum" => ["merge", "squash", "rebase", nil],
+            "enum" => @merge_style_schema_enum,
             "description" => "Merge style when supported."
           },
           "subject" => %{
@@ -1027,15 +1040,15 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
     do: {:error, {:invalid_arguments, "Expected an object with number for close."}}
 
   defp mode(arguments) do
-    case nullable_string(arguments, "mode") || "upsert" do
-      mode when mode in ["upsert", "create", "update"] -> {:ok, mode}
+    case nullable_string(arguments, "mode") || @default_change_proposal_mode do
+      mode when mode in @change_proposal_modes -> {:ok, mode}
       mode -> {:error, {:invalid_arguments, "Unsupported change proposal mode #{inspect(mode)}."}}
     end
   end
 
   defp merge_style(arguments) do
-    case nullable_string(arguments, "merge_style") || "merge" do
-      style when style in ["merge", "squash", "rebase"] -> {:ok, style}
+    case nullable_string(arguments, "merge_style") || @default_merge_style do
+      style when style in @merge_styles -> {:ok, style}
       style -> {:error, {:invalid_arguments, "Unsupported merge style #{inspect(style)}."}}
     end
   end
@@ -1047,15 +1060,15 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
         |> String.downcase()
         |> String.replace(~r/[\s-]+/, "_")
         |> case do
-          normalized when normalized in ["comment", "approve", "request_changes"] ->
+          normalized when normalized in @review_events ->
             {:ok, normalized}
 
           normalized ->
-            {:error, {:invalid_arguments, "Unsupported review event #{inspect(normalized)}. Use comment, approve, or request_changes."}}
+            {:error, {:invalid_arguments, "Unsupported review event #{inspect(normalized)}. Use #{@review_event_hint}."}}
         end
 
       event ->
-        {:error, {:invalid_arguments, "Unsupported review event #{inspect(event)}. Use comment, approve, or request_changes."}}
+        {:error, {:invalid_arguments, "Unsupported review event #{inspect(event)}. Use #{@review_event_hint}."}}
     end
   end
 
@@ -1247,13 +1260,40 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
   defp check_summary(checks) when is_list(checks) do
     checks
     |> Enum.reduce(%{}, fn check, acc ->
-      bucket =
-        Map.get(check, "bucket") || Map.get(check, :bucket) || Map.get(check, "state") ||
-          Map.get(check, :state) || "unknown"
-
-      Map.update(acc, to_string(bucket), 1, &(&1 + 1))
+      Map.update(acc, check_summary_bucket(check), 1, &(&1 + 1))
     end)
   end
+
+  defp check_summary_bucket(check) when is_map(check) do
+    explicit_bucket =
+      Map.get(check, "bucket") || Map.get(check, :bucket) || Map.get(check, "state") ||
+        Map.get(check, :state)
+
+    status = CheckRun.normalized_status(check)
+    conclusion = CheckRun.normalized_conclusion(check)
+
+    cond do
+      present?(explicit_bucket) ->
+        to_string(explicit_bucket)
+
+      CheckRun.successful_completed?(check) ->
+        conclusion
+
+      CheckRun.completed?(check) and present?(conclusion) ->
+        conclusion
+
+      present?(status) ->
+        status
+
+      true ->
+        "unknown"
+    end
+  end
+
+  defp check_summary_bucket(_check), do: "unknown"
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value), do: not is_nil(value)
 
   defp discussion_summary(issue_comments, reviews, review_comments, actionable_items) do
     review_state_counts = review_state_counts(reviews)
@@ -1367,7 +1407,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
           args,
           ["event", "body"],
           %{},
-          %{"allowedEvents" => ["comment", "approve", "request_changes"]}
+          %{"allowedEvents" => @review_events}
         )
     }
   end

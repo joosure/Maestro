@@ -2,9 +2,11 @@
 
 English is the canonical version. Simplified Chinese is actively maintained as a first-class version.
 
-The other language files in this package have been revised to match the current plain-language README and ROADMAP: they avoid presenting external systems as "built in," explain isolated workspaces, include TAPD and Linear examples, and keep the roadmap focused on user value instead of implementation details.
-
-Native-speaker review is still welcome. Translations should preserve meaning over literal wording.
+The other language files are provided as community-facing translations and may
+lag behind the English source. Native-speaker review is still welcome.
+Translations should preserve meaning over literal wording, avoid presenting
+external systems as "built in," and keep isolated workspace and integration
+language aligned with the current English documentation.
 
 ## README
 

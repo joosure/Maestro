@@ -491,18 +491,29 @@ defmodule SymphonyElixir.Repo.ToolExecutor do
         {:ok, []}
 
       values when is_list(values) ->
-        {:ok,
-         values
-         |> Enum.flat_map(fn value ->
-           case trim_string(value) do
-             nil -> []
-             normalized -> [normalized]
-           end
-         end)}
+        {:ok, normalize_string_list(values)}
+
+      value when is_binary(value) ->
+        case Jason.decode(value) do
+          {:ok, values} when is_list(values) ->
+            {:ok, normalize_string_list(values)}
+
+          _error ->
+            {:error, {:invalid_arguments, "#{key} must be a list of strings."}}
+        end
 
       _value ->
         {:error, {:invalid_arguments, "#{key} must be a list of strings."}}
     end
+  end
+
+  defp normalize_string_list(values) do
+    Enum.flat_map(values, fn value ->
+      case trim_string(value) do
+        nil -> []
+        normalized -> [normalized]
+      end
+    end)
   end
 
   defp optional_value(arguments, key) do

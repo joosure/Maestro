@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Config.RepoProviderSettingsFinalizer do
 
   alias SymphonyElixir.Config.InputNormalizer
   alias SymphonyElixir.RepoProvider
+  alias SymphonyElixir.RepoProvider.RepositoryRef
 
   @spec finalize(struct()) :: struct()
   def finalize(repo) do
@@ -13,6 +14,8 @@ defmodule SymphonyElixir.Config.RepoProviderSettingsFinalizer do
     defaults = RepoProvider.defaults(kind)
     default_provider = normalize_optional_map(defaults[:provider])
     env_vars = normalize_optional_map(defaults[:env_vars])
+
+    resolved_remote_url = InputNormalizer.resolve_optional_string_setting(remote.url)
 
     resolved_provider =
       default_provider
@@ -39,7 +42,7 @@ defmodule SymphonyElixir.Config.RepoProviderSettingsFinalizer do
         remote: %{
           remote
           | name: InputNormalizer.resolve_string_setting(remote.name, "origin"),
-            url: InputNormalizer.resolve_optional_string_setting(remote.url)
+            url: resolved_remote_url
         },
         branch: %{
           branch
@@ -48,9 +51,15 @@ defmodule SymphonyElixir.Config.RepoProviderSettingsFinalizer do
         provider: %{
           provider
           | kind: kind,
-            repository: resolved_provider |> map_field("repository") |> InputNormalizer.resolve_optional_string_setting(),
-            api_base_url: resolved_provider |> map_field("api_base_url") |> InputNormalizer.resolve_optional_string_setting(),
-            web_base_url: resolved_provider |> map_field("web_base_url") |> InputNormalizer.resolve_optional_string_setting(),
+            repository: resolve_provider_repository(resolved_provider, resolved_remote_url),
+            api_base_url:
+              resolved_provider
+              |> map_field("api_base_url")
+              |> InputNormalizer.resolve_optional_string_setting(),
+            web_base_url:
+              resolved_provider
+              |> map_field("web_base_url")
+              |> InputNormalizer.resolve_optional_string_setting(),
             options: options
         }
     }
@@ -62,6 +71,15 @@ defmodule SymphonyElixir.Config.RepoProviderSettingsFinalizer do
     |> maybe_put("api_base_url", provider.api_base_url)
     |> maybe_put("web_base_url", provider.web_base_url)
     |> maybe_put_map("options", provider.options)
+  end
+
+  defp resolve_provider_repository(provider, remote_url) do
+    explicit_repository =
+      provider
+      |> map_field("repository")
+      |> InputNormalizer.resolve_optional_string_setting()
+
+    explicit_repository || RepositoryRef.infer_from_remote_url(remote_url)
   end
 
   defp resolve_required_pr_label(provider) when is_map(provider) do
@@ -84,7 +102,9 @@ defmodule SymphonyElixir.Config.RepoProviderSettingsFinalizer do
     end)
   end
 
-  defp normalize_default_map(value) when is_list(value), do: Enum.map(value, &normalize_default_map/1)
+  defp normalize_default_map(value) when is_list(value),
+    do: Enum.map(value, &normalize_default_map/1)
+
   defp normalize_default_map(value), do: value
 
   defp normalize_optional_map(value) when is_map(value), do: normalize_default_map(value)
@@ -106,7 +126,8 @@ defmodule SymphonyElixir.Config.RepoProviderSettingsFinalizer do
     end)
   end
 
-  defp resolve_env_references(value) when is_list(value), do: Enum.map(value, &resolve_env_references/1)
+  defp resolve_env_references(value) when is_list(value),
+    do: Enum.map(value, &resolve_env_references/1)
 
   defp resolve_env_references(value) when is_binary(value) do
     case env_reference_name(value) do

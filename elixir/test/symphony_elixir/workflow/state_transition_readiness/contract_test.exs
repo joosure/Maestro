@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.ContractTest do
     assert Contract.change_proposal_key() == "change_proposal"
     assert Contract.status_key() == "status"
     assert Contract.passed_status() == "passed"
+    assert Contract.unavailable_status() == "unavailable"
     assert Contract.not_required_status() == "not_required"
   end
 

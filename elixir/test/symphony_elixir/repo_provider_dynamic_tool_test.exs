@@ -15,7 +15,7 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
       Application.delete_env(:symphony_elixir, :memory_repo_provider_issue_comments)
       Application.delete_env(:symphony_elixir, :memory_repo_provider_reviews)
       Application.delete_env(:symphony_elixir, :memory_repo_provider_review_comments)
-      Application.delete_env(:symphony_elixir, :memory_repo_provider_checks)
+      Application.delete_env(:symphony_elixir, :memory_repo_change_proposal_checks)
     end)
 
     :ok
@@ -126,7 +126,7 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
       %{"id" => 3, "body" => "nit"}
     ])
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "bucket" => "pass"}
     ])
 
@@ -342,6 +342,37 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
                   "details" => %{}
                 }
               ]
+            }} =
+             DynamicTool.execute(repo_tool_context(), "repo_read_change_proposal_checks", %{
+               "number" => "20"
+             })
+  end
+
+  test "repo checks tool summarizes completed successful runs as success" do
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
+      %{
+        "name" => "cnb/pull_request/pipeline-1(repo-provider-probe-pr)",
+        "status" => "completed",
+        "conclusion" => "success",
+        "summary" => "success [5.4s]"
+      }
+    ])
+
+    assert {:success,
+            %{
+              "data" => %{
+                "checks" => %{
+                  "runs" => [
+                    %{
+                      "name" => "cnb/pull_request/pipeline-1(repo-provider-probe-pr)",
+                      "status" => "completed",
+                      "conclusion" => "success"
+                    }
+                  ],
+                  "summary" => %{"success" => 1}
+                }
+              },
+              "warnings" => []
             }} =
              DynamicTool.execute(repo_tool_context(), "repo_read_change_proposal_checks", %{
                "number" => "20"

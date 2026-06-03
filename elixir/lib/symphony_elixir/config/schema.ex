@@ -10,11 +10,11 @@ defmodule SymphonyElixir.Config.Schema do
   alias __MODULE__.{
     Agent,
     AgentProvider,
-    AgentRuntime,
     Hooks,
     Observability,
     Polling,
     Repo,
+    Runtime,
     Server,
     Tracker,
     Workflow,
@@ -34,7 +34,7 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
-    embeds_one(:agent_runtime, AgentRuntime, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:runtime, Runtime, on_replace: :update, defaults_to_struct: true)
     embeds_one(:repo, Repo, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent_provider, AgentProvider, on_replace: :update, defaults_to_struct: true)
@@ -85,7 +85,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)
-    |> cast_embed(:agent_runtime, with: &AgentRuntime.changeset/2)
+    |> cast_embed(:runtime, with: &Runtime.changeset/2)
     |> cast_embed(:repo, with: &Repo.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
     |> cast_embed(:agent_provider, with: &AgentProvider.changeset/2)
@@ -107,6 +107,9 @@ defmodule SymphonyElixir.Config.Schema do
 
       "agent_quota", changeset ->
         add_error(changeset, :agent, "agent_quota must be configured as agent.quota")
+
+      "agent_runtime", changeset ->
+        add_error(changeset, :runtime, "agent_runtime has been replaced by runtime.agent")
 
       _key, changeset ->
         changeset

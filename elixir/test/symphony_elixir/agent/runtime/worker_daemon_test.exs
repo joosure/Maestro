@@ -202,7 +202,7 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemonTest do
     assert target.metadata.worker_daemon_endpoint_source == "opts.worker_daemon_pools.coding-linux"
   end
 
-  test "runtime resolves worker_daemon target from typed agent_runtime settings" do
+  test "runtime resolves worker_daemon target from typed runtime.agent settings" do
     workspace = tmp_workspace!("settings-pool")
     token_env = "SYMPHONY_WORKER_DAEMON_TEST_TOKEN"
     previous_token = System.get_env(token_env)
@@ -212,23 +212,25 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemonTest do
 
     assert {:ok, settings} =
              Schema.parse(%{
-               "agent_runtime" => %{
-                 "placement" => "worker_daemon",
-                 "worker_pool" => "coding-linux",
-                 "worker_daemon" => %{
-                   "token_env" => token_env,
-                   "timeout_ms" => 12_000,
-                   "required_features" => ["session_create"],
-                   "health_cache_ttl_ms" => 1_500,
-                   "circuit_ttl_ms" => 2_500,
-                   "pools" => %{
-                     "coding-linux" => [
-                       %{
-                         "id" => "pool-endpoint-1",
-                         "endpoint" => "http://daemon-settings/",
-                         "worker_id" => "worker-settings"
-                       }
-                     ]
+               "runtime" => %{
+                 "agent" => %{
+                   "placement" => "worker_daemon",
+                   "worker_pool" => "coding-linux",
+                   "worker_daemon" => %{
+                     "token_env" => token_env,
+                     "timeout_ms" => 12_000,
+                     "required_features" => ["session_create"],
+                     "health_cache_ttl_ms" => 1_500,
+                     "circuit_ttl_ms" => 2_500,
+                     "pools" => %{
+                       "coding-linux" => [
+                         %{
+                           "id" => "pool-endpoint-1",
+                           "endpoint" => "http://daemon-settings/",
+                           "worker_id" => "worker-settings"
+                         }
+                       ]
+                     }
                    }
                  }
                }
@@ -271,15 +273,17 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemonTest do
     refute inspect(target.metadata) =~ "daemon-secret-token"
   end
 
-  test "explicit runtime opts override typed agent_runtime settings" do
+  test "explicit runtime opts override typed runtime.agent settings" do
     workspace = tmp_workspace!("settings-override")
 
     assert {:ok, settings} =
              Schema.parse(%{
-               "agent_runtime" => %{
-                 "placement" => "worker_daemon",
-                 "worker_pool" => "config-pool",
-                 "worker_daemon" => %{"endpoint" => "http://daemon-config"}
+               "runtime" => %{
+                 "agent" => %{
+                   "placement" => "worker_daemon",
+                   "worker_pool" => "config-pool",
+                   "worker_daemon" => %{"endpoint" => "http://daemon-config"}
+                 }
                }
              })
 
@@ -294,18 +298,32 @@ defmodule SymphonyElixir.Agent.Runtime.WorkerDaemonTest do
     assert target.metadata.worker_daemon_endpoint == "http://daemon-override"
   end
 
-  test "typed agent_runtime settings reject unsafe worker_daemon endpoints" do
+  test "typed runtime.agent settings reject unsafe worker_daemon endpoints" do
     assert {:error, {:invalid_workflow_config, message}} =
              Schema.parse(%{
-               "agent_runtime" => %{
-                 "placement" => "worker_daemon",
-                 "worker_daemon" => %{
-                   "endpoint" => "http://user:secret@daemon.example?token=secret"
+               "runtime" => %{
+                 "agent" => %{
+                   "placement" => "worker_daemon",
+                   "worker_daemon" => %{
+                     "endpoint" => "http://user:secret@daemon.example?token=secret"
+                   }
                  }
                }
              })
 
     assert message =~ "must not include userinfo"
+  end
+
+  test "top-level agent_runtime config is rejected" do
+    assert {:error, {:invalid_workflow_config, message}} =
+             Schema.parse(%{
+               "agent_runtime" => %{
+                 "placement" => "worker_daemon",
+                 "worker_daemon" => %{"endpoint" => "http://daemon.example"}
+               }
+             })
+
+    assert message =~ "agent_runtime has been replaced by runtime.agent"
   end
 
   test "runtime rejects unsafe explicit worker_daemon endpoints" do

@@ -1,11 +1,11 @@
 defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
   @moduledoc false
 
+  alias SymphonyElixir.ChangeProposalReconciliation.KnownTarget
   alias SymphonyElixir.Config
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Orchestrator.Dispatch.{Context, Eligibility}
   alias SymphonyElixir.RepoProvider.ChangeProposalInspector
-  alias SymphonyElixir.RepoProvider.Config, as: RepoConfig
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.ChangeProposalReference
   alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Facts, as: ChangeProposalFacts
@@ -14,6 +14,7 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
   alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
   alias SymphonyElixir.Workflow.RouteFacts
   alias SymphonyElixir.Workflow.RoutePolicy, as: WorkflowRoutePolicy
+  alias SymphonyElixir.Workflow.RouteRef
 
   @spec prepare(
           Issue.t(),
@@ -76,6 +77,9 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
        ) do
     transition_target = Map.get(policy, :transition_target)
     target_state = WorkflowRoutePolicy.raw_state_for_route_key(raw_state_by_route_key, transition_target)
+    profile_context = IssueContext.profile_context(issue)
+    route_ref = RouteRef.new!(profile_context, route_key)
+    transition_target_ref = RouteRef.new!(profile_context, transition_target)
 
     emit_route_transition(
       route_transition_emitter,
@@ -101,12 +105,12 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
     with :ok <-
            normalize_state_update_result(
              state_updater.(issue.id, target_state),
-             route_key,
-             transition_target,
+             route_ref,
+             transition_target_ref,
              target_state
            ),
          {:ok, refreshed_issue} <- refresh_issue_after_route_transition(issue, issue_fetcher),
-         :ok <- confirm_route_transition(refreshed_issue, raw_state_by_route_key, transition_target) do
+         :ok <- confirm_route_transition(refreshed_issue, raw_state_by_route_key, transition_target_ref) do
       emit_route_transition(
         route_transition_emitter,
         :info,
@@ -138,7 +142,7 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
 
         skip
 
-      {:error, {:route_transition_unconfirmed, current_state, _target_route_key} = reason} ->
+      {:error, {:route_transition_unconfirmed, current_state, %RouteRef{}} = reason} ->
         emit_route_transition(
           route_transition_emitter,
           :warning,
@@ -183,6 +187,7 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
         case Map.get(policy, :action) do
           :wait -> {:wait, route_key, policy, raw_state_by_route_key}
           :stop -> {:stop, route_key, policy, raw_state_by_route_key}
+          :disabled -> {:stop, route_key, policy, raw_state_by_route_key}
           :transition -> {:transition, route_key, policy, raw_state_by_route_key, false}
           :transition_then_dispatch -> {:transition, route_key, policy, raw_state_by_route_key, true}
           _other -> {:dispatch, route_key, policy, raw_state_by_route_key}
@@ -310,21 +315,20 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
         {:ok, reference}
 
       nil ->
-        if repo_context_available?(repo) do
-          Tracker.fetch_change_proposal_reference(
-            issue,
-            Keyword.get(opts, :change_proposal_reference_opts, [])
-          )
-        else
-          {:ok, nil}
-        end
+        {:ok, known_target_reference(issue, opts)}
     end
   end
 
-  defp repo_context_available?(repo) when is_map(repo) do
-    [RepoConfig.repository(repo), RepoConfig.remote_url(repo), RepoConfig.path(repo)]
-    |> Enum.any?(&present?/1)
+  defp known_target_reference(%Issue{id: issue_id}, opts) when is_binary(issue_id) do
+    registry_opts = Keyword.get(opts, :known_target_registry_opts, [])
+
+    case KnownTarget.Registry.get(issue_id, registry_opts) do
+      %KnownTarget{} = target -> KnownTarget.reference(target)
+      _target -> nil
+    end
   end
+
+  defp known_target_reference(_issue, _opts), do: nil
 
   defp change_proposal_target(%ChangeProposalReference{} = reference) do
     %{}
@@ -392,10 +396,38 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
 
   defp readiness_gate_blocks_dispatch?(gate) when is_map(gate) do
     ReadinessContract.status(gate) == ReadinessContract.blocked() and
-      ReadinessContract.gate(gate) in [ReadinessContract.merge_gate(), ReadinessContract.capability_gate()]
+      dispatch_blocking_gate?(gate)
   end
 
   defp readiness_gate_blocks_dispatch?(_gate), do: false
+
+  defp dispatch_blocking_gate?(gate) when is_map(gate) do
+    gate_name = ReadinessContract.gate(gate)
+
+    cond do
+      gate_name == ReadinessContract.capability_gate() ->
+        true
+
+      gate_name == ReadinessContract.merge_gate() ->
+        merge_capability_missing?(gate)
+
+      true ->
+        false
+    end
+  end
+
+  defp merge_capability_missing?(gate) when is_map(gate) do
+    gate
+    |> Map.get(ReadinessContract.checks_key(), [])
+    |> Enum.any?(fn
+      %{} = check ->
+        Map.get(check, ReadinessContract.key_key()) == "merge_capability_available" and
+          not ReadinessContract.passed?(check)
+
+      _check ->
+        false
+    end)
+  end
 
   defp emit_readiness_gate(readiness_gate_emitter, %Issue{} = issue, facts)
        when is_function(readiness_gate_emitter, 3) and is_map(facts) do
@@ -420,26 +452,25 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
 
   defp refresh_issue_after_route_transition(_issue, _issue_fetcher), do: {:skip, :missing}
 
-  defp confirm_route_transition(%Issue{} = issue, source_raw_state_by_route_key, target_route_key)
-       when is_atom(target_route_key) do
+  defp confirm_route_transition(%Issue{} = issue, source_raw_state_by_route_key, %RouteRef{} = target_route_ref) do
     raw_state_by_route_key = IssueContext.raw_state_by_route_key(issue, source_raw_state_by_route_key)
     profile_module = IssueContext.profile_context(issue).module
 
-    if WorkflowRoutePolicy.route_key_for_raw_state(issue.state, raw_state_by_route_key, profile_module) == target_route_key do
+    if WorkflowRoutePolicy.route_key_for_raw_state(issue.state, raw_state_by_route_key, profile_module) == target_route_ref.route_key do
       :ok
     else
-      {:error, {:route_transition_unconfirmed, issue.state, target_route_key}}
+      {:error, {:route_transition_unconfirmed, issue.state, target_route_ref}}
     end
   end
 
-  defp normalize_state_update_result(:ok, _route_key, _transition_target, _target_state), do: :ok
+  defp normalize_state_update_result(:ok, %RouteRef{}, %RouteRef{}, _target_state), do: :ok
 
-  defp normalize_state_update_result({:error, reason}, route_key, transition_target, target_state) do
-    {:error, {:route_transition_failed, route_key, transition_target, target_state, reason}}
+  defp normalize_state_update_result({:error, reason}, %RouteRef{} = route_ref, %RouteRef{} = transition_target_ref, target_state) do
+    {:error, {:route_transition_failed, route_ref, transition_target_ref, target_state, reason}}
   end
 
-  defp normalize_state_update_result(other, route_key, transition_target, target_state) do
-    {:error, {:route_transition_failed, route_key, transition_target, target_state, other}}
+  defp normalize_state_update_result(other, %RouteRef{} = route_ref, %RouteRef{} = transition_target_ref, target_state) do
+    {:error, {:route_transition_failed, route_ref, transition_target_ref, target_state, other}}
   end
 
   defp emit_route_transition(
@@ -510,6 +541,5 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
   defp atom_name(value) when is_atom(value), do: Atom.to_string(value)
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(value) when is_integer(value), do: true
   defp present?(_value), do: false
 end

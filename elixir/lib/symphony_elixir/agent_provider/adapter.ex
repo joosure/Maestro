@@ -28,6 +28,17 @@ defmodule SymphonyElixir.AgentProvider.Adapter do
   @callback dynamic_tool_inventory_opts() :: keyword()
   @callback account_login(String.t(), keyword(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}
   @callback account_verify(map(), keyword(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}
+
+  @doc """
+  Returns the provider-local release credential preflight plan module.
+
+  Providers that can initialize managed credentials in containers should return
+  a module implementing `SymphonyElixir.AgentProvider.ReleaseCredentialPreflight`.
+  Providers without container-managed credential startup support should return
+  `:unsupported` or omit the optional callback.
+  """
+  @callback release_credential_preflight_plan() :: module() | :unsupported
+
   @callback materialize_credential(Config.t(), Credential.Lease.t(), keyword()) ::
               {:ok, Credential.Material.t()} | {:error, Error.t() | term()} | :unsupported
   @callback quota_probe(Config.t(), Credential.Lease.t() | nil, keyword()) ::
@@ -36,6 +47,7 @@ defmodule SymphonyElixir.AgentProvider.Adapter do
   @optional_callbacks account_login: 3,
                       account_verify: 3,
                       dynamic_tool_inventory_opts: 0,
+                      release_credential_preflight_plan: 0,
                       materialize_credential: 3,
                       quota_probe: 3
 end

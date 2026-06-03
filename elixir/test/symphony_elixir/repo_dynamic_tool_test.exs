@@ -137,6 +137,27 @@ defmodule SymphonyElixir.RepoDynamicToolTest do
     assert warning =~ "canonical mode \"all\""
   end
 
+  test "repo diff normalizes JSON-encoded args arrays from typed tool callers" do
+    %{repo_path: repo_path} = setup_git_repo!()
+    context = repo_tool_context(repo_config(repo_path))
+
+    File.write!(Path.join(repo_path, "README.md"), "# Repo Tool Test\n\njson encoded diff args\n")
+
+    assert {:success,
+            %{
+              "data" => %{
+                "diff" => diff,
+                "diffCheck" => "ok"
+              }
+            }} =
+             DynamicTool.execute(context, "repo_diff", %{
+               "args" => Jason.encode!(["master"]),
+               "check" => true
+             })
+
+    assert diff =~ "json encoded diff args"
+  end
+
   test "repo-core typed tools resolve relative repo path from dynamic bridge workspace context" do
     workspace_root = Path.expand(SymphonyElixir.Config.settings!().workspace.root)
     File.mkdir_p!(workspace_root)

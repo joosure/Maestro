@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Agent.Runtime.Executor.Local do
 
   @behaviour SymphonyElixir.Agent.Runtime.Executor
 
-  alias SymphonyElixir.Agent.Runtime.{CommandSpec, Target}
+  alias SymphonyElixir.Agent.Runtime.{CommandSpec, LocalProcess, Target}
   alias SymphonyElixir.Platform.Process, as: PlatformProcess
 
   @impl true
@@ -14,7 +14,10 @@ defmodule SymphonyElixir.Agent.Runtime.Executor.Local do
     env = Map.merge(target.env, command_spec.env)
     cwd = command_spec.cwd || target.workspace_path
 
-    PlatformProcess.start_argv([command | args], cwd: cwd, env: env, line: Keyword.get(opts, :line))
+    with {:ok, port} <- PlatformProcess.start_argv([command | args], cwd: cwd, env: env, line: Keyword.get(opts, :line)) do
+      LocalProcess.register(port, command_spec, target, opts, local_process_registry(opts))
+      {:ok, port}
+    end
   end
 
   def start(%CommandSpec{command: command} = command_spec, %Target{} = target, opts)
@@ -22,7 +25,10 @@ defmodule SymphonyElixir.Agent.Runtime.Executor.Local do
     env = Map.merge(target.env, command_spec.env)
     cwd = command_spec.cwd || target.workspace_path
 
-    PlatformProcess.start_shell(command, cwd: cwd, env: env, line: Keyword.get(opts, :line))
+    with {:ok, port} <- PlatformProcess.start_shell(command, cwd: cwd, env: env, line: Keyword.get(opts, :line)) do
+      LocalProcess.register(port, command_spec, target, opts, local_process_registry(opts))
+      {:ok, port}
+    end
   end
 
   def start(%CommandSpec{} = command_spec, %Target{}, _opts), do: {:error, {:invalid_command_spec, CommandSpec.command_summary(command_spec)}}
@@ -35,13 +41,18 @@ defmodule SymphonyElixir.Agent.Runtime.Executor.Local do
     os_pid = PlatformProcess.port_os_pid(port)
     PlatformProcess.close_port(port)
 
-    PlatformProcess.terminate_os_process(os_pid,
-      process_group?: true,
-      initial_signal?: false,
-      grace_ms: Keyword.get(opts, :grace_ms, 500),
-      kill_wait_ms: Keyword.get(opts, :kill_wait_ms, 500),
-      poll_ms: Keyword.get(opts, :poll_ms, 25)
-    )
+    termination =
+      PlatformProcess.terminate_os_process(os_pid,
+        process_group?: true,
+        initial_signal?: false,
+        grace_ms: Keyword.get(opts, :grace_ms, 500),
+        kill_wait_ms: Keyword.get(opts, :kill_wait_ms, 500),
+        poll_ms: Keyword.get(opts, :poll_ms, 25)
+      )
+
+    if not Map.get(termination, :alive?) do
+      LocalProcess.unregister(port, local_process_registry(opts))
+    end
 
     :ok
   end
@@ -51,4 +62,6 @@ defmodule SymphonyElixir.Agent.Runtime.Executor.Local do
   @impl true
   @spec alive?(term()) :: boolean()
   def alive?(handle), do: PlatformProcess.port_alive?(handle)
+
+  defp local_process_registry(opts), do: Keyword.get(opts, :local_process_registry, LocalProcess.default_registry())
 end

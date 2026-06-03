@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# This file is the stable product launcher, not the Mix-generated escript.
+# Mix writes the executable payload to bin/symphony.escript so this wrapper can
+# own Ctrl+C/SIGTERM handling without being overwritten by `mix build`.
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+payload="${script_dir}/symphony.escript"
+
+if [[ ! -x "${payload}" ]]; then
+  cat >&2 <<EOF
+Symphony CLI payload is missing: ${payload}
+Run this first from elixir/:
+  mise exec -- mix build
+EOF
+  exit 127
+fi
+
+child_pid=""
+
+shutdown_timeout_seconds() {
+  local timeout="${SYMPHONY_SHUTDOWN_TIMEOUT_SECONDS:-25}"
+
+  case "${timeout}" in
+    "" | *[!0-9]* | 0)
+      printf '%s\n' "25"
+      ;;
+
+    *)
+      printf '%s\n' "${timeout}"
+      ;;
+  esac
+}
+
+case "${1:-}" in
+  accounts | blocked-resources | repo | repo-provider)
+    exec "${payload}" "$@"
+    ;;
+esac
+
+terminate_child() {
+  trap - INT TERM
+
+  if [[ -n "${child_pid}" ]] && kill -0 "${child_pid}" 2>/dev/null; then
+    kill -TERM "${child_pid}" 2>/dev/null || true
+
+    (
+      sleep "$(shutdown_timeout_seconds)"
+
+      if kill -0 "${child_pid}" 2>/dev/null; then
+        printf '%s\n' "Symphony CLI child did not stop after TERM; sending KILL." >&2
+        kill -KILL "${child_pid}" 2>/dev/null || true
+      fi
+    ) &
+    killer_pid="$!"
+
+    wait "${child_pid}" 2>/dev/null || true
+    kill "${killer_pid}" 2>/dev/null || true
+    wait "${killer_pid}" 2>/dev/null || true
+  fi
+}
+
+trap terminate_child INT TERM
+
+"${payload}" "$@" &
+child_pid="$!"
+
+set +e
+wait "${child_pid}"
+status="$?"
+set -e
+
+trap - INT TERM
+exit "${status}"

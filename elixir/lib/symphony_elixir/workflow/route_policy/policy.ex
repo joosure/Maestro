@@ -18,11 +18,14 @@ defmodule SymphonyElixir.Workflow.RoutePolicy.Policy do
   def new!(%__MODULE__{} = policy), do: policy
 
   def new!(entry) when is_map(entry) do
+    action = required_field(entry, :action)
+
+    unless RoutePolicy.valid_action?(action) do
+      raise ArgumentError, "invalid resolved route policy action: #{inspect(action)}"
+    end
+
     struct!(__MODULE__, %{
-      action:
-        entry
-        |> required_field(:action)
-        |> RoutePolicy.normalize_action(),
+      action: action,
       transition_target: optional_field(entry, :transition_target),
       execution_profile: optional_field(entry, :execution_profile)
     })
@@ -35,12 +38,14 @@ defmodule SymphonyElixir.Workflow.RoutePolicy.Policy do
     |> maybe_put(:execution_profile, policy.execution_profile)
   end
 
-  @spec fetch(t(), atom() | String.t()) :: {:ok, term()} | :error
-  def fetch(%__MODULE__{} = policy, key) do
+  @spec fetch(t(), atom()) :: {:ok, term()} | :error
+  def fetch(%__MODULE__{} = policy, key) when is_atom(key) do
     policy
     |> Map.from_struct()
-    |> Map.fetch(normalize_key(key))
+    |> Map.fetch(key)
   end
+
+  def fetch(%__MODULE__{}, _key), do: :error
 
   defp required_field(map, key) when is_map(map) and is_atom(key) do
     case fetch_field(map, key) do
@@ -60,23 +65,9 @@ defmodule SymphonyElixir.Workflow.RoutePolicy.Policy do
   end
 
   defp fetch_field(map, key) when is_map(map) and is_atom(key) do
-    string_key = Atom.to_string(key)
-
-    cond do
-      Map.has_key?(map, key) -> {:ok, Map.fetch!(map, key)}
-      Map.has_key?(map, string_key) -> {:ok, Map.fetch!(map, string_key)}
-      true -> :error
-    end
+    Map.fetch(map, key)
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp normalize_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> key
-  end
-
-  defp normalize_key(key), do: key
 end

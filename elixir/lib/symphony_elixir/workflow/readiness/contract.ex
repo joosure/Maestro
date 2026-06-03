@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Workflow.Readiness.Contract do
   Shared string contract for workflow readiness and completion-validation payloads.
   """
 
+  alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
+
   @key_key "key"
   @status_key "status"
   @profile_key "profile"
@@ -28,7 +30,7 @@ defmodule SymphonyElixir.Workflow.Readiness.Contract do
 
   @capability_gate "capability"
   @approval_gate "approval"
-  @human_review_gate "human_review"
+  @human_review_gate WorkflowLifecycle.human_review()
   @route_wait_gate "route_wait"
   @terminal_gate "terminal"
   @route_preparation_gate "route_preparation"

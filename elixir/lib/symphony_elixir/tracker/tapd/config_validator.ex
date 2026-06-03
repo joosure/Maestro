@@ -232,7 +232,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
       raw_state_by_route_key =
         case workflow do
           workflow_map when is_map(workflow_map) ->
-            Map.get(workflow_map, "raw_state_by_route_key") || Map.get(workflow_map, :raw_state_by_route_key)
+            raw_workflow_field(workflow_map, "raw_state_by_route_key")
 
           _ ->
             nil
@@ -251,7 +251,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
       policy_by_route_key =
         case workflow do
           workflow_map when is_map(workflow_map) ->
-            Map.get(workflow_map, "policy_by_route_key") || Map.get(workflow_map, :policy_by_route_key)
+            raw_workflow_field(workflow_map, "policy_by_route_key")
 
           _ ->
             nil
@@ -350,6 +350,10 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
     |> TrackerConfig.lifecycle()
     |> map_field(key)
     |> normalize_optional_map()
+  end
+
+  defp raw_workflow_field(workflow_map, key) when is_map(workflow_map) and is_binary(key) do
+    Map.get(workflow_map, key)
   end
 
   defp normalize_optional_platform_string(value) when is_binary(value) do

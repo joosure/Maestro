@@ -19,6 +19,8 @@
 # Local runtime logs.
 /log/
 /logs/
+/.symphony/
+/quickstart/.symphony/
 
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
@@ -36,11 +38,14 @@ erl_crash.dump
 # IDE folders.
 .idea/
 .vscode/
-/bin/
+/bin/*
+!/bin/symphony
 
 # Local environment and auth artifacts.
 .env
 .env.*
+!.env.example
+WORKFLOW.*.local.md
 .secrets
 .credentials
 status.txt

@@ -17,6 +17,9 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
   @source_kind_key MetadataContract.source_kind()
   @deprecated_key MetadataContract.deprecated()
   @operator_only_key MetadataContract.operator_only()
+  @side_effect_alias_by_name %{
+    "readonly" => "read_only"
+  }
 
   @type metadata :: %{
           required(String.t()) => String.t() | [String.t()] | boolean()
@@ -249,12 +252,8 @@ defmodule SymphonyElixir.Agent.DynamicTool.Policy do
   defp maybe_put_boolean(map, key, true), do: Map.put(map, key, true)
 
   defp normalize_side_effect_value(value) do
-    value
-    |> normalize_string()
-    |> case do
-      "readonly" -> "read_only"
-      side_effect -> side_effect
-    end
+    side_effect = normalize_string(value)
+    Map.get(@side_effect_alias_by_name, side_effect, side_effect)
   end
 
   defp normalize_exposure(:diagnostics), do: :diagnostics

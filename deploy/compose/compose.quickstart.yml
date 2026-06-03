@@ -1,0 +1,33 @@
+services:
+  symphony:
+    build:
+      context: ../..
+      dockerfile: docker/app/Dockerfile
+      target: runtime-base
+    image: symphony:quickstart
+    command:
+      - serve
+    init: true
+    ports:
+      - "4000:4000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4000"
+      SYMPHONY_TEMPLATE: memory/no_repo/mock
+      SYMPHONY_WORKSPACE_ROOT: /workspaces
+      SYMPHONY_AGENT_CREDENTIALS_STORE_ROOT: /app/.symphony/agent_credentials
+    volumes:
+      - symphony-workspaces:/workspaces
+      - symphony-state:/app/.symphony
+      - symphony-logs:/app/log
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  symphony-workspaces:
+  symphony-state:
+  symphony-logs:

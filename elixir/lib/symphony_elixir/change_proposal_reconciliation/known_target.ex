@@ -2,6 +2,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.KnownTarget do
   @moduledoc false
 
   alias SymphonyElixir.ChangeProposalReconciliation.KnownTarget.Fields
+  alias SymphonyElixir.Tracker.ChangeProposalReference
 
   defstruct [
     :issue_id,
@@ -92,7 +93,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.KnownTarget do
 
   @spec reference(t()) :: map()
   def reference(%__MODULE__{} = target) do
-    %{
+    %ChangeProposalReference{
       number: target.number,
       url: target.url,
       branch: target.branch

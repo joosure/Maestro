@@ -24,11 +24,10 @@ defmodule SymphonyElixir.Workflow.Prompt.Builder do
       template
       |> Solid.render!(
         %{
-          "attempt" => Keyword.get(opts, :attempt),
           "issue" => issue |> structless_map() |> to_solid_map(),
           "repo" => opts |> Keyword.get(:repo, %{}) |> structless_map() |> to_solid_map(),
-          "workflow" => issue |> Readiness.facts(opts) |> to_solid_map(),
-          "tool_inventory" => tool_inventory(opts)
+          "runtime" => runtime_context(opts),
+          "workflow" => issue |> Readiness.facts(opts) |> to_solid_map()
         },
         @render_opts
       )
@@ -119,6 +118,16 @@ defmodule SymphonyElixir.Workflow.Prompt.Builder do
     opts
     |> Context.from_opts()
     |> Inventory.render(render_opts)
+  end
+
+  defp runtime_context(opts) when is_list(opts) do
+    %{
+      "retry" => %{
+        "attempt" => Keyword.get(opts, :attempt)
+      },
+      "tool_inventory" => tool_inventory(opts)
+    }
+    |> to_solid_map()
   end
 
   defp prompt_event_fields(issue, opts, extra) when is_list(opts) and is_map(extra) do

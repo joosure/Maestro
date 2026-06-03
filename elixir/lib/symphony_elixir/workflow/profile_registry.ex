@@ -17,33 +17,23 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
   alias SymphonyElixir.Workflow.Profile.{Config, Defaults, Resolved}
   alias SymphonyElixir.Workflow.RoutePolicy.Keys
 
-  @profiles %{
-    {"coding_pr_delivery", 1} => CodingPrDelivery,
-    {"requirement_analysis", 1} => RequirementAnalysis,
-    {"requirement_refinement", 1} => RequirementRefinement,
-    {"review_routing", 1} => ReviewRouting,
-    {"triage", 1} => Triage
-  }
-
-  @default_versions %{
-    "coding_pr_delivery" => 1,
-    "requirement_analysis" => 1,
-    "requirement_refinement" => 1,
-    "review_routing" => 1,
-    "triage" => 1
-  }
-
-  @default_profile_kind "coding_pr_delivery"
-  @default_profile {@default_profile_kind, Map.fetch!(@default_versions, @default_profile_kind)}
+  @profile_modules [
+    CodingPrDelivery,
+    RequirementAnalysis,
+    RequirementRefinement,
+    ReviewRouting,
+    Triage
+  ]
+  @default_profile_module CodingPrDelivery
 
   @type resolved_profile :: Resolved.t()
 
   @spec default_profile_module() :: module()
-  def default_profile_module, do: CodingPrDelivery
+  def default_profile_module, do: @default_profile_module
 
   @spec default_version(String.t()) :: {:ok, pos_integer()} | {:error, term()}
   def default_version(kind) when is_binary(kind) do
-    case Map.fetch(@default_versions, kind) do
+    case Map.fetch(default_versions(), kind) do
       {:ok, version} -> {:ok, version}
       :error -> {:error, {:unsupported_workflow_profile_kind, kind}}
     end
@@ -53,12 +43,12 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
 
   @spec default_profile_config() :: map()
   def default_profile_config do
-    {kind, version} = @default_profile
+    profile_module = default_profile_module()
 
     %{
-      kind: kind,
-      version: version,
-      options: default_profile_module().default_options()
+      kind: profile_module.kind(),
+      version: profile_module.version(),
+      options: profile_module.default_options()
     }
     |> Config.new!()
     |> Config.to_map()
@@ -66,7 +56,7 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
 
   @spec fetch(String.t(), pos_integer()) :: {:ok, module()} | {:error, term()}
   def fetch(kind, version) when is_binary(kind) and is_integer(version) and version > 0 do
-    case Map.fetch(@profiles, {kind, version}) do
+    case Map.fetch(profiles_by_key(), {kind, version}) do
       {:ok, profile_module} -> {:ok, profile_module}
       :error -> {:error, {:unsupported_workflow_profile, kind, version}}
     end
@@ -83,7 +73,7 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
   end
 
   @spec profiles() :: [module()]
-  def profiles, do: Map.values(@profiles)
+  def profiles, do: @profile_modules
 
   @spec normalize_config(map() | nil) :: map()
   def normalize_config(profile_config) when is_map(profile_config) do
@@ -92,7 +82,7 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
       |> map_value("kind")
       |> normalize_kind()
       |> case do
-        nil -> elem(@default_profile, 0)
+        nil -> default_profile_module().kind()
         normalized_kind -> normalized_kind
       end
 
@@ -104,7 +94,7 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
         value -> normalize_version(value) || value
       end
 
-    module = Map.get(@profiles, {kind, version})
+    module = Map.get(profiles_by_key(), {kind, version})
 
     default_options =
       case module do
@@ -154,7 +144,6 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
   def defaults(profile_module, options \\ %{}) when is_atom(profile_module) do
     Defaults.new!(%{
       route_keys: profile_module.route_keys(),
-      raw_state_by_route_key: profile_module.default_raw_state_by_route_key(),
       policy_by_route_key: profile_module.default_policy_by_route_key(options),
       lifecycle_phase_by_route_key: profile_module.lifecycle_phase_by_route_key(),
       completion_contract: profile_module.completion_contract(options),
@@ -223,8 +212,20 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
   defp default_version_for_kind(kind) when is_binary(kind) do
     case default_version(kind) do
       {:ok, version} -> version
-      {:error, _reason} -> elem(@default_profile, 1)
+      {:error, _reason} -> default_profile_module().version()
     end
+  end
+
+  defp profiles_by_key do
+    Map.new(@profile_modules, fn profile_module ->
+      {{profile_module.kind(), profile_module.version()}, profile_module}
+    end)
+  end
+
+  defp default_versions do
+    Map.new(@profile_modules, fn profile_module ->
+      {profile_module.kind(), profile_module.version()}
+    end)
   end
 
   defp map_value(map, key) when is_map(map) and is_binary(key) do

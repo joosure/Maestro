@@ -2,6 +2,7 @@ defmodule SymphonyElixir.RepoProvider.RuntimeEnv do
   @moduledoc false
 
   alias SymphonyElixir.Repo.RuntimeEnv, as: RepoRuntimeEnv
+  alias SymphonyElixir.RepoProvider.RepositoryRef
 
   @repo_path_env "SYMPHONY_REPO_PATH"
   @repo_remote_env "SYMPHONY_REPO_REMOTE"
@@ -61,19 +62,25 @@ defmodule SymphonyElixir.RepoProvider.RuntimeEnv do
   def repo_remote(env), do: env |> value(@repo_remote_env) |> blank_to_nil()
 
   @spec repo_remote_url(map()) :: String.t() | nil
-  def repo_remote_url(env), do: first_present(env, [@repo_remote_url_env, @source_repo_remote_url_env])
+  def repo_remote_url(env),
+    do: first_present(env, [@repo_remote_url_env, @source_repo_remote_url_env])
 
   @spec repo_base_branch(map()) :: String.t() | nil
-  def repo_base_branch(env), do: first_present(env, [RepoRuntimeEnv.base_branch_env(), @source_repo_base_branch_env])
+  def repo_base_branch(env),
+    do: first_present(env, [RepoRuntimeEnv.base_branch_env(), @source_repo_base_branch_env])
 
   @spec repo_branch_work_prefix(map()) :: String.t() | nil
-  def repo_branch_work_prefix(env), do: env |> value(RepoRuntimeEnv.branch_work_prefix_env()) |> blank_to_nil()
+  def repo_branch_work_prefix(env),
+    do: env |> value(RepoRuntimeEnv.branch_work_prefix_env()) |> blank_to_nil()
 
   @spec provider_kind(map()) :: String.t() | nil
   def provider_kind(env), do: first_present(env, [@provider_kind_env, @source_provider_kind_env])
 
   @spec provider_repository(map()) :: String.t() | nil
-  def provider_repository(env), do: first_present(env, [@provider_repository_env, @source_provider_repository_env])
+  def provider_repository(env) do
+    first_present(env, [@provider_repository_env, @source_provider_repository_env]) ||
+      RepositoryRef.infer_from_remote_url(repo_remote_url(env))
+  end
 
   @spec provider_api_base_url(map()) :: String.t() | nil
   def provider_api_base_url(env), do: env |> value(@provider_api_base_url_env) |> blank_to_nil()
@@ -82,13 +89,16 @@ defmodule SymphonyElixir.RepoProvider.RuntimeEnv do
   def provider_web_base_url(env), do: env |> value(@provider_web_base_url_env) |> blank_to_nil()
 
   @spec provider_http_timeout_seconds(map()) :: String.t() | nil
-  def provider_http_timeout_seconds(env), do: env |> value(@provider_http_timeout_seconds_env) |> blank_to_nil()
+  def provider_http_timeout_seconds(env),
+    do: env |> value(@provider_http_timeout_seconds_env) |> blank_to_nil()
 
   @spec provider_max_http_retries(map()) :: String.t() | nil
-  def provider_max_http_retries(env), do: env |> value(@provider_max_http_retries_env) |> blank_to_nil()
+  def provider_max_http_retries(env),
+    do: env |> value(@provider_max_http_retries_env) |> blank_to_nil()
 
   @spec provider_retry_backoff_seconds(map()) :: String.t() | nil
-  def provider_retry_backoff_seconds(env), do: env |> value(@provider_retry_backoff_seconds_env) |> blank_to_nil()
+  def provider_retry_backoff_seconds(env),
+    do: env |> value(@provider_retry_backoff_seconds_env) |> blank_to_nil()
 
   @spec put_provider_repository(map(), term()) :: map()
   def put_provider_repository(env, value), do: maybe_put(env, @provider_repository_env, value)
@@ -105,7 +115,9 @@ defmodule SymphonyElixir.RepoProvider.RuntimeEnv do
 
   defp maybe_put(env, _key, nil), do: env
   defp maybe_put(env, _key, ""), do: env
-  defp maybe_put(env, key, value) when is_map(env) and is_binary(key) and is_binary(value), do: Map.put(env, key, value)
+
+  defp maybe_put(env, key, value) when is_map(env) and is_binary(key) and is_binary(value),
+    do: Map.put(env, key, value)
 
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil

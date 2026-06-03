@@ -38,6 +38,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Error do
   defp classify({:unsupported_agent_provider_options, _provider, _options}, _operation), do: {:agent_provider_config_invalid, false}
   defp classify({:unsupported_transport, _transport}, _operation), do: {:agent_provider_capability_unsupported, false}
   defp classify({:codebuddy_command_conflict, _flag}, _operation), do: {:agent_provider_config_invalid, false}
+  defp classify({:codebuddy_model_mismatch, _details}, _operation), do: {:agent_provider_config_invalid, false}
   defp classify({:invalid_workspace_cwd, _reason}, _operation), do: {:agent_provider_start_failed, false}
   defp classify({:invalid_workspace_cwd, _reason, _path}, _operation), do: {:agent_provider_start_failed, false}
   defp classify({:invalid_workspace_cwd, _reason, _path, _root}, _operation), do: {:agent_provider_start_failed, false}
@@ -72,6 +73,10 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Error do
   defp message(%Ecto.Changeset{}, _code), do: "CodeBuddy Code provider configuration is invalid"
   defp message({:unsupported_transport, transport}, _code), do: "CodeBuddy Code transport is unsupported: #{transport}"
   defp message({:codebuddy_command_conflict, flag}, _code), do: "CodeBuddy Code command conflicts with provider-owned flag #{flag}"
+
+  defp message({:codebuddy_model_mismatch, %{configured_model: configured_model}}, _code),
+    do: "CodeBuddy Code configured model is not supported by the started session: #{configured_model}"
+
   defp message({:remote_unsupported, _worker_host}, _code), do: "CodeBuddy Code provider does not support remote workers"
   defp message({:port_exit, status}, _code), do: "CodeBuddy Code process exited with status #{inspect(status)}"
   defp message({:codebuddy_acp_http_endpoint_timeout, _details}, _code), do: "CodeBuddy Code did not announce its ACP HTTP endpoint before timeout"
@@ -96,5 +101,6 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Error do
   defp details({:remote_unsupported, worker_host}), do: %{worker_host: worker_host}
   defp details({:unsupported_transport, transport}), do: %{transport: transport}
   defp details({:codebuddy_command_conflict, flag}), do: %{flag: flag}
+  defp details({:codebuddy_model_mismatch, details}), do: details
   defp details(reason), do: %{reason_summary: Redaction.summarize(reason, 256)}
 end

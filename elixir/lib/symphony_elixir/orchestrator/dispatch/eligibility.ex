@@ -2,6 +2,7 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.Eligibility do
   @moduledoc false
 
   alias SymphonyElixir.Issue
+  alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
   alias SymphonyElixir.Orchestrator.Dispatch.{Context, RuntimeView}
   alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
@@ -32,6 +33,9 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.Eligibility do
 
       not candidate? ->
         :not_active
+
+      issue_blocked_by_typed_tool_policy?(issue) ->
+        :typed_tool_blocked
 
       issue_blocked_by_non_terminal_for_dispatch?(issue, context) ->
         :blocked
@@ -94,6 +98,7 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.Eligibility do
   @spec retry_candidate_issue?(Issue.t(), context()) :: boolean()
   def retry_candidate_issue?(%Issue{} = issue, context) when is_map(context) do
     candidate_issue?(issue, context) and
+      not issue_blocked_by_typed_tool_policy?(issue) and
       not issue_blocked_by_non_terminal_for_dispatch?(issue, context)
   end
 
@@ -124,6 +129,11 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.Eligibility do
   end
 
   defp candidate_issue?(_issue, _context), do: false
+
+  defp issue_blocked_by_typed_tool_policy?(%Issue{id: issue_id}) when is_binary(issue_id),
+    do: BlockedResourceRegistry.active_for_issue?(issue_id)
+
+  defp issue_blocked_by_typed_tool_policy?(_issue), do: false
 
   defp issue_blocked_by_non_terminal_for_dispatch?(
          %Issue{lifecycle_phase: lifecycle_phase, state: state_name, blocked_by: blockers} = issue,

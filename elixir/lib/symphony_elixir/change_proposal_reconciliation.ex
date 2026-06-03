@@ -23,6 +23,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation do
   }
 
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
+  alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
 
   @spec reconcile(map(), map(), keyword()) :: map()
   defdelegate reconcile(settings, runtime_state, opts \\ []), to: Reconciler
@@ -44,7 +45,8 @@ defmodule SymphonyElixir.ChangeProposalReconciliation do
     with {:ok, target} <- KnownTarget.Registry.register(attrs, registry_opts),
          {:ok, enqueue_result} <- CandidateInbox.enqueue_issue_ids([target.issue_id], inbox_opts),
          :ok <- emit_candidate_enqueue_dropped(target, enqueue_result, opts),
-         {:ok, target} <- maybe_mark_enqueued(target, enqueue_result, registry_opts) do
+         {:ok, target} <- maybe_mark_enqueued(target, enqueue_result, registry_opts),
+         :ok <- release_blocked_issue(target.issue_id, :known_target_updated, opts) do
       {:ok, %{target: target, enqueue: enqueue_result}}
     end
   end
@@ -106,4 +108,11 @@ defmodule SymphonyElixir.ChangeProposalReconciliation do
   end
 
   defp emit_candidate_enqueue_dropped(_target, _enqueue_result, _opts), do: :ok
+
+  defp release_blocked_issue(issue_id, reason, opts) when is_binary(issue_id) and is_list(opts) do
+    blocked_resource_registry = Keyword.get(opts, :blocked_resource_registry, BlockedResourceRegistry)
+    BlockedResourceRegistry.release_issue(issue_id, reason, server: blocked_resource_registry)
+  end
+
+  defp release_blocked_issue(_issue_id, _reason, _opts), do: :ok
 end

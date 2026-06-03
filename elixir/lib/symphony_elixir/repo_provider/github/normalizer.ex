@@ -7,6 +7,50 @@ defmodule SymphonyElixir.RepoProvider.GitHub.Normalizer do
   transforms with no side-effects.
   """
 
+  @status_completed "completed"
+  @status_in_progress "in_progress"
+  @conclusion_success "success"
+  @conclusion_neutral "neutral"
+  @conclusion_skipped "skipped"
+  @conclusion_cancelled "cancelled"
+  @conclusion_failure "failure"
+
+  @check_bucket_state_by_name %{
+    "pass" => {@status_completed, @conclusion_success},
+    "fail" => {@status_completed, @conclusion_failure},
+    "pending" => {@status_in_progress, nil},
+    "skipping" => {@status_completed, @conclusion_skipped},
+    "cancel" => {@status_completed, @conclusion_cancelled}
+  }
+
+  @successful_check_states ["success", "passed", "completed"]
+  @skipped_check_states ["skip", "skipped"]
+  @cancelled_check_states ["cancel", "cancelled", "canceled"]
+  @failing_check_states ["failure", "failed", "error", "timed_out", "action_required"]
+  @pending_check_states ["pending", "queued", "created", "running", "in_progress", "checking", "requested", "waiting", ""]
+
+  @run_pending_statuses ["queued", "in_progress", "requested", "waiting", "pending", ""]
+  @run_completed_statuses [
+    "cancelled",
+    "canceled",
+    "failure",
+    "success",
+    "neutral",
+    "skipped",
+    "timed_out",
+    "action_required",
+    "stale",
+    "startup_failure"
+  ]
+  @run_conclusion_by_name %{
+    "cancel" => @conclusion_cancelled,
+    "canceled" => @conclusion_cancelled,
+    "cancelled" => @conclusion_cancelled,
+    "failure" => @conclusion_failure,
+    "failed" => @conclusion_failure,
+    "error" => @conclusion_failure
+  }
+
   # ── Run normalization ──────────────────────────────────────────
 
   @spec normalize_run_detail(map()) :: map()
@@ -17,7 +61,7 @@ defmodule SymphonyElixir.RepoProvider.GitHub.Normalizer do
     {job_success_count, job_fail_count} =
       Enum.reduce(jobs, {0, 0}, fn job, {success_count, fail_count} ->
         case Map.get(job, "conclusion") do
-          "success" -> {success_count + 1, fail_count}
+          @conclusion_success -> {success_count + 1, fail_count}
           nil -> {success_count, fail_count}
           _other -> {success_count, fail_count + 1}
         end
@@ -131,14 +175,7 @@ defmodule SymphonyElixir.RepoProvider.GitHub.Normalizer do
       |> String.downcase()
 
     {status, conclusion} =
-      case bucket do
-        "pass" -> {"completed", "success"}
-        "fail" -> {"completed", "failure"}
-        "pending" -> {"in_progress", nil}
-        "skipping" -> {"completed", "skipped"}
-        "cancel" -> {"completed", "cancelled"}
-        _other -> normalize_check_state(state)
-      end
+      Map.get(@check_bucket_state_by_name, bucket) || normalize_check_state(state)
 
     [
       %{
@@ -211,36 +248,26 @@ defmodule SymphonyElixir.RepoProvider.GitHub.Normalizer do
     normalized = String.downcase(state)
 
     cond do
-      normalized in ["success", "passed", "completed"] ->
-        {"completed", "success"}
+      normalized in @successful_check_states ->
+        {@status_completed, @conclusion_success}
 
       normalized == "neutral" ->
-        {"completed", "neutral"}
+        {@status_completed, @conclusion_neutral}
 
-      normalized in ["skip", "skipped"] ->
-        {"completed", "skipped"}
+      normalized in @skipped_check_states ->
+        {@status_completed, @conclusion_skipped}
 
-      normalized in ["cancel", "cancelled", "canceled"] ->
-        {"completed", "cancelled"}
+      normalized in @cancelled_check_states ->
+        {@status_completed, @conclusion_cancelled}
 
-      normalized in ["failure", "failed", "error", "timed_out", "action_required"] ->
-        {"completed", "failure"}
+      normalized in @failing_check_states ->
+        {@status_completed, @conclusion_failure}
 
-      normalized in [
-        "pending",
-        "queued",
-        "created",
-        "running",
-        "in_progress",
-        "checking",
-        "requested",
-        "waiting",
-        ""
-      ] ->
-        {"in_progress", nil}
+      normalized in @pending_check_states ->
+        {@status_in_progress, nil}
 
       true ->
-        {"completed", normalized}
+        {@status_completed, normalized}
     end
   end
 
@@ -252,28 +279,17 @@ defmodule SymphonyElixir.RepoProvider.GitHub.Normalizer do
     normalized_conclusion = map_run_conclusion(conclusion)
 
     cond do
-      normalized_status in ["queued", "in_progress", "requested", "waiting", "pending", ""] ->
-        {"in_progress", nil}
+      normalized_status in @run_pending_statuses ->
+        {@status_in_progress, nil}
 
-      normalized_status == "completed" ->
-        {"completed", normalized_conclusion}
+      normalized_status == @status_completed ->
+        {@status_completed, normalized_conclusion}
 
-      normalized_status in [
-        "cancelled",
-        "canceled",
-        "failure",
-        "success",
-        "neutral",
-        "skipped",
-        "timed_out",
-        "action_required",
-        "stale",
-        "startup_failure"
-      ] ->
-        {"completed", map_run_conclusion(normalized_status)}
+      normalized_status in @run_completed_statuses ->
+        {@status_completed, map_run_conclusion(normalized_status)}
 
       true ->
-        {"completed", normalized_conclusion || normalized_status}
+        {@status_completed, normalized_conclusion || normalized_status}
     end
   end
 
@@ -283,13 +299,7 @@ defmodule SymphonyElixir.RepoProvider.GitHub.Normalizer do
   def map_run_conclusion(value) do
     case normalize_string(value) do
       "" -> nil
-      "cancel" -> "cancelled"
-      "canceled" -> "cancelled"
-      "cancelled" -> "cancelled"
-      "failure" -> "failure"
-      "failed" -> "failure"
-      "error" -> "failure"
-      other -> other
+      normalized -> Map.get(@run_conclusion_by_name, normalized, normalized)
     end
   end
 
@@ -299,7 +309,7 @@ defmodule SymphonyElixir.RepoProvider.GitHub.Normalizer do
     normalized_conclusion = map_run_conclusion(conclusion)
 
     cond do
-      normalized_status == "completed" and is_binary(normalized_conclusion) ->
+      normalized_status == @status_completed and is_binary(normalized_conclusion) ->
         normalized_conclusion
 
       normalized_status != "" ->

@@ -1,0 +1,528 @@
+#!/usr/bin/env python3
+"""Generate a local Maestro/Symphony Linear workflow file.
+
+This is a one-time setup helper for newcomers. It reads Linear credentials from
+environment variables, probes Linear project/team workflow state names with
+read-only GraphQL calls, validates the bundled quickstart state names, and
+writes a local WORKFLOW*.md file based on a bundled template.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import textwrap
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, NoReturn, Optional, Set
+
+from workflow_template_utils import WorkflowTemplateError, expand_workflow_partials
+
+REQUIRED_ENV = ("LINEAR_API_KEY", "LINEAR_PROJECT_SLUG")
+DEFAULT_REQUIRED_STATES = (
+    "Backlog",
+    "Todo",
+    "In Progress",
+    "In Review",
+    "Merging",
+    "Done",
+)
+DEFAULT_TERMINAL_ALIASES = (
+    "Canceled",
+    "Duplicate",
+)
+PROFILE_OPTIONS_INSERT_MARKER = (
+    "      execution_profiles:\n"
+    "        allowed:\n"
+    "          - land\n"
+)
+PROFILE_ROUTES_OPTION_KEY = "routes"
+PROFILE_REWORK_ROUTE_KEY = "rework"
+PROFILE_ENABLED_OPTION_KEY = "enabled"
+PROFILE_READINESS_OPTION_KEY = "readiness"
+PROFILE_REVIEW_HANDOFF_OPTION_KEY = "review_handoff"
+PROFILE_CHANGE_PROPOSAL_CHECKS_OPTION_KEY = "change_proposal_checks"
+PROFILE_MODE_OPTION_KEY = "mode"
+PROFILE_CHECKS_MODE_NOT_REQUIRED = "not_required"
+QUICKSTART_DISABLED_REWORK_ROUTE_OPTIONS = (
+    f"      {PROFILE_ROUTES_OPTION_KEY}:\n"
+    f"        {PROFILE_REWORK_ROUTE_KEY}:\n"
+    f"          {PROFILE_ENABLED_OPTION_KEY}: false\n"
+)
+QUICKSTART_CHANGE_PROPOSAL_CHECKS_OPTIONS = (
+    f"      {PROFILE_READINESS_OPTION_KEY}:\n"
+    f"        {PROFILE_REVIEW_HANDOFF_OPTION_KEY}:\n"
+    f"          {PROFILE_CHANGE_PROPOSAL_CHECKS_OPTION_KEY}:\n"
+    f"            {PROFILE_MODE_OPTION_KEY}: {PROFILE_CHECKS_MODE_NOT_REQUIRED}\n"
+)
+PROJECT_QUERY = """
+query SymphonyLinearWorkflowInit($projectSlug: String!) {
+  viewer { id name email }
+  projects(filter: {slugId: {eq: $projectSlug}}, first: 1) {
+    nodes {
+      id
+      name
+      slugId
+      teams(first: 20) {
+        nodes {
+          id
+          key
+          name
+          states(first: 100) {
+            nodes {
+              id
+              name
+              type
+              position
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def main() -> int:
+    args = parse_args()
+    repo_root = Path(__file__).resolve().parents[1]
+    if args.env_file:
+        load_env_file(Path(args.env_file).expanduser().resolve())
+
+    template_path = resolve_template(repo_root, args.template)
+    output_path = Path(args.output).expanduser().resolve()
+
+    missing = [name for name in REQUIRED_ENV if not os.environ.get(name, "").strip()]
+    if missing:
+        fail("missing required env vars: " + ", ".join(missing))
+
+    if output_path.exists() and not args.overwrite:
+        fail(
+            f"output already exists: {output_path}\nPass --overwrite if you want to replace it."
+        )
+
+    client = LinearClient(args.endpoint.rstrip("/"), os.environ["LINEAR_API_KEY"])
+
+    print("==> Checking Linear credentials and project")
+    response = client.graphql(
+        PROJECT_QUERY, {"projectSlug": os.environ["LINEAR_PROJECT_SLUG"]}
+    )
+    project = first_project(response)
+    if not project:
+        fail(
+            "Linear project not found for LINEAR_PROJECT_SLUG="
+            + repr(os.environ["LINEAR_PROJECT_SLUG"])
+            + "\nCheck the project slug in Linear and make sure the API key can access it."
+        )
+
+    teams = project_teams(project)
+    if not teams:
+        fail("Linear project was found, but no teams were returned for it.")
+
+    print_detected(project, teams)
+    validate_default_states(
+        teams, args.allow_missing_terminal_aliases, args.include_rework
+    )
+
+    workflow_text = template_path.read_text(encoding="utf-8")
+    workflow_text = remove_quickstart_optional_states(workflow_text)
+    if args.include_rework:
+        workflow_text = restore_rework_state(workflow_text)
+    else:
+        workflow_text = disable_rework_profile_route(workflow_text)
+        workflow_text = remove_rework_prompt_guidance(workflow_text)
+    workflow_text = configure_quickstart_change_proposal_checks_mode(workflow_text)
+    if args.credential_ref:
+        workflow_text = ensure_credential_ref(workflow_text, args.credential_ref)
+    try:
+        workflow_text = expand_workflow_partials(workflow_text, template_path, repo_root)
+    except WorkflowTemplateError as error:
+        fail(str(error))
+    if not args.include_rework:
+        workflow_text = remove_rework_prompt_guidance(workflow_text)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(workflow_text, encoding="utf-8")
+
+    print("==> Wrote local workflow")
+    print(f"    {output_path}")
+    print("\nNext step:")
+    symphony_bin = repo_root / "elixir" / "bin" / "symphony"
+    print(
+        "  "
+        + relpath_for_display(symphony_bin)
+        + " --i-understand-that-this-will-be-running-without-the-usual-guardrails "
+        + relpath_for_display(output_path)
+    )
+    return 0
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate a local Linear-backed Maestro/Symphony workflow file.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(
+            """
+            Required environment variables:
+              LINEAR_API_KEY
+              LINEAR_PROJECT_SLUG
+
+            This script only reads Linear metadata and writes a local workflow file.
+            It does not modify Linear team workflow settings.
+            """
+        ).strip(),
+    )
+    parser.add_argument(
+        "--template",
+        default="linear/github/opencode",
+        help="Bundled workflow template alias",
+    )
+    parser.add_argument(
+        "--output",
+        default="./quickstart/WORKFLOW.linear-github-opencode.local.md",
+        help="Path to write the generated local workflow file",
+    )
+    parser.add_argument(
+        "--endpoint",
+        default="https://api.linear.app/graphql",
+        help="Linear GraphQL endpoint",
+    )
+    parser.add_argument(
+        "--env-file",
+        help="Optional local env file containing LINEAR_API_KEY/LINEAR_PROJECT_SLUG",
+    )
+    parser.add_argument(
+        "--credential-ref",
+        default="credential://opencode/zai",
+        help="Credential ref to add to agent_provider.options; pass empty string to skip",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace output file if it already exists",
+    )
+    parser.add_argument(
+        "--include-rework",
+        action="store_true",
+        help="Keep Rework in the generated local workflow for advanced review-feedback loops",
+    )
+    parser.add_argument(
+        "--allow-missing-terminal-aliases",
+        action="store_true",
+        help="Do not fail when optional Canceled/Duplicate terminal states are absent",
+    )
+    return parser.parse_args()
+
+
+def load_env_file(path: Path) -> None:
+    if not path.is_file():
+        fail(f"env file not found: {path}")
+
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            fail(f"invalid env file line {line_number}: expected KEY=VALUE")
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = unquote_env_value(value.strip())
+        if not key:
+            fail(f"invalid env file line {line_number}: empty key")
+        if key not in os.environ:
+            os.environ[key] = value
+
+
+def unquote_env_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def resolve_template(repo_root: Path, template_alias: str) -> Path:
+    cleaned = template_alias.strip().replace("\\", "/")
+    if not cleaned:
+        fail("--template is required")
+    if cleaned.startswith("/") or ".." in Path(cleaned).parts:
+        fail("--template must be a relative alias under elixir/priv/workflow_templates")
+    if not cleaned.endswith(".md"):
+        cleaned += ".md"
+    template_path = repo_root / "elixir" / "priv" / "workflow_templates" / cleaned
+    if not template_path.is_file():
+        fail(f"workflow template not found: {template_path}")
+    return template_path
+
+
+class LinearClient:
+    def __init__(self, endpoint: str, api_key: str) -> None:
+        self.endpoint = endpoint
+        self.headers = {
+            "Authorization": api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+    def graphql(self, query: str, variables: Mapping[str, Any]) -> Mapping[str, Any]:
+        body = json.dumps({"query": query, "variables": variables}).encode("utf-8")
+        request = urllib.request.Request(
+            self.endpoint, data=body, headers=self.headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            fail(f"Linear API HTTP {error.code}: {detail}")
+        except urllib.error.URLError as error:
+            fail(f"Linear API request failed: {error}")
+
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            fail(f"Linear API returned non-JSON response: {payload[:500]}")
+
+        errors = data.get("errors") if isinstance(data, dict) else None
+        if errors:
+            fail("Linear GraphQL error: " + json.dumps(errors, ensure_ascii=False))
+        if not isinstance(data, dict):
+            fail("Linear API returned unexpected response shape")
+        return data
+
+
+def first_project(response: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
+    nodes = ((response.get("data") or {}).get("projects") or {}).get("nodes") or []
+    if not nodes:
+        return None
+    project = nodes[0]
+    return project if isinstance(project, dict) else None
+
+
+def project_teams(project: Mapping[str, Any]) -> List[Mapping[str, Any]]:
+    nodes = ((project.get("teams") or {}).get("nodes")) or []
+    return [team for team in nodes if isinstance(team, dict)]
+
+
+def team_state_names(team: Mapping[str, Any]) -> Set[str]:
+    nodes = ((team.get("states") or {}).get("nodes")) or []
+    names: Set[str] = set()
+    for state in nodes:
+        if not isinstance(state, dict):
+            continue
+        name = state.get("name")
+        if isinstance(name, str) and name:
+            names.add(name)
+    return names
+
+
+def print_detected(project: Mapping[str, Any], teams: List[Mapping[str, Any]]) -> None:
+    slug = project.get("slugId") or "<unknown>"
+    name = project.get("name") or "<unknown>"
+    print(f"    Project: {name} ({slug})")
+    for team in teams:
+        team_name = team.get("name") or "<unknown>"
+        team_key = team.get("key") or "<unknown>"
+        states = sorted(team_state_names(team))
+        print(f"    Team: {team_name} ({team_key})")
+        print("      States: " + (", ".join(states) if states else "<none>"))
+
+
+def validate_default_states(
+    teams: List[Mapping[str, Any]],
+    allow_missing_terminal_aliases: bool,
+    require_rework: bool,
+) -> None:
+    hard_missing_by_team: Dict[str, List[str]] = {}
+    alias_missing_by_team: Dict[str, List[str]] = {}
+    for team in teams:
+        names = team_state_names(team)
+        team_label = (
+            f"{team.get('name') or '<unknown>'} ({team.get('key') or '<unknown>'})"
+        )
+        required_states: List[str] = list(DEFAULT_REQUIRED_STATES)
+        if require_rework:
+            required_states.append("Rework")
+        missing = [name for name in required_states if name not in names]
+        alias_missing = [name for name in DEFAULT_TERMINAL_ALIASES if name not in names]
+        if missing:
+            hard_missing_by_team[team_label] = missing
+        if alias_missing:
+            alias_missing_by_team[team_label] = alias_missing
+
+    if hard_missing_by_team:
+        message = [
+            "Linear team workflow states do not match the bundled quickstart template.",
+            "Create/rename the Linear team states below, or copy the workflow template and adjust tracker.lifecycle manually.",
+        ]
+        for team, missing in hard_missing_by_team.items():
+            message.append(f"- {team}: missing " + ", ".join(missing))
+        fail("\n".join(message))
+
+    if alias_missing_by_team and not allow_missing_terminal_aliases:
+        print("==> Warning: optional Canceled/Duplicate terminal states are missing")
+        for team, missing in alias_missing_by_team.items():
+            print(f"    {team}: missing " + ", ".join(missing))
+        print(
+            "    This is usually fine if your Linear team uses a different subset of canceled terminal states."
+        )
+
+    print("==> Linear state names match the bundled quickstart workflow")
+
+
+def remove_quickstart_optional_states(workflow_text: str) -> str:
+    return (
+        workflow_text.replace("      - Rework\n", "")
+        .replace("      Rework: rework\n", "")
+        .replace("      rework: Rework\n", "")
+        .replace("      - Closed\n", "")
+        .replace("      Closed: canceled\n", "")
+        .replace("      - Cancelled\n", "")
+        .replace("      Cancelled: canceled\n", "")
+    )
+
+
+def disable_rework_profile_route(workflow_text: str) -> str:
+    return insert_profile_options_block(
+        workflow_text,
+        QUICKSTART_DISABLED_REWORK_ROUTE_OPTIONS,
+        "no-Rework profile option",
+    )
+
+
+def configure_quickstart_change_proposal_checks_mode(workflow_text: str) -> str:
+    return insert_profile_options_block(
+        workflow_text,
+        QUICKSTART_CHANGE_PROPOSAL_CHECKS_OPTIONS,
+        "quickstart change-proposal-checks mode",
+    )
+
+
+def insert_profile_options_block(workflow_text: str, block: str, description: str) -> str:
+    if block in workflow_text:
+        return workflow_text
+
+    if PROFILE_OPTIONS_INSERT_MARKER not in workflow_text:
+        fail(
+            f"could not insert {description}: workflow profile options block not found"
+        )
+
+    return workflow_text.replace(
+        PROFILE_OPTIONS_INSERT_MARKER,
+        PROFILE_OPTIONS_INSERT_MARKER + block,
+        1,
+    )
+
+
+def restore_rework_state(workflow_text: str) -> str:
+    # If advanced users explicitly ask for Rework, keep the bundled template's
+    # Rework lifecycle entries while still dropping extra canceled spelling variants.
+    if "      - Rework\n" not in workflow_text:
+        workflow_text = workflow_text.replace(
+            "      - Merging\n", "      - Merging\n      - Rework\n"
+        )
+    if "      Rework: rework\n" not in workflow_text:
+        workflow_text = workflow_text.replace(
+            "      Merging: merging\n", "      Merging: merging\n      Rework: rework\n"
+        )
+    if "      rework: Rework\n" not in workflow_text:
+        workflow_text = workflow_text.replace(
+            "      merging: Merging\n", "      merging: Merging\n      rework: Rework\n"
+        )
+    return workflow_text
+
+
+def remove_rework_prompt_guidance(workflow_text: str) -> str:
+    workflow_text = (
+        workflow_text.replace(
+            "  - Special case: if a PR is already attached, treat as feedback/rework loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to `In Review`).\n",
+            "  - Special case: if a PR is already attached, treat as a feedback loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to `In Review`).\n",
+        )
+        .replace(
+            "  - Special case: if a PR is already attached, treat as feedback/rework loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to the `review` route raw state `{{ issue.workflow.raw_state_by_route_key.review }}`).\n",
+            "  - Special case: if a PR is already attached, treat as a feedback loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to the `review` route raw state `{{ issue.workflow.raw_state_by_route_key.review }}`).\n",
+        )
+        .replace(
+            "- `Rework` -> reviewer requested changes; planning + implementation required.\n",
+            "",
+        )
+        .replace(
+            "- `rework` route, raw state `{{ issue.workflow.raw_state_by_route_key.rework }}` -> reviewer requested changes; planning + implementation required.\n",
+            "",
+        )
+        .replace("   - `Rework` -> run rework flow.\n", "")
+        .replace(
+            "   - `rework` route raw state `{{ issue.workflow.raw_state_by_route_key.rework }}` -> run rework flow.\n",
+            "",
+        )
+        .replace(
+            "      unchecked, keep the issue in `In Progress` or move it to `Rework`; do not\n",
+            "      unchecked, keep the issue in `In Progress`; do not\n",
+        )
+        .replace(
+            "      unchecked, keep the issue in `{{ issue.workflow.raw_state_by_route_key.developing }}` or move it to `{{ issue.workflow.raw_state_by_route_key.rework }}`; do not\n",
+            "      unchecked, keep the issue in `{{ issue.workflow.raw_state_by_route_key.developing }}`; do not\n",
+        )
+        .replace(
+            '3. If review feedback requires changes, move the issue to `Rework` and follow the rework flow.\n4. If approved, human moves the issue to `Merging`; that state transition is the merge authorization.\n5. When the issue is in `Merging`, open workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists and follow its loop. Otherwise, use the inventory `repo.merge_change_proposal` typed tool when it is listed; use the repository\'s normal repo-core/repo-provider fallback flow only when documented fallback is explicitly required.\n6. After merge is complete, move the issue to `Done`.\n\n## Step 4: Rework handling\n\n1. Treat `Rework` as a full approach reset, not incremental patching.\n2. Re-read the full issue body and all human comments; explicitly identify what will be done differently this attempt.\n3. Close the existing PR tied to the issue using the inventory `repo.close_change_proposal` typed tool when it is listed; use repo-provider fallback only when documented fallback is explicitly required.\n4. Reset the existing `## OpenCode Workpad` comment through the inventory `tracker.upsert_workpad` typed tool; do not delete the comment or create a parallel workpad.\n5. Prefer `"${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo" create-working-branch "<unique-issue-attempt-id>" --base "origin/{{ repo.base_branch }}"`.\n6. Start over from the normal kickoff flow:\n   - If current issue state is `Todo`, move it to `In Progress`; otherwise keep the current state.\n   - Rewrite the same `## OpenCode Workpad` comment with a fresh plan/checklist.\n   - Build a fresh plan/checklist and execute end-to-end.\n\n## Completion bar before In Review\n',
+            "3. If review feedback requires changes, human should move the issue back to `In Progress` so Maestro can run the normal execution flow again.\n4. If approved, human moves the issue to `Merging`; that state transition is the merge authorization.\n5. When the issue is in `Merging`, open workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists and follow its loop. Otherwise, use the inventory `repo.merge_change_proposal` typed tool when it is listed; use the repository's normal repo-core/repo-provider fallback flow only when documented fallback is explicitly required.\n6. After merge is complete, move the issue to `Done`.\n\n## Completion bar before In Review\n",
+        )
+    )
+
+    workflow_text = workflow_text.replace(
+        "3. If review feedback requires changes, move the issue to `{{ issue.workflow.raw_state_by_route_key.rework }}` and follow the rework flow.\n",
+        "3. If review feedback requires changes, human should move the issue back to `{{ issue.workflow.raw_state_by_route_key.developing }}` so Maestro can run the normal execution flow again.\n",
+    )
+
+    return remove_markdown_section(
+        workflow_text,
+        "Step 4: Rework handling:",
+        "Completion bar before review handoff:",
+    )
+
+
+def remove_markdown_section(workflow_text: str, start_marker: str, end_marker: str) -> str:
+    start = workflow_text.find("\n" + start_marker + "\n")
+    end = workflow_text.find("\n" + end_marker + "\n", start + 1)
+    if start == -1 or end == -1:
+        return workflow_text
+    return workflow_text[:start] + workflow_text[end:]
+
+
+def ensure_credential_ref(workflow_text: str, credential_ref: str) -> str:
+    credential_ref = credential_ref.strip()
+    if not credential_ref:
+        return workflow_text
+    if "credential_ref:" in workflow_text:
+        return workflow_text
+
+    lines = workflow_text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith("model:"):
+            indent = line[: len(line) - len(line.lstrip())]
+            lines.insert(index + 1, f'{indent}credential_ref: "{credential_ref}"')
+            return "\n".join(lines) + ("\n" if workflow_text.endswith("\n") else "")
+
+    fail("could not insert credential_ref: no agent_provider.options.model line found")
+
+
+def relpath_for_display(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(path)
+
+
+def fail(message: str) -> NoReturn:
+    print("error: " + message, file=sys.stderr)
+    raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

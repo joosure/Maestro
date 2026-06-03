@@ -44,8 +44,7 @@ defmodule SymphonyElixir.Tracker.Adapter do
       }
   """
 
-  alias SymphonyElixir.Issue
-  alias SymphonyElixir.Tracker.{ChangeProposalReference, Config, Error, ProjectRef}
+  alias SymphonyElixir.Tracker.{Config, Error, ProjectRef}
 
   @type result(t) :: {:ok, t} | {:error, Error.t() | term()}
   @type tool_result :: {:success, term()} | {:failure, term()} | {:error, Error.t() | term()}
@@ -57,8 +56,8 @@ defmodule SymphonyElixir.Tracker.Adapter do
   @callback fetch_candidate_issues(Config.t(), keyword()) :: result([term()])
   @callback fetch_issues_by_states(Config.t(), [String.t()], keyword()) :: result([term()])
   @callback fetch_issue_states_by_ids(Config.t(), [String.t()], keyword()) :: result([term()])
-  @callback fetch_change_proposal_reference(Config.t(), Issue.t() | map(), keyword()) ::
-              result(ChangeProposalReference.t() | nil)
+
+  @callback normalize_issue_id(Config.t(), String.t()) :: String.t() | nil
 
   @callback create_comment(Config.t(), String.t(), String.t(), keyword()) ::
               :ok | {:error, Error.t() | term()}
@@ -81,7 +80,7 @@ defmodule SymphonyElixir.Tracker.Adapter do
     fetch_candidate_issues: 2,
     fetch_issues_by_states: 3,
     fetch_issue_states_by_ids: 3,
-    fetch_change_proposal_reference: 3,
+    normalize_issue_id: 2,
     create_comment: 4,
     update_issue_state: 4,
     dynamic_tools: 1,

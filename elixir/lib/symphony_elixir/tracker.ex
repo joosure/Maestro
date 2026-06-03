@@ -206,31 +206,15 @@ defmodule SymphonyElixir.Tracker do
   @spec change_proposal_reference(Issue.t() | map()) :: ChangeProposalReference.t() | nil
   def change_proposal_reference(issue), do: ChangeProposalReference.from_issue(issue)
 
-  @spec fetch_change_proposal_reference(Issue.t() | map(), keyword()) ::
-          result(ChangeProposalReference.t() | nil)
-  def fetch_change_proposal_reference(issue, opts \\ [])
-
-  def fetch_change_proposal_reference(%Issue{} = issue, opts) when is_list(opts) do
+  @spec normalize_issue_id(String.t()) :: String.t() | nil
+  def normalize_issue_id(issue_id) when is_binary(issue_id) do
     {adapter, tracker} = current!()
-    do_fetch_change_proposal_reference(adapter, tracker, issue, opts)
+    do_normalize_issue_id(adapter, tracker, issue_id)
   end
 
-  def fetch_change_proposal_reference(issue, opts) when is_map(issue) and is_list(opts) do
-    {adapter, tracker} = current!()
-    do_fetch_change_proposal_reference(adapter, tracker, issue, opts)
-  end
-
-  @spec fetch_change_proposal_reference(tracker_config() | map(), Issue.t() | map()) ::
-          result(ChangeProposalReference.t() | nil)
-  def fetch_change_proposal_reference(%{kind: _} = tracker, issue) when is_map(issue) do
-    fetch_change_proposal_reference(tracker, issue, [])
-  end
-
-  @spec fetch_change_proposal_reference(tracker_config() | map(), Issue.t() | map(), keyword()) ::
-          result(ChangeProposalReference.t() | nil)
-  def fetch_change_proposal_reference(%{kind: _} = tracker, issue, opts)
-      when is_map(issue) and is_list(opts) do
-    do_fetch_change_proposal_reference(adapter(tracker), tracker, issue, opts)
+  @spec normalize_issue_id(tracker_config() | map(), String.t()) :: String.t() | nil
+  def normalize_issue_id(%{kind: _} = tracker, issue_id) when is_binary(issue_id) do
+    do_normalize_issue_id(adapter(tracker), tracker, issue_id)
   end
 
   # ── Workspace ─────────────────────────────────────────────────────
@@ -294,14 +278,13 @@ defmodule SymphonyElixir.Tracker do
     end
   end
 
-  defp do_fetch_change_proposal_reference(adapter, tracker, issue, opts)
-       when is_map(tracker) and is_map(issue) and is_list(opts) do
-    case ChangeProposalReference.from_issue(issue) do
-      %ChangeProposalReference{} = reference ->
-        {:ok, reference}
+  defp do_normalize_issue_id(adapter, tracker, issue_id)
+       when is_map(tracker) and is_binary(issue_id) do
+    default = normalize_optional_string(issue_id)
 
-      nil ->
-        optional(adapter, :fetch_change_proposal_reference, [tracker, issue, opts], {:ok, nil})
+    case optional(adapter, :normalize_issue_id, [tracker, issue_id], default) do
+      value when is_binary(value) -> normalize_optional_string(value)
+      _value -> default
     end
   end
 

@@ -11,38 +11,81 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
 
   @kind "coding_pr_delivery"
   @review_route_key :review
-  @route_keys [:planning, :developing, @review_route_key, :merging, :rework, :resolved, :rejected]
+  @rework_route_key :rework
+  @route_keys [:planning, :developing, @review_route_key, :merging, @rework_route_key, :resolved, :rejected]
   @land_execution_profile "land"
   @default_allowed_execution_profiles [@land_execution_profile]
-
-  @default_raw_state_by_route_key %{
-    :planning => "planning",
-    :developing => "developing",
-    @review_route_key => "review",
-    :merging => "merging",
-    :rework => "rework",
-    :resolved => "resolved",
-    :rejected => "rejected"
+  @requirements_option_key "requirements"
+  @change_proposal_option_key "change_proposal"
+  @typed_tracker_tools_option_key "typed_tracker_tools"
+  @typed_repo_tools_option_key "typed_repo_tools"
+  @execution_profiles_option_key "execution_profiles"
+  @allowed_execution_profiles_option_key "allowed"
+  @readiness_option_key "readiness"
+  @review_handoff_option_key "review_handoff"
+  @change_proposal_checks_option_key "change_proposal_checks"
+  @mode_option_key "mode"
+  @change_proposal_checks_required_when_available "required_when_available"
+  @change_proposal_checks_not_required "not_required"
+  @change_proposal_checks_modes [
+    @change_proposal_checks_required_when_available,
+    @change_proposal_checks_not_required
+  ]
+  @routes_option_key "routes"
+  @enabled_option_key "enabled"
+  @configurable_route_keys [@rework_route_key]
+  @enabled_route_option_schema %{type: {:map, %{@enabled_option_key => %{type: :boolean, default: true}}}}
+  @route_options_schema Map.new(@configurable_route_keys, &{Atom.to_string(&1), @enabled_route_option_schema})
+  @change_proposal_checks_options_schema %{
+    @mode_option_key => %{
+      type: {:enum, @change_proposal_checks_modes},
+      default: @change_proposal_checks_required_when_available
+    }
   }
+  @review_handoff_options_schema %{
+    @change_proposal_checks_option_key => %{type: {:map, @change_proposal_checks_options_schema}}
+  }
+  @readiness_options_schema %{
+    @review_handoff_option_key => %{type: {:map, @review_handoff_options_schema}}
+  }
+  @default_completion_route_keys [@review_route_key, :merging, @rework_route_key, :resolved, :rejected]
+  @tracker_handoff_expectation "Tracker comment or status surface records the result."
 
   @default_policy_by_route_key %{
     :planning => %{action: :transition_then_dispatch, transition_target: :developing},
     :developing => %{action: :dispatch},
     @review_route_key => %{action: :wait},
     :merging => %{action: :dispatch, execution_profile: @land_execution_profile},
-    :rework => %{action: :dispatch},
+    @rework_route_key => %{action: :dispatch},
     :resolved => %{action: :stop},
     :rejected => %{action: :stop}
   }
 
-  @default_options %{
-    "requirements" => %{
-      "change_proposal" => true,
-      "typed_tracker_tools" => false,
-      "typed_repo_tools" => false
+  @options_schema %{
+    @requirements_option_key => %{
+      type:
+        {:map,
+         %{
+           @change_proposal_option_key => %{type: :boolean, default: true},
+           @typed_tracker_tools_option_key => %{type: :boolean, default: false},
+           @typed_repo_tools_option_key => %{type: :boolean, default: false}
+         }}
     },
-    "execution_profiles" => %{
-      "allowed" => @default_allowed_execution_profiles
+    @execution_profiles_option_key => %{
+      type:
+        {:map,
+         %{
+           @allowed_execution_profiles_option_key => %{
+             type: {:name_list, min: 1, unique: true},
+             default: @default_allowed_execution_profiles
+           }
+         }}
+    },
+    @readiness_option_key => %{
+      type: {:map, @readiness_options_schema}
+    },
+    @routes_option_key => %{
+      type: {:map, @route_options_schema}
     }
   }
 
@@ -115,26 +158,23 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
     :developing => WorkflowLifecycle.in_progress(),
     @review_route_key => WorkflowLifecycle.human_review(),
     :merging => WorkflowLifecycle.merging(),
-    :rework => WorkflowLifecycle.rework(),
+    @rework_route_key => WorkflowLifecycle.rework(),
     :resolved => WorkflowLifecycle.done(),
     :rejected => WorkflowLifecycle.canceled()
   }
 
-  @completion_contract %{
+  @completion_contract_base %{
     required_outputs: [
       "Repository changes committed, or an explicit explanation that no code change is required.",
       "Validation evidence recorded.",
       "Blocking failures summarized for the operator and tracker audience."
     ],
-    allowed_completion_routes: ["review", "merging", "rework", "resolved", "rejected"],
+    allowed_completion_routes: [],
     evidence_requirements: [
       "Test, check, or manual validation evidence when available.",
       "Change proposal or equivalent handoff link when required by profile options."
     ],
-    handoff_expectations: [
-      "Review, merge, rework, resolved, or rejected handoff state is reached.",
-      "Tracker comment or status surface records the result."
-    ]
+    handoff_expectations: []
   }
 
   @impl true
@@ -150,21 +190,28 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
   def route_keys, do: @route_keys
 
   @impl true
-  def default_raw_state_by_route_key, do: @default_raw_state_by_route_key
-
-  @impl true
   def default_policy_by_route_key, do: @default_policy_by_route_key
 
   @impl true
-  def default_policy_by_route_key(_options) do
-    @default_policy_by_route_key
+  def default_policy_by_route_key(options) do
+    Enum.reduce(@configurable_route_keys, @default_policy_by_route_key, fn route_key, policy_by_route_key ->
+      maybe_disable_route(policy_by_route_key, route_key, route_enabled?(options, route_key))
+    end)
   end
 
   @impl true
   def lifecycle_phase_by_route_key, do: @lifecycle_phase_by_route_key
 
   @impl true
-  def completion_contract(_options), do: @completion_contract
+  def completion_contract(options) do
+    enabled_completion_route_keys = enabled_completion_route_keys(options)
+
+    %{
+      @completion_contract_base
+      | allowed_completion_routes: Enum.map(enabled_completion_route_keys, &Atom.to_string/1),
+        handoff_expectations: handoff_expectations(enabled_completion_route_keys)
+    }
+  end
 
   @impl true
   def allowed_execution_profiles, do: @default_allowed_execution_profiles
@@ -183,7 +230,7 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
       @profile_owned_execution_profile_capabilities
       |> maybe_add_capabilities(
         @typed_repo_land_capabilities,
-        requirement_enabled?(options, "typed_repo_tools")
+        requirement_enabled?(options, @typed_repo_tools_option_key)
       )
     else
       []
@@ -191,25 +238,57 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
   end
 
   @impl true
-  def default_options, do: @default_options
+  def options_schema, do: @options_schema
+
+  @impl true
+  def default_options, do: ProfileOptions.default_options(@options_schema)
 
   @impl true
   def validate_options(options) when is_map(options) do
-    with :ok <- validate_top_level_options(options),
-         :ok <- validate_requirements(options),
-         :ok <-
-           validate_execution_profiles(options) do
-      :ok
-    end
+    ProfileOptions.validate(kind(), options, @options_schema)
   end
 
   def validate_options(options), do: {:error, {:invalid_profile_options, kind(), options}}
 
+  @spec change_proposal_required?(map()) :: boolean()
+  def change_proposal_required?(options) when is_map(options),
+    do: requirement_enabled?(options, @change_proposal_option_key)
+
+  def change_proposal_required?(_options), do: true
+
+  @spec review_handoff_change_proposal_checks_mode(map()) :: String.t()
+  def review_handoff_change_proposal_checks_mode(options) when is_map(options) do
+    default_options = default_options()
+    default_readiness = Map.fetch!(default_options, @readiness_option_key)
+    default_review_handoff = Map.fetch!(default_readiness, @review_handoff_option_key)
+    default_change_proposal_checks = Map.fetch!(default_review_handoff, @change_proposal_checks_option_key)
+
+    options
+    |> option_map(@readiness_option_key, default_readiness)
+    |> option_map(@review_handoff_option_key, default_review_handoff)
+    |> option_map(@change_proposal_checks_option_key, default_change_proposal_checks)
+    |> option_value(@mode_option_key, @change_proposal_checks_required_when_available)
+  end
+
+  def review_handoff_change_proposal_checks_mode(_options), do: @change_proposal_checks_required_when_available
+
+  @spec review_handoff_change_proposal_checks_not_required?(map()) :: boolean()
+  def review_handoff_change_proposal_checks_not_required?(options) when is_map(options),
+    do: review_handoff_change_proposal_checks_mode(options) == @change_proposal_checks_not_required
+
+  def review_handoff_change_proposal_checks_not_required?(_options), do: false
+
+  @spec review_handoff_change_proposal_checks_required_when_available() :: String.t()
+  def review_handoff_change_proposal_checks_required_when_available, do: @change_proposal_checks_required_when_available
+
+  @spec review_handoff_change_proposal_checks_not_required() :: String.t()
+  def review_handoff_change_proposal_checks_not_required, do: @change_proposal_checks_not_required
+
   @impl true
   def required_capabilities(options) when is_map(options) do
-    require_change_proposal? = requirement_enabled?(options, "change_proposal")
-    require_typed_tracker_tools? = requirement_enabled?(options, "typed_tracker_tools")
-    require_typed_repo_tools? = requirement_enabled?(options, "typed_repo_tools")
+    require_change_proposal? = change_proposal_required?(options)
+    require_typed_tracker_tools? = requirement_enabled?(options, @typed_tracker_tools_option_key)
+    require_typed_repo_tools? = requirement_enabled?(options, @typed_repo_tools_option_key)
 
     @required_capabilities
     |> maybe_add_capabilities(@change_proposal_capabilities, require_change_proposal?)
@@ -232,97 +311,80 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
 
   defp maybe_add_capabilities(capabilities, _additional_capabilities, false), do: capabilities
 
-  defp validate_top_level_options(options) when is_map(options) do
-    ProfileOptions.reject_unknown(kind(), options, Map.keys(@default_options))
-  end
-
-  defp validate_requirements(options) when is_map(options) do
-    with {:ok, requirements} <- option_group(options, "requirements"),
-         :ok <-
-           reject_unknown_nested_options(
-             requirements,
-             "requirements",
-             Map.keys(@default_options["requirements"])
-           ),
-         :ok <- validate_boolean_requirement(requirements, "change_proposal"),
-         :ok <- validate_boolean_requirement(requirements, "typed_tracker_tools"),
-         :ok <- validate_boolean_requirement(requirements, "typed_repo_tools") do
-      :ok
-    end
-  end
-
-  defp validate_execution_profiles(options) when is_map(options) do
-    with {:ok, execution_profiles} <- option_group(options, "execution_profiles"),
-         :ok <- reject_unknown_nested_options(execution_profiles, "execution_profiles", ["allowed"]),
-         :ok <- validate_allowed_execution_profiles(execution_profiles) do
-      :ok
-    end
-  end
-
-  defp option_group(options, key) when is_map(options) and is_binary(key) do
-    case Map.get(options, key, Map.fetch!(@default_options, key)) do
-      value when is_map(value) -> {:ok, value}
-      value -> {:error, {:invalid_profile_option, kind(), key, value}}
-    end
-  end
-
-  defp reject_unknown_nested_options(options, path, known_keys)
-       when is_map(options) and is_binary(path) and is_list(known_keys) do
-    case Map.keys(options) -- known_keys do
-      [] -> :ok
-      [unknown_key | _rest] -> {:error, {:unknown_profile_option, kind(), "#{path}.#{unknown_key}"}}
-    end
-  end
-
-  defp validate_boolean_requirement(requirements, key) when is_map(requirements) and is_binary(key) do
-    defaults = @default_options["requirements"]
-
-    case Map.get(requirements, key, Map.fetch!(defaults, key)) do
-      value when is_boolean(value) -> :ok
-      value -> {:error, {:invalid_profile_option, kind(), "requirements.#{key}", value}}
-    end
-  end
-
-  defp validate_allowed_execution_profiles(execution_profiles) when is_map(execution_profiles) do
-    allowed = Map.get(execution_profiles, "allowed", @default_options["execution_profiles"]["allowed"])
-
-    cond do
-      not is_list(allowed) ->
-        {:error, {:invalid_profile_option, kind(), "execution_profiles.allowed", allowed}}
-
-      allowed == [] ->
-        {:error, {:invalid_profile_option, kind(), "execution_profiles.allowed", allowed}}
-
-      not Enum.all?(allowed, &valid_execution_profile_name?/1) ->
-        {:error, {:invalid_profile_option, kind(), "execution_profiles.allowed", allowed}}
-
-      Enum.uniq(allowed) != allowed ->
-        {:error, {:invalid_profile_option, kind(), "execution_profiles.allowed", allowed}}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp valid_execution_profile_name?(value) when is_binary(value) do
-    String.match?(value, ~r/^[a-z][a-z0-9_]*$/)
-  end
-
-  defp valid_execution_profile_name?(_value), do: false
-
   defp requirement_enabled?(options, key) do
-    requirements = Map.get(options, "requirements", %{})
-    defaults = @default_options["requirements"]
+    requirements = Map.get(options, @requirements_option_key, %{})
+    defaults = Map.fetch!(default_options(), @requirements_option_key)
 
     Map.get(requirements, key, Map.fetch!(defaults, key)) == true
   end
 
   defp allowed_execution_profile_names(options) do
-    execution_profiles = Map.get(options, "execution_profiles", %{})
-    defaults = @default_options["execution_profiles"]
+    execution_profiles = Map.get(options, @execution_profiles_option_key, %{})
+    defaults = Map.fetch!(default_options(), @execution_profiles_option_key)
 
     execution_profiles
-    |> Map.get("allowed", Map.fetch!(defaults, "allowed"))
+    |> Map.get(@allowed_execution_profiles_option_key, Map.fetch!(defaults, @allowed_execution_profiles_option_key))
     |> Enum.uniq()
   end
+
+  defp option_map(options, key, default) when is_map(options) and is_binary(key) and is_map(default) do
+    case option_value(options, key, default) do
+      value when is_map(value) -> value
+      _value -> default
+    end
+  end
+
+  defp option_value(options, key, default) when is_map(options) and is_binary(key) do
+    Map.get(options, key, default)
+  end
+
+  defp maybe_disable_route(policy_by_route_key, _route_key, true), do: policy_by_route_key
+
+  defp maybe_disable_route(policy_by_route_key, route_key, false) when is_atom(route_key) do
+    Map.put(policy_by_route_key, route_key, %{action: :disabled})
+  end
+
+  defp enabled_completion_route_keys(options) do
+    Enum.filter(@default_completion_route_keys, &route_enabled?(options, &1))
+  end
+
+  defp handoff_expectations(route_keys) when is_list(route_keys) do
+    [
+      "Handoff records one allowed completion route: #{route_keys |> Enum.map(&Atom.to_string/1) |> sentence_join()}.",
+      @tracker_handoff_expectation
+    ]
+  end
+
+  defp sentence_join([]), do: "No"
+  defp sentence_join([label]), do: label
+  defp sentence_join([left, right]), do: "#{left} or #{right}"
+
+  defp sentence_join(labels) when is_list(labels) do
+    {last, rest_reversed} = List.pop_at(Enum.reverse(labels), 0)
+
+    rest_reversed
+    |> Enum.reverse()
+    |> Enum.join(", ")
+    |> Kernel.<>(", or #{last}")
+  end
+
+  defp route_enabled?(options, route_key) when is_map(options) and is_atom(route_key) do
+    defaults = default_options()
+    routes = option_map(options, @routes_option_key, Map.fetch!(defaults, @routes_option_key))
+
+    route_options =
+      routes
+      |> route_options(route_key)
+      |> then(fn value -> if is_map(value), do: value, else: %{} end)
+
+    option_value(route_options, @enabled_option_key, true) == true
+  end
+
+  defp route_enabled?(_options, _route_key), do: true
+
+  defp route_options(routes, route_key) when is_map(routes) and is_atom(route_key) do
+    Map.get(routes, Atom.to_string(route_key), %{})
+  end
+
+  defp route_options(_routes, _route_key), do: %{}
 end

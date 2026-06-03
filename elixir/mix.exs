@@ -99,6 +99,7 @@ defmodule SymphonyElixir.MixProject do
         plt_add_apps: [:mix]
       ],
       escript: escript(),
+      releases: releases(),
       aliases: aliases(),
       deps: deps()
     ]
@@ -157,8 +158,20 @@ defmodule SymphonyElixir.MixProject do
       app: nil,
       include_priv_for: [:symphony_elixir],
       main_module: SymphonyElixir.CLI,
+      emu_args: "+B i",
       name: "symphony",
-      path: "bin/symphony"
+      # Keep bin/symphony as the stable launcher that owns signal handling.
+      path: "bin/symphony.escript"
+    ]
+  end
+
+  defp releases do
+    [
+      symphony: [
+        applications: [symphony_elixir: :none],
+        include_executables_for: [:unix],
+        include_erts: true
+      ]
     ]
   end
 

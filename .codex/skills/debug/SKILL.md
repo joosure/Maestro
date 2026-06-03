@@ -41,6 +41,34 @@ them as your join keys during debugging.
 5. Decide class of failure: timeout/stall, app-server startup failure, turn
    failure, or orchestrator retry loop.
 
+## Long-Running Service Checks
+
+When verifying that the main Symphony service stays resident, do not treat a
+background process launched from a transient tool shell as authoritative. For
+example, `nohup ./bin/symphony ... &` inside `exec_command` may disappear when
+that tool shell returns because the execution environment cleans up child
+processes. That is not evidence that Symphony exited because the queue was
+empty.
+
+Use one of these verification modes instead:
+
+- Run `./bin/symphony ...` in a foreground long-running tool session and observe
+  at least two or three poll cycles before stopping it explicitly.
+- For real daemon behavior, use a real process supervisor such as launchd,
+  systemd, Docker/release runner, tmux, or screen.
+
+Acceptable evidence for a healthy empty-queue resident service:
+
+- the dashboard/API port remains listening when configured
+- `log/symphony.log*` continues to record `poll_cycle_completed status=ok`
+- `candidate_count=0` still leads to later `poll_cycle_started` events
+
+If a background process vanishes after the parent tool shell exits, first
+classify it as a launch-method artifact. Only investigate supervisor or child
+lifecycle failure after finding service-level evidence such as
+`service_stopped`, child crash logs, a nonzero foreground exit, or missing
+follow-up poll cycles while the parent shell is still alive.
+
 ## Commands
 
 ```bash

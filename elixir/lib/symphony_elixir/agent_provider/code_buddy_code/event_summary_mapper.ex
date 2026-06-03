@@ -6,6 +6,9 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.EventSummaryMapper do
   alias SymphonyElixir.AgentProvider.Kinds
 
   @provider_kind Kinds.codebuddy_code()
+  @part_category_by_type %{
+    "tool" => :tool
+  }
 
   @spec summarize(term()) :: EventSummary.t()
   def summarize(message) do
@@ -77,10 +80,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.EventSummaryMapper do
   defp category_for(_event, _payload), do: :message
 
   defp part_category(%{} = part) do
-    case Access.map_value(part, :type) do
-      "tool" -> :tool
-      _type -> :message
-    end
+    Map.get(@part_category_by_type, Access.map_value(part, :type), :message)
   end
 
   defp part_category(_part), do: :message

@@ -141,6 +141,43 @@ defmodule SymphonyElixir.Agent.Credential.Store do
     error -> {:error, error}
   end
 
+  @spec list_leases(String.t() | nil, String.t() | nil, keyword() | map() | nil) ::
+          {:ok, [map()]} | {:error, term()}
+  def list_leases(provider_kind \\ nil, id \\ nil, opts \\ nil)
+
+  def list_leases(nil, nil, opts) do
+    settings = settings(opts)
+
+    with {:ok, accounts} <- list_all(opts) do
+      list_account_leases(accounts, settings)
+    end
+  end
+
+  def list_leases(provider_kind, nil, opts) when is_binary(provider_kind) do
+    settings = settings(opts)
+
+    with {:ok, accounts} <- list(provider_kind, opts) do
+      list_account_leases(accounts, settings)
+    end
+  end
+
+  def list_leases(provider_kind, id, opts) when is_binary(provider_kind) and is_binary(id) do
+    settings = settings(opts)
+
+    with {:ok, account} <- get(provider_kind, id, opts) do
+      Leases.list(account, settings)
+    end
+  end
+
+  @spec release_lease(String.t(), String.t(), String.t(), keyword() | map() | nil) ::
+          {:ok, map()} | {:error, term()}
+  def release_lease(provider_kind, id, lease_id, opts \\ nil)
+      when is_binary(provider_kind) and is_binary(id) and is_binary(lease_id) do
+    with {:ok, account} <- get(provider_kind, id, opts) do
+      Leases.release_id(account, lease_id)
+    end
+  end
+
   @spec record_quota(Lease.t() | account() | nil, map() | nil, keyword() | map() | nil) :: :ok
   def record_quota(target, rate_limits, opts \\ nil)
   def record_quota(_target, nil, _opts), do: :ok
@@ -337,7 +374,17 @@ defmodule SymphonyElixir.Agent.Credential.Store do
     case selector do
       {:account, id} ->
         with {:ok, account} <- get(provider_kind, id, settings) do
-          Selection.validate_account_available(account, worker_host, settings)
+          case Selection.validate_account_available(account, worker_host, settings) do
+            {:ok, account} ->
+              {:ok, account}
+
+            {:error, {:credential_account_unavailable, _id, "account concurrency limit reached"} = error} ->
+              log_account_concurrency_blocked(account, settings)
+              {:error, error}
+
+            error ->
+              error
+          end
         end
 
       :pool ->
@@ -357,6 +404,29 @@ defmodule SymphonyElixir.Agent.Credential.Store do
     else
       _result -> []
     end
+  end
+
+  defp list_account_leases(accounts, settings) when is_list(accounts) and is_map(settings) do
+    accounts
+    |> Enum.reduce_while({:ok, []}, fn account, {:ok, acc} ->
+      case Leases.list(account, settings) do
+        {:ok, leases} -> {:cont, {:ok, leases ++ acc}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, leases} -> {:ok, Enum.sort_by(leases, &{&1.provider_kind, &1.account_id, &1.lease_id})}
+      error -> error
+    end
+  end
+
+  defp log_account_concurrency_blocked(account, settings) do
+    active_leases = Map.get(account, :active_leases, %{})
+    lease_ids = active_leases |> Map.keys() |> Enum.sort()
+
+    Logger.warning(
+      "agent_credential_account_concurrency_blocked provider=#{account.agent_provider_kind} account=#{account.id} active_lease_count=#{map_size(active_leases)} max_concurrent_leases_per_account=#{settings.max_concurrent_leases_per_account} lease_ids=#{inspect(lease_ids)}"
+    )
   end
 
   defp set_enabled(provider_kind, id, enabled, opts) do

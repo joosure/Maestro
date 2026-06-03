@@ -49,7 +49,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.Protocol do
 
     with :ok <- send_message(port, payload),
          {:ok, %{"sessionId" => session_id} = response} when is_binary(session_id) <-
-           await_response(port, @session_new_id, read_timeout_ms(settings)) do
+           await_response(port, @session_new_id, handshake_timeout_ms(settings)) do
       {:ok, response}
     else
       {:ok, response} -> {:error, {:invalid_session_new_response, response}}
@@ -165,6 +165,9 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.Protocol do
           {port, {:data, {:noeol, chunk}}} when port == session.port ->
             await_prompt_response(session, on_message, turn_context, started_at_ms, last_activity_ms, pending_line <> to_string(chunk))
 
+          {port, {:exit_status, 0}} when port == session.port ->
+            {:ok, process_exit_success_result()}
+
           {port, {:exit_status, status}} when port == session.port ->
             {:error, {:port_exit, status}}
         after
@@ -194,7 +197,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.Protocol do
         {:error, {:response_error, payload}}
 
       {:ok, %{"id" => _id, "method" => method} = payload} when is_binary(method) ->
-        handle_client_request(session, on_message, turn_context, payload)
+        handle_client_request(session, on_message, turn_context, payload, started_at_ms, activity_ms)
 
       {:ok, %{"method" => "session/update"} = payload} ->
         emit_session_update(session, on_message, turn_context, payload, payload_string)
@@ -239,20 +242,38 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.Protocol do
   defp terminal_result(%{"stopReason" => _reason} = result), do: {:error, {:turn_failed, result}}
   defp terminal_result(result), do: {:ok, result}
 
-  defp handle_client_request(session, on_message, turn_context, %{"method" => "session/request_permission"} = payload) do
-    _ = send_message(session.port, %{"jsonrpc" => "2.0", "id" => Map.get(payload, "id"), "result" => %{"outcome" => %{"outcome" => "cancelled"}}})
-
-    Messages.emit(
-      on_message,
-      :turn_input_required,
-      %{payload: payload, raw: Jason.encode!(payload)},
-      PortMetadata.message(@provider_kind, session.port, payload, turn_context)
-    )
-
-    {:error, {:turn_input_required, payload}}
+  defp process_exit_success_result do
+    %{
+      "stopReason" => "end_turn",
+      "_meta" => %{
+        "codebuddy.ai/finishReason" => "stop",
+        "symphony.codebuddy/completionSource" => "process_exit",
+        "symphony.codebuddy/exitStatus" => 0
+      }
+    }
   end
 
-  defp handle_client_request(session, _on_message, _turn_context, payload) do
+  defp handle_client_request(session, on_message, turn_context, %{"method" => "session/request_permission"} = payload, started_at_ms, activity_ms) do
+    case permission_response(session.settings, payload) do
+      {:ok, response} ->
+        _ = send_message(session.port, response)
+        await_prompt_response(session, on_message, turn_context, started_at_ms, activity_ms, "")
+
+      :error ->
+        _ = send_message(session.port, permission_cancel_response(payload))
+
+        Messages.emit(
+          on_message,
+          :turn_input_required,
+          %{payload: payload, raw: Jason.encode!(payload)},
+          PortMetadata.message(@provider_kind, session.port, payload, turn_context)
+        )
+
+        {:error, {:turn_input_required, payload}}
+    end
+  end
+
+  defp handle_client_request(session, _on_message, _turn_context, payload, _started_at_ms, _activity_ms) do
     _ =
       send_message(session.port, %{
         "jsonrpc" => "2.0",
@@ -261,6 +282,51 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.Protocol do
       })
 
     {:error, {:client_request_unsupported, payload}}
+  end
+
+  defp permission_response(%{permission_mode: "bypass_permissions"}, payload) do
+    case preferred_allow_option_id(payload) do
+      nil ->
+        :error
+
+      option_id ->
+        {:ok,
+         %{
+           "jsonrpc" => "2.0",
+           "id" => Map.get(payload, "id"),
+           "result" => %{"outcome" => %{"outcome" => "selected", "optionId" => option_id}}
+         }}
+    end
+  end
+
+  defp permission_response(_settings, _payload), do: :error
+
+  defp permission_cancel_response(payload) do
+    %{"jsonrpc" => "2.0", "id" => Map.get(payload, "id"), "result" => %{"outcome" => %{"outcome" => "cancelled"}}}
+  end
+
+  defp preferred_allow_option_id(payload) do
+    options = get_in(payload, ["params", "options"])
+
+    case options do
+      [_ | _] ->
+        options
+        |> Enum.filter(&(Map.get(&1, "optionId") && Map.get(&1, "kind") in ["allow_always", "allow_once"]))
+        |> Enum.sort_by(fn option ->
+          case Map.get(option, "kind") do
+            "allow_always" -> 0
+            "allow_once" -> 1
+          end
+        end)
+        |> List.first()
+        |> case do
+          %{"optionId" => option_id} when is_binary(option_id) -> option_id
+          _option -> nil
+        end
+
+      _options ->
+        nil
+    end
   end
 
   defp emit_session_update(session, on_message, turn_context, payload, payload_string) do
@@ -374,7 +440,6 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.Protocol do
   defp timeout_expired?(_now_ms, _base_ms, _timeout_ms), do: false
 
   defp handshake_timeout_ms(settings), do: nested_timeout(settings, "handshake_timeout_ms", settings.read_timeout_ms)
-  defp read_timeout_ms(settings), do: settings.read_timeout_ms
 
   defp nested_timeout(settings, key, default_value) do
     case get_in(settings.acp, [key]) do

@@ -14,6 +14,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.Watcher do
   alias SymphonyElixir.ChangeProposalReconciliation.KnownTarget.Observation
   alias SymphonyElixir.Config
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
+  alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
   alias SymphonyElixir.RepoProvider.ChangeProposalInspector
   alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Config, as: ReconciliationConfig
 
@@ -64,6 +65,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.Watcher do
     registry_module = registry_module(opts)
     registry = registry_server(opts, registry_module)
     inbox = Keyword.get(opts, :inbox, CandidateInbox)
+    blocked_resource_registry = Keyword.get(opts, :blocked_resource_registry, BlockedResourceRegistry)
     target_limit = positive_integer(Keyword.get(opts, :target_limit), @default_target_limit)
     enqueue_unchanged_after_ms = non_negative_integer(Keyword.get(opts, :enqueue_unchanged_after_ms), @default_enqueue_unchanged_after_ms)
     inspector_opts = Keyword.get(opts, :inspector_opts, [])
@@ -81,6 +83,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.Watcher do
             registry_module: registry_module,
             registry: registry,
             inbox: inbox,
+            blocked_resource_registry: blocked_resource_registry,
             repo: repo_config,
             facts_fn: facts_fn,
             emit_event_fn: emit_event_fn,
@@ -173,6 +176,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.Watcher do
       |> maybe_put(Fields.last_enqueued_at_ms(), if(enqueued?, do: context.now_ms, else: nil))
 
     update_result = update_observation(target, observation_attrs, context)
+    release_blocked_issue_if_changed(target, changed?, context)
 
     update_error? = emit_update_failure(update_result, target, context)
 
@@ -341,6 +345,12 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.Watcher do
       now_ms: context.now_ms
     )
   end
+
+  defp release_blocked_issue_if_changed(%KnownTarget{issue_id: issue_id}, true, context) when is_map(context) do
+    BlockedResourceRegistry.release_issue(issue_id, :change_proposal_facts_changed, server: context.blocked_resource_registry)
+  end
+
+  defp release_blocked_issue_if_changed(_target, _changed?, _context), do: :ok
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

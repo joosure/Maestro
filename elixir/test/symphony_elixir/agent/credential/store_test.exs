@@ -1,6 +1,8 @@
 defmodule SymphonyElixir.Agent.Credential.StoreTest do
   use SymphonyElixir.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias SymphonyElixir.Agent.Credential.Store
   alias SymphonyElixir.Config.Schema.Credentials
 
@@ -36,6 +38,98 @@ defmodule SymphonyElixir.Agent.Credential.StoreTest do
              Store.acquire("claude_code", "credential://claude_code/primary", run_id: "run-next")
 
     assert :ok = Store.release(next_lease)
+  end
+
+  test "acquire prunes stale local owner leases before applying account concurrency" do
+    store_root = temp_store_root!("stale-owner")
+    enable_credentials!(store_root)
+
+    {:ok, account} = Store.create_or_update("opencode", "zai", env_name: "ZAI_API_KEY")
+    File.write!(account.secret_file, "zai-token\n")
+
+    stale_owner = spawn(fn -> :ok end)
+    ref = Process.monitor(stale_owner)
+    assert_receive {:DOWN, ^ref, :process, ^stale_owner, :normal}
+
+    assert {:ok, stale_lease} =
+             Store.acquire("opencode", "credential://opencode/zai",
+               run_id: "run-stale",
+               credential_lease_owner_pid: stale_owner
+             )
+
+    log =
+      capture_log(fn ->
+        assert {:ok, next_lease} = Store.acquire("opencode", "credential://opencode/zai", run_id: "run-next")
+        assert next_lease.account_id == "zai"
+        assert :ok = Store.release(next_lease)
+      end)
+
+    assert log =~ "agent_credential_lease_pruned"
+    assert log =~ "reason=stale_owner"
+    assert log =~ stale_lease.id
+  end
+
+  test "acquire prunes ownerless stale leases after lease timeout" do
+    store_root = temp_store_root!("ownerless-stale")
+
+    enable_credentials!(store_root,
+      agent_credentials_lease_timeout_ms: 10
+    )
+
+    {:ok, account} = Store.create_or_update("opencode", "zai", env_name: "ZAI_API_KEY")
+    File.write!(account.secret_file, "zai-token\n")
+
+    now = DateTime.utc_now()
+    ownerless_lease_id = "agent-credential-opencode-zai-ownerless"
+
+    state = %{
+      "active_leases" => %{
+        ownerless_lease_id => %{
+          "run_id" => "run-ownerless",
+          "worker_host" => nil,
+          "acquired_at" => now |> DateTime.add(-1_000, :millisecond) |> DateTime.to_iso8601(),
+          "expires_at" => now |> DateTime.add(3_600_000, :millisecond) |> DateTime.to_iso8601()
+        }
+      }
+    }
+
+    File.write!(Path.join(account.account_dir, "state.json"), Jason.encode!(state))
+
+    log =
+      capture_log(fn ->
+        assert {:ok, next_lease} = Store.acquire("opencode", "credential://opencode/zai", run_id: "run-next")
+        assert next_lease.account_id == "zai"
+        assert :ok = Store.release(next_lease)
+      end)
+
+    assert log =~ "agent_credential_lease_pruned"
+    assert log =~ "reason=stale_ownerless"
+    assert log =~ ownerless_lease_id
+  end
+
+  test "operator lease APIs list and release active leases without editing state files" do
+    store_root = temp_store_root!("lease-api")
+    opts = store_opts(store_root)
+
+    {:ok, account} = Store.create_or_update("opencode", "zai", [env_name: "ZAI_API_KEY"], opts)
+    File.write!(account.secret_file, "zai-token\n")
+
+    assert {:ok, lease} =
+             Store.acquire("opencode", "credential://opencode/zai",
+               run_id: "run-list",
+               agent_credentials: opts.agent.credentials
+             )
+
+    assert {:ok, [listed]} = Store.list_leases("opencode", "zai", opts)
+    assert listed.provider_kind == "opencode"
+    assert listed.account_id == "zai"
+    assert listed.lease_id == lease.id
+    assert listed.run_id == "run-list"
+    assert is_binary(listed.owner_pid)
+
+    assert {:ok, released} = Store.release_lease("opencode", "zai", lease.id, opts)
+    assert released.lease_id == lease.id
+    assert {:ok, []} = Store.list_leases("opencode", "zai", opts)
   end
 
   test "least-usage pool selection avoids accounts near session or weekly quota exhaustion" do

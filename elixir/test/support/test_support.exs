@@ -1,8 +1,11 @@
 defmodule SymphonyElixir.TestSupport do
   @workflow_prompt "You are an agent for this repository."
 
+  alias SymphonyElixir.Agent.DynamicTool.TypedToolFailurePolicy
   alias SymphonyElixir.ChangeProposalReconciliation.{CandidateInbox, KnownTarget}
   alias SymphonyElixir.Observability.EventStore
+  alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
+  alias SymphonyElixir.Tracker.WorkpadRegistry
   alias SymphonyElixir.Workflow.Runtime.Store, as: WorkflowStore
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store, as: ReadinessStore
 
@@ -57,14 +60,18 @@ defmodule SymphonyElixir.TestSupport do
         if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
 
         if Process.whereis(EventStore), do: EventStore.reset()
+        if Process.whereis(TypedToolFailurePolicy), do: TypedToolFailurePolicy.reset()
         if Process.whereis(CandidateInbox), do: CandidateInbox.reset()
         if Process.whereis(KnownTarget.Registry), do: KnownTarget.Registry.reset()
+        if Process.whereis(WorkpadRegistry), do: WorkpadRegistry.reset()
+        if Process.whereis(BlockedResourceRegistry), do: BlockedResourceRegistry.reset()
         if Process.whereis(ReadinessStore), do: ReadinessStore.reset()
 
         stop_default_http_server()
 
         on_exit(fn ->
           Application.delete_env(:symphony_elixir, :workflow_file_path)
+          Application.delete_env(:symphony_elixir, :server_host_override)
           Application.delete_env(:symphony_elixir, :server_port_override)
           Application.delete_env(:symphony_elixir, :memory_tracker_issues)
           Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
@@ -271,7 +278,7 @@ defmodule SymphonyElixir.TestSupport do
           worker_ssh_hosts: [],
           worker_max_concurrent_local_agents: nil,
           worker_max_concurrent_agents_per_host: nil,
-          agent_runtime: nil,
+          runtime_agent: nil,
           repo_path: nil,
           repo_base_branch: "main",
           repo_remote_name: nil,
@@ -353,7 +360,7 @@ defmodule SymphonyElixir.TestSupport do
     workspace_bootstrap_automation_from = Keyword.get(config, :workspace_bootstrap_automation_from)
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
     worker_max_concurrent_local_agents = Keyword.get(config, :worker_max_concurrent_local_agents)
-    agent_runtime = Keyword.get(config, :agent_runtime)
+    runtime_agent = Keyword.get(config, :runtime_agent)
 
     worker_max_concurrent_agents_per_host =
       Keyword.get(config, :worker_max_concurrent_agents_per_host)
@@ -482,7 +489,7 @@ defmodule SymphonyElixir.TestSupport do
         "  root: #{yaml_value(workspace_root)}",
         "  bootstrap_automation_from: #{yaml_value(workspace_bootstrap_automation_from)}",
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_local_agents, worker_max_concurrent_agents_per_host),
-        agent_runtime && "agent_runtime: #{yaml_value(agent_runtime)}",
+        runtime_agent && "runtime: #{yaml_value(%{agent: runtime_agent})}",
         "repo:",
         repo_path && "  path: #{yaml_value(repo_path)}",
         "  base_branch: #{yaml_value(repo_base_branch)}",

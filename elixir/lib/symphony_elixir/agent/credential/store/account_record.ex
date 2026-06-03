@@ -37,7 +37,11 @@ defmodule SymphonyElixir.Agent.Credential.Store.AccountRecord do
       last_success_at: Normalization.normalize_optional_string(Map.get(state, "last_success_at")),
       token_totals: Map.get(state, "token_totals", State.default_token_totals()),
       rate_limit_periods: Map.get(state, "rate_limit_periods", %{}),
-      active_leases: State.prune_expired_leases(Map.get(state, "active_leases", %{}), DateTime.utc_now()),
+      active_leases:
+        state
+        |> Map.get("active_leases", %{})
+        |> State.prune_inactive_leases(DateTime.utc_now(), ownerless_stale_recovery_after_ms: settings.lease_timeout_ms)
+        |> elem(0),
       daily_token_budget:
         Normalization.positive_integer_value(Map.get(metadata, "daily_token_budget")) ||
           settings.daily_token_budget

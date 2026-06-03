@@ -14,7 +14,7 @@ defmodule Mix.Tasks.ChangeProposal.ReconcileTest do
       Application.delete_env(:symphony_elixir, :memory_repo_provider_issue_comments)
       Application.delete_env(:symphony_elixir, :memory_repo_provider_review_comments)
       Application.delete_env(:symphony_elixir, :memory_repo_provider_reviews)
-      Application.delete_env(:symphony_elixir, :memory_repo_provider_checks)
+      Application.delete_env(:symphony_elixir, :memory_repo_change_proposal_checks)
       Application.delete_env(:symphony_elixir, :memory_tracker_issue_state_overrides)
       Mix.Task.reenable("change_proposal.reconcile")
     end)
@@ -113,7 +113,7 @@ defmodule Mix.Tasks.ChangeProposal.ReconcileTest do
             "passing_checks_required" => true,
             "mergeable_required" => true
           },
-          "transitions" => %{
+          "outcome_routes" => %{
             "ready" => "merging",
             "changes_requested" => "rework",
             "failed_checks" => "rework",
@@ -149,7 +149,7 @@ defmodule Mix.Tasks.ChangeProposal.ReconcileTest do
       }
     ])
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "status" => "completed", "conclusion" => "success"}
     ])
   end

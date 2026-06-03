@@ -7,6 +7,9 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.EventStream do
   alias SymphonyElixir.AgentProvider.OpenCode.AppServer.{Context, Diagnostics, Paths, Usage}
   alias SymphonyElixir.PathSafety
 
+  @external_directory_permission "external_directory"
+  @permission_reply_once "once"
+  @permission_reply_reject "reject"
   @allowed_unattended_permissions MapSet.new(~w(read edit glob grep list bash lsp task skill todowrite webfetch websearch codesearch))
   @stream_idle_poll_ms 250
 
@@ -18,6 +21,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.EventStream do
         url: Paths.global_event(),
         decode_body: false,
         into: :self,
+        receive_timeout: session.settings.turn_timeout_ms,
         headers: %{"accept" => "text/event-stream"}
       )
 
@@ -148,6 +152,15 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.EventStream do
        when not is_nil(error),
        do: send(owner, {turn_ref, :turn_failed, {:message_error, error}})
 
+  defp maybe_handle_runtime_event("session.status", %{"status" => %{"type" => type}}, _session, turn_ref, owner)
+       when type in ["busy", "retry", "idle"] do
+    send(owner, {turn_ref, :activity, monotonic_ms()})
+  end
+
+  defp maybe_handle_runtime_event("session.idle", _properties, _session, turn_ref, owner) do
+    send(owner, {turn_ref, :activity, monotonic_ms()})
+  end
+
   defp maybe_handle_runtime_event(_type, _properties, _session, _turn_ref, _owner), do: :ok
 
   defp event_matches_session?(properties, expected_session_id) do
@@ -195,10 +208,10 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.EventStream do
     permission = Map.get(properties, "permission") || Map.get(properties, :permission)
 
     cond do
-      permission == "external_directory" -> "reject"
-      permission not in @allowed_unattended_permissions -> "reject"
-      permission_patterns_within_workspace?(properties, workspace) -> "once"
-      true -> "reject"
+      permission == @external_directory_permission -> @permission_reply_reject
+      permission not in @allowed_unattended_permissions -> @permission_reply_reject
+      permission_patterns_within_workspace?(properties, workspace) -> @permission_reply_once
+      true -> @permission_reply_reject
     end
   end
 
@@ -258,7 +271,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.EventStream do
 
     message =
       if transport_reason == :timeout,
-        do: "OpenCode event stream did not deliver data before read_timeout_ms elapsed",
+        do: "OpenCode event stream did not deliver data before turn_timeout_ms elapsed",
         else: "OpenCode event stream failed while reading or parsing SSE events"
 
     {kind,

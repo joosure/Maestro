@@ -20,9 +20,12 @@ and provider-specific token accounting.
 - [`claude_code.md`](./claude_code.md): Claude Code provider runtime,
   stream-json transport, Dynamic Tool MCP tooling, managed credential, quota,
   and runtime-boundary notes.
+- [`codebuddy_code.md`](./codebuddy_code.md): CodeBuddy Code provider runtime,
+  ACP transport modes, managed API-key credentials, generated MCP Dynamic Tool
+  config, auxiliary HTTP metadata, and runtime-boundary notes.
 - [`opencode.md`](./opencode.md): OpenCode provider runtime configuration,
-  managed env-token account login, credential refs, and unsupported capability
-  boundaries.
+  synchronous message turn transport, SSE runtime events, managed env-token
+  account login, credential refs, and unsupported capability boundaries.
 
 ## Placement Rule
 

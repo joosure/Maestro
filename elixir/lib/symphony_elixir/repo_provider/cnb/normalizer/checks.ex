@@ -1,6 +1,27 @@
 defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Checks do
   @moduledoc false
 
+  @status_completed "completed"
+  @status_in_progress "in_progress"
+  @conclusion_pending "pending"
+  @conclusion_success "success"
+  @conclusion_neutral "neutral"
+  @conclusion_skipped "skipped"
+  @conclusion_error "error"
+  @conclusion_cancelled "cancelled"
+  @conclusion_failure "failure"
+
+  @overall_completed_states ["success", "passed", "failure", "failed", "error", "cancelled", "timed_out", "action_required"]
+  @pending_states ["pending", "queued", "created", "running", "in_progress", "checking", ""]
+  @check_conclusion_by_state %{
+    "success" => @conclusion_success,
+    "passed" => @conclusion_success,
+    "neutral" => @conclusion_neutral,
+    "skipped" => @conclusion_skipped,
+    "error" => @conclusion_error,
+    "cancelled" => @conclusion_cancelled
+  }
+
   @spec normalize_check_payload(map()) :: list(map())
   def normalize_check_payload(payload) when is_map(payload) do
     check_runs =
@@ -33,18 +54,9 @@ defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Checks do
             "name" => "overall",
             "status" =>
               if(
-                overall_state in [
-                  "success",
-                  "passed",
-                  "failure",
-                  "failed",
-                  "error",
-                  "cancelled",
-                  "timed_out",
-                  "action_required"
-                ],
-                do: "completed",
-                else: "in_progress"
+                overall_state in @overall_completed_states,
+                do: @status_completed,
+                else: @status_in_progress
               ),
             "conclusion" => map_check_conclusion(overall_state),
             "created_at" => nil,
@@ -68,11 +80,11 @@ defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Checks do
       |> to_string()
       |> String.downcase()
 
-    pending = state in ["pending", "queued", "created", "running", "in_progress", "checking", ""]
+    pending = state in @pending_states
 
     %{
       "name" => Map.get(status, "context", status[:context] || "unknown"),
-      "status" => if(pending, do: "in_progress", else: "completed"),
+      "status" => if(pending, do: @status_in_progress, else: @status_completed),
       "conclusion" => if(pending, do: nil, else: map_check_conclusion(state)),
       "created_at" => Map.get(status, "created_at", status[:created_at]),
       "started_at" => Map.get(status, "created_at", status[:created_at]),
@@ -87,26 +99,11 @@ defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Checks do
     normalized = String.downcase(state)
 
     cond do
-      normalized in ["success", "passed"] ->
-        "success"
-
-      normalized == "neutral" ->
-        "neutral"
-
-      normalized == "skipped" ->
-        "skipped"
-
-      normalized in ["pending", "queued", "created", "running", "in_progress", "checking", ""] ->
-        "pending"
-
-      normalized == "error" ->
-        "error"
-
-      normalized == "cancelled" ->
-        "cancelled"
+      normalized in @pending_states ->
+        @conclusion_pending
 
       true ->
-        "failure"
+        Map.get(@check_conclusion_by_state, normalized, @conclusion_failure)
     end
   end
 end

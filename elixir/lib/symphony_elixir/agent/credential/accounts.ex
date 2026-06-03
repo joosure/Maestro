@@ -56,6 +56,13 @@ defmodule SymphonyElixir.Agent.Credential.Accounts do
   @spec remove(String.t(), String.t(), keyword() | map() | nil) :: :ok | {:error, term()}
   def remove(provider_kind, id, store_opts \\ nil), do: Lifecycle.remove(provider_kind, id, store_opts)
 
+  @spec list_leases(String.t() | nil, String.t() | nil, keyword() | map() | nil) :: {:ok, [map()]} | {:error, term()}
+  def list_leases(provider_kind \\ nil, id \\ nil, store_opts \\ nil), do: Lifecycle.list_leases(provider_kind, id, store_opts)
+
+  @spec release_lease(String.t(), String.t(), String.t(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}
+  def release_lease(provider_kind, id, lease_id, store_opts \\ nil),
+    do: Lifecycle.release_lease(provider_kind, id, lease_id, store_opts)
+
   @spec account_summary(account() | nil) :: map() | nil
   def account_summary(account), do: Store.account_summary(account)
 

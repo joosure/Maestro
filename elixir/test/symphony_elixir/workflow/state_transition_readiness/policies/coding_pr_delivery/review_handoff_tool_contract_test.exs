@@ -6,7 +6,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   test "classifies readiness evidence tools by semantic evidence kind" do
     assert ReviewHandoffToolContract.evidence_kind(ReviewHandoffToolContract.linear_upsert_workpad_tool()) == :workpad
     assert ReviewHandoffToolContract.evidence_kind(ReviewHandoffToolContract.tapd_upsert_workpad_tool()) == :workpad
-    assert ReviewHandoffToolContract.evidence_kind(ReviewHandoffToolContract.repo_read_change_proposal_checks_tool()) == :repo_provider_checks
+    assert ReviewHandoffToolContract.evidence_kind(ReviewHandoffToolContract.repo_read_change_proposal_checks_tool()) == :repo_change_proposal_checks
     assert ReviewHandoffToolContract.evidence_kind("unknown_tool") == nil
   end
 

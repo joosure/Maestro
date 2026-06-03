@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Workflow.Readiness
   alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
+  alias SymphonyElixir.Workflow.RouteRef
 
   @spec choose_issues([Issue.t()], State.t()) :: State.t()
   def choose_issues(issues, %State{} = state) when is_list(issues) do
@@ -200,7 +201,10 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
           end,
           schedule_retry: fn state, issue, next_attempt, metadata ->
             Retry.schedule(state, issue.id, next_attempt, metadata, emit_event: &Events.emit/5)
-          end
+          end,
+          agent_opts: [
+            workflow_settings: DispatchContext.workflow_settings(dispatch_context)
+          ]
         )
     end
   end
@@ -217,17 +221,23 @@ defmodule SymphonyElixir.Orchestrator.IssueDispatch do
     gate = Map.get(facts, ReadinessContract.gate_key(), %{})
     capabilities = Map.get(facts, "capabilities", %{})
 
-    %{
-      workflow_profile: Map.get(profile, "kind"),
-      workflow_profile_version: Map.get(profile, "version"),
-      workflow_route_key: Map.get(route, ReadinessContract.key_key()),
+    profile
+    |> route_ref_event_fields(Map.get(route, ReadinessContract.key_key()))
+    |> Map.merge(%{
       workflow_route_action: Map.get(route, "action"),
       workflow_gate_status: Map.get(gate, ReadinessContract.status_key()),
       workflow_gate: ReadinessContract.gate(gate),
       workflow_gate_reason: Map.get(gate, ReadinessContract.reason_key()),
       workflow_missing_capabilities: Map.get(capabilities, "missing", [])
-    }
+    })
   end
 
   defp workflow_event_fields(_issue, _dispatch_context), do: %{}
+
+  defp route_ref_event_fields(profile, route_key) do
+    case RouteRef.new(profile, route_key) do
+      {:ok, route_ref} -> RouteRef.event_fields(route_ref)
+      {:error, _reason} -> RouteRef.event_fields(profile, route_key)
+    end
+  end
 end

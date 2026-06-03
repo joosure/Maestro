@@ -116,18 +116,107 @@ defmodule SymphonyElixir.Agent.Credential.Store.State do
 
   @spec prune_expired_leases(map(), DateTime.t()) :: map()
   def prune_expired_leases(active_leases, %DateTime{} = now) when is_map(active_leases) do
-    Enum.reduce(active_leases, %{}, fn {lease_id, lease}, acc ->
-      case lease |> Map.get("expires_at") |> Normalization.normalize_datetime() do
-        %DateTime{} = expires_at ->
-          if DateTime.compare(expires_at, now) == :gt,
-            do: Map.put(acc, lease_id, lease),
-            else: acc
-
-        _datetime ->
-          Map.put(acc, lease_id, lease)
-      end
-    end)
+    active_leases
+    |> prune_inactive_leases(now)
+    |> elem(0)
   end
 
   def prune_expired_leases(_active_leases, _now), do: %{}
+
+  @spec prune_inactive_leases(map(), DateTime.t()) :: {map(), [map()]}
+  @spec prune_inactive_leases(map(), DateTime.t(), keyword()) :: {map(), [map()]}
+  def prune_inactive_leases(active_leases, now, opts \\ [])
+
+  def prune_inactive_leases(active_leases, %DateTime{} = now, opts) when is_map(active_leases) and is_list(opts) do
+    Enum.reduce(active_leases, %{}, fn {lease_id, lease}, acc ->
+      case inactive_lease_reason(lease, now, opts) do
+        nil ->
+          Map.update(acc, :kept, %{lease_id => lease}, &Map.put(&1, lease_id, lease))
+
+        reason ->
+          pruned = %{
+            lease_id: lease_id,
+            reason: reason,
+            run_id: Map.get(lease, "run_id"),
+            worker_host: Map.get(lease, "worker_host"),
+            acquired_at: Map.get(lease, "acquired_at"),
+            expires_at: Map.get(lease, "expires_at"),
+            owner_node: Map.get(lease, "owner_node"),
+            owner_pid: Map.get(lease, "owner_pid")
+          }
+
+          Map.update(acc, :pruned, [pruned], &[pruned | &1])
+      end
+    end)
+    |> case do
+      %{kept: kept, pruned: pruned} -> {kept, Enum.reverse(pruned)}
+      %{kept: kept} -> {kept, []}
+      %{pruned: pruned} -> {%{}, Enum.reverse(pruned)}
+      %{} -> {%{}, []}
+    end
+  end
+
+  def prune_inactive_leases(_active_leases, _now, _opts), do: {%{}, []}
+
+  defp inactive_lease_reason(lease, now, opts) when is_map(lease) and is_struct(now, DateTime) and is_list(opts) do
+    cond do
+      expired?(lease, now) ->
+        "expired"
+
+      local_owner_stale?(lease) ->
+        "stale_owner"
+
+      ownerless_stale?(lease, now, opts) ->
+        "stale_ownerless"
+
+      true ->
+        nil
+    end
+  end
+
+  defp inactive_lease_reason(_lease, _now, _opts), do: nil
+
+  defp expired?(lease, now) do
+    case lease |> Map.get("expires_at") |> Normalization.normalize_datetime() do
+      %DateTime{} = expires_at -> DateTime.compare(expires_at, now) != :gt
+      _datetime -> false
+    end
+  end
+
+  defp local_owner_stale?(%{"owner_node" => owner_node, "owner_pid" => owner_pid})
+       when is_binary(owner_node) and is_binary(owner_pid) do
+    owner_node == Atom.to_string(node()) and not local_pid_alive?(owner_pid)
+  end
+
+  defp local_owner_stale?(_lease), do: false
+
+  defp ownerless_stale?(lease, now, opts) when is_map(lease) do
+    stale_after_ms = Keyword.get(opts, :ownerless_stale_recovery_after_ms)
+
+    cond do
+      not (is_integer(stale_after_ms) and stale_after_ms > 0) ->
+        false
+
+      Map.has_key?(lease, "owner_node") and Map.has_key?(lease, "owner_pid") ->
+        false
+
+      true ->
+        lease
+        |> Map.get("acquired_at")
+        |> Normalization.normalize_datetime()
+        |> case do
+          %DateTime{} = acquired_at -> DateTime.diff(now, acquired_at, :millisecond) >= stale_after_ms
+          _datetime -> false
+        end
+    end
+  end
+
+  defp local_pid_alive?(pid_string) when is_binary(pid_string) do
+    pid_string
+    |> String.to_charlist()
+    |> :erlang.list_to_pid()
+    |> Process.alive?()
+  rescue
+    _error -> false
+  end
 end

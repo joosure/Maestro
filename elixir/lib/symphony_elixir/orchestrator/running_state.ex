@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Orchestrator.RunningState do
 
   alias SymphonyElixir.Agent.Runtime
   alias SymphonyElixir.AgentProvider
+  alias SymphonyElixir.Issue
   alias SymphonyElixir.Observability.Redaction
   alias SymphonyElixir.Orchestrator.AgentUsage
 
@@ -28,11 +29,25 @@ defmodule SymphonyElixir.Orchestrator.RunningState do
     |> maybe_put_runtime_value(:worker_daemon_worker_id, runtime_info[:worker_daemon_worker_id])
     |> maybe_put_runtime_value(:worker_daemon_daemon_instance_id, runtime_info[:worker_daemon_daemon_instance_id])
     |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
+    |> maybe_put_issue_fact(runtime_info)
     |> maybe_put_runtime_value(:failure_class, runtime_info[:failure_class])
     |> maybe_put_runtime_value(:last_error, runtime_info[:error])
   end
 
   def merge_worker_runtime_info(running_entry, _runtime_info), do: running_entry
+
+  defp maybe_put_issue_fact(running_entry, %{issue: %Issue{} = issue} = runtime_info)
+       when is_map(running_entry) do
+    running_entry
+    |> Map.put(:issue, issue)
+    |> Map.put(:issue_fact_updated_at_ms, monotonic_ms(runtime_info))
+    |> maybe_put_runtime_value(:issue_fact_source, runtime_info[:issue_fact_source])
+  end
+
+  defp maybe_put_issue_fact(running_entry, _runtime_info), do: running_entry
+
+  defp monotonic_ms(%{monotonic_ms: monotonic_ms}) when is_integer(monotonic_ms), do: monotonic_ms
+  defp monotonic_ms(_runtime_info), do: System.monotonic_time(:millisecond)
 
   @spec integrate_agent_update(map(), map()) :: {map(), map()}
   def integrate_agent_update(running_entry, %{event: event, timestamp: timestamp} = update)

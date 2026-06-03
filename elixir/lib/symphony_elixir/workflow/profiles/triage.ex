@@ -6,18 +6,10 @@ defmodule SymphonyElixir.Workflow.Profiles.Triage do
   @behaviour SymphonyElixir.Workflow.Profile
 
   alias SymphonyElixir.Workflow.CapabilityNames, as: Capabilities
+  alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
 
   @route_keys [:intake, :classifying, :needs_info, :routed, :duplicate, :rejected]
-
-  @default_raw_state_by_route_key %{
-    intake: "intake",
-    classifying: "classifying",
-    needs_info: "needs_info",
-    routed: "routed",
-    duplicate: "duplicate",
-    rejected: "rejected"
-  }
 
   @default_policy_by_route_key %{
     intake: %{action: :transition_then_dispatch, transition_target: :classifying},
@@ -29,17 +21,17 @@ defmodule SymphonyElixir.Workflow.Profiles.Triage do
   }
 
   @lifecycle_phase_by_route_key %{
-    intake: "todo",
-    classifying: "in_progress",
-    needs_info: "human_review",
-    routed: "done",
-    duplicate: "canceled",
-    rejected: "canceled"
+    intake: WorkflowLifecycle.todo(),
+    classifying: WorkflowLifecycle.in_progress(),
+    needs_info: WorkflowLifecycle.human_review(),
+    routed: WorkflowLifecycle.done(),
+    duplicate: WorkflowLifecycle.canceled(),
+    rejected: WorkflowLifecycle.canceled()
   }
 
-  @default_options %{
-    "routing_taxonomy" => [],
-    "allow_duplicate_route" => true
+  @options_schema %{
+    "routing_taxonomy" => %{type: :string_list, default: []},
+    "allow_duplicate_route" => %{type: :boolean, default: true}
   }
 
   @completion_contract %{
@@ -85,9 +77,6 @@ defmodule SymphonyElixir.Workflow.Profiles.Triage do
   def route_keys, do: @route_keys
 
   @impl true
-  def default_raw_state_by_route_key, do: @default_raw_state_by_route_key
-
-  @impl true
   def default_policy_by_route_key, do: @default_policy_by_route_key
 
   @impl true
@@ -112,15 +101,14 @@ defmodule SymphonyElixir.Workflow.Profiles.Triage do
   def execution_profile_required_capabilities(_execution_profile, _options), do: []
 
   @impl true
-  def default_options, do: @default_options
+  def options_schema, do: @options_schema
+
+  @impl true
+  def default_options, do: ProfileOptions.default_options(@options_schema)
 
   @impl true
   def validate_options(options) when is_map(options) do
-    with :ok <- ProfileOptions.reject_unknown(kind(), options, Map.keys(@default_options)),
-         :ok <- ProfileOptions.validate_string_list(kind(), options, @default_options, "routing_taxonomy"),
-         :ok <- ProfileOptions.validate_boolean(kind(), options, @default_options, "allow_duplicate_route") do
-      :ok
-    end
+    ProfileOptions.validate(kind(), options, @options_schema)
   end
 
   def validate_options(options), do: {:error, {:invalid_profile_options, kind(), options}}

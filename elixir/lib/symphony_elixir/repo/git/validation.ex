@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Repo.Git.Validation do
 
   alias SymphonyElixir.Repo.Error
 
+  @current_directory "."
+
   @spec present(atom(), Path.t() | nil, term(), String.t()) :: {:ok, String.t()} | {:error, Error.t()}
   def present(operation, path, value, label) do
     case present_string(value) do
@@ -15,7 +17,7 @@ defmodule SymphonyElixir.Repo.Git.Validation do
   def directory(path, operation) do
     case present_string(path) do
       nil -> :ok
-      "." -> :ok
+      @current_directory -> :ok
       repo_path -> if File.dir?(repo_path), do: :ok, else: {:error, Error.not_git_repo(operation, path, :path_missing)}
     end
   end

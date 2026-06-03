@@ -23,9 +23,9 @@ defmodule SymphonyElixir.Agent.Runner.ActiveSessions do
     call_if_running(server, {:register, self(), session, context})
   end
 
-  @spec unregister(GenServer.server()) :: :ok
-  def unregister(server \\ __MODULE__) do
-    call_if_running(server, {:unregister, self()})
+  @spec claim_current_cleanup(GenServer.server()) :: :ok | :not_registered | :unavailable
+  def claim_current_cleanup(server \\ __MODULE__) do
+    call_cleanup_if_running(server, {:claim_current_cleanup, self()})
   end
 
   @spec cleanup_owner(pid(), term(), GenServer.server()) :: :ok
@@ -47,8 +47,14 @@ defmodule SymphonyElixir.Agent.Runner.ActiveSessions do
     {:reply, :ok, put_in(state, [:entries, owner], entry)}
   end
 
-  def handle_call({:unregister, owner}, _from, state) when is_pid(owner) do
-    {:reply, :ok, remove_owner(state, owner)}
+  def handle_call({:claim_current_cleanup, owner}, _from, state) when is_pid(owner) do
+    case pop_owner(state, owner) do
+      {nil, state} ->
+        {:reply, :not_registered, state}
+
+      {_entry, state} ->
+        {:reply, :ok, state}
+    end
   end
 
   def handle_call({:cleanup_owner, owner, reason}, _from, state) when is_pid(owner) do
@@ -91,6 +97,18 @@ defmodule SymphonyElixir.Agent.Runner.ActiveSessions do
     :exit, _reason -> :ok
   end
 
+  defp call_cleanup_if_running(server, request) do
+    case resolve_server(server) do
+      nil ->
+        :unavailable
+
+      pid when is_pid(pid) ->
+        GenServer.call(pid, request, 10_000)
+    end
+  catch
+    :exit, _reason -> :unavailable
+  end
+
   defp resolve_server(server) when is_atom(server), do: Process.whereis(server)
   defp resolve_server(server) when is_pid(server), do: server
   defp resolve_server(_server), do: nil
@@ -120,19 +138,23 @@ defmodule SymphonyElixir.Agent.Runner.ActiveSessions do
     run_id = Map.get(context, :run_id) || EventFields.session_value(session, :run_id) || "unknown-run"
 
     stop_opts =
-      case reason do
-        :normal ->
-          SessionCleanup.stop_options(session, :ok, issue)
-
-        _reason ->
-          AgentProvider.failed_session_stop_options(
-            issue || %{},
-            inspect(reason),
-            ProviderOptions.from_session(session)
-          )
+      if graceful_owner_down?(reason) do
+        SessionCleanup.stop_options(session, :ok, issue)
+      else
+        AgentProvider.failed_session_stop_options(
+          issue || %{},
+          inspect(reason),
+          ProviderOptions.from_session(session)
+        )
       end
 
-    _ = SessionCleanup.stop(session, stop_opts, issue || %{}, worker_host, workspace, run_id, "owner_down")
+    _ = SessionCleanup.stop(session, stop_opts, issue || Keyword.get(stop_opts, :issue) || %{}, worker_host, workspace, run_id, "owner_down")
     :ok
   end
+
+  defp graceful_owner_down?(:normal), do: true
+  defp graceful_owner_down?(:shutdown), do: true
+  defp graceful_owner_down?({:shutdown, _reason}), do: true
+  defp graceful_owner_down?(:running_issue_terminated), do: true
+  defp graceful_owner_down?(_reason), do: false
 end

@@ -12,6 +12,8 @@ defmodule SymphonyElixir.Agent.DynamicTool.EventContract do
   @tool_call_succeeded_event :tool_call_succeeded
   @tool_call_failed_event :tool_call_failed
   @tool_call_rejected_event :tool_call_rejected
+  @typed_tool_failure_policy_blocked_event :typed_tool_failure_policy_blocked
+  @typed_tool_failure_policy_skipped_unscoped_event :typed_tool_failure_policy_skipped_unscoped
 
   @tool_call_succeeded "tool_call_succeeded"
   @tool_call_failed "tool_call_failed"
@@ -40,6 +42,12 @@ defmodule SymphonyElixir.Agent.DynamicTool.EventContract do
 
   @spec tool_call_rejected_event() :: atom()
   def tool_call_rejected_event, do: @tool_call_rejected_event
+
+  @spec typed_tool_failure_policy_skipped_unscoped_event() :: atom()
+  def typed_tool_failure_policy_skipped_unscoped_event, do: @typed_tool_failure_policy_skipped_unscoped_event
+
+  @spec typed_tool_failure_policy_blocked_event() :: atom()
+  def typed_tool_failure_policy_blocked_event, do: @typed_tool_failure_policy_blocked_event
 
   @spec tool_call_succeeded() :: String.t()
   def tool_call_succeeded, do: @tool_call_succeeded

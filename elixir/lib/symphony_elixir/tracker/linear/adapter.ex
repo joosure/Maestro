@@ -23,11 +23,19 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
   alias SymphonyElixir.Workflow.CapabilityNames
 
   @provider_kind Kinds.linear()
+  @tool_api_key_env "SYMPHONY_LINEAR_API_KEY"
+  @tool_endpoint_env "SYMPHONY_LINEAR_ENDPOINT"
 
   # ── Required callbacks ───────────────────────────────────────────
 
   @spec kind() :: String.t()
   def kind, do: @provider_kind
+
+  @spec tool_api_key_env() :: String.t()
+  def tool_api_key_env, do: @tool_api_key_env
+
+  @spec tool_endpoint_env() :: String.t()
+  def tool_endpoint_env, do: @tool_endpoint_env
 
   @spec capabilities() :: [String.t()]
   def capabilities do
@@ -58,23 +66,6 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
         provider: %{
           assignee: "LINEAR_ASSIGNEE"
         }
-      },
-      lifecycle: %{
-        "active_states" => ["Todo", "In Progress"],
-        "terminal_states" => ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
-        "state_phase_map" => %{
-          "Backlog" => "backlog",
-          "Todo" => "todo",
-          "In Progress" => "in_progress",
-          "In Review" => "human_review",
-          "Merging" => "merging",
-          "Rework" => "rework",
-          "Done" => "done",
-          "Closed" => "canceled",
-          "Cancelled" => "canceled",
-          "Canceled" => "canceled",
-          "Duplicate" => "canceled"
-        }
       }
     }
   end
@@ -101,8 +92,8 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
   @spec tool_environment(TrackerConfig.t()) :: map()
   def tool_environment(tracker) when is_map(tracker) do
     %{}
-    |> maybe_put_env("SYMPHONY_LINEAR_API_KEY", TrackerConfig.api_key(tracker))
-    |> maybe_put_env("SYMPHONY_LINEAR_ENDPOINT", TrackerConfig.endpoint(tracker))
+    |> maybe_put_env(@tool_api_key_env, TrackerConfig.api_key(tracker))
+    |> maybe_put_env(@tool_endpoint_env, TrackerConfig.endpoint(tracker))
   end
 
   @spec execute_dynamic_tool(TrackerConfig.t(), String.t() | nil, term(), keyword()) ::

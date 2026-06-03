@@ -9,15 +9,16 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
 
   alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.IssueContext
+  alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
   alias SymphonyElixir.Workflow.Profiles.CodingPrDelivery
   alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
+  alias SymphonyElixir.Workflow.RouteRef
 
   @merge_capabilities MapSet.new(CapabilityNames.merge_gate())
   @passing_check_statuses ["passing", "passed", "success", "successful"]
   @approved_review_statuses ["approved", "approval", "passed"]
   @truthy_strings ["true", "yes", "passed", "passing"]
-  @tracker_merging_states ["Merging", "merging"]
 
   @type validation_status :: String.t()
   @type validation_result :: %{
@@ -74,17 +75,16 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
         )
       ]
 
-      validation_result(profile_context.kind, route_key, allowed_routes, checks)
+      validation_result(profile_context, route_key, allowed_routes, checks)
     else
       %{
         ReadinessContract.status_key() => ReadinessContract.skipped(),
-        ReadinessContract.profile_key() => profile_context.kind,
-        ReadinessContract.route_key() => route_key,
         ReadinessContract.allowed_completion_routes_key() => allowed_routes,
         ReadinessContract.checks_key() => [],
         ReadinessContract.missing_evidence_key() => [],
         ReadinessContract.observed_evidence_key() => []
       }
+      |> Map.merge(route_ref_fields(profile_context, route_key))
     end
   end
 
@@ -180,16 +180,22 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
     |> Enum.uniq()
   end
 
-  defp validation_result(profile, route, allowed_routes, checks) do
+  defp validation_result(profile_context, route, allowed_routes, checks) do
     %{
       ReadinessContract.status_key() => result_status(checks),
-      ReadinessContract.profile_key() => profile,
-      ReadinessContract.route_key() => route,
       ReadinessContract.allowed_completion_routes_key() => allowed_routes,
       ReadinessContract.checks_key() => checks,
       ReadinessContract.missing_evidence_key() => missing_evidence(checks),
       ReadinessContract.observed_evidence_key() => observed_evidence(checks)
     }
+    |> Map.merge(route_ref_fields(profile_context, route))
+  end
+
+  defp route_ref_fields(profile_context, route_key) do
+    case RouteRef.new(profile_context, route_key) do
+      {:ok, route_ref} -> RouteRef.string_fields(route_ref)
+      {:error, _reason} -> RouteRef.string_fields(profile_context, route_key)
+    end
   end
 
   defp profile_context(issue, opts) do
@@ -375,8 +381,13 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
     route_value(route, :key) == "merging" or
       route_value(route, :current) == "merging" or
       route_value(route, :target) == "merging" or
-      map_field(tracker, :state) in @tracker_merging_states or
+      tracker_merge_phase?(tracker) or
       truthy?(map_field(tracker, :merge_approved))
+  end
+
+  defp tracker_merge_phase?(tracker) do
+    phase = map_field(tracker, :lifecycle_phase) || map_field(tracker, :state)
+    WorkflowLifecycle.merge_phase?(phase)
   end
 
   defp observed_change_proposal(evidence) do

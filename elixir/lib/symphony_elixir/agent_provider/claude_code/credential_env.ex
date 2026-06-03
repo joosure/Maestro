@@ -3,11 +3,13 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.CredentialEnv do
   Claude Code managed-credential environment contract.
   """
 
+  alias SymphonyElixir.AgentProvider.ModelCredentialEnv
+
   @oauth_token_credential_kind "claude_oauth_token"
   @config_credential_kind "claude_config"
   @oauth_token_env "CLAUDE_CODE_OAUTH_TOKEN"
   @config_dir_env "CLAUDE_CONFIG_DIR"
-  @anthropic_api_key_env "ANTHROPIC_API_KEY"
+  @anthropic_api_key_env ModelCredentialEnv.anthropic_api_key_env()
   @default_config_dir "~/.claude"
 
   @spec oauth_token_credential_kind() :: String.t()

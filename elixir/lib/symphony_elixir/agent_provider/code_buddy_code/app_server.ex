@@ -251,7 +251,8 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer do
   defp start_started_port(expanded_workspace, settings, port, bridge_runtime, tooling_runtime, tool_context, worker_host, run_id) do
     with {:ok, started} <- initialize_transport(expanded_workspace, settings, port),
          initialize <- Map.fetch!(started, :initialize),
-         session_payload <- Map.fetch!(started, :session_payload) do
+         session_payload <- Map.fetch!(started, :session_payload),
+         :ok <- validate_configured_model(settings, session_payload) do
       session_id = Map.fetch!(session_payload, "sessionId")
       bridge_metadata = DynamicToolBridge.metadata(bridge_runtime)
 
@@ -374,6 +375,10 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer do
   defp bounded_session_metadata(%{} = payload) do
     %{
       "currentModelId" => get_in(payload, ["models", "currentModelId"]),
+      "availableModelIds" =>
+        payload
+        |> get_in(["models", "availableModels"])
+        |> model_ids(),
       "currentModeId" => get_in(payload, ["modes", "currentModeId"]),
       "availableModeIds" =>
         payload
@@ -381,6 +386,68 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer do
         |> mode_ids()
     }
   end
+
+  defp validate_configured_model(%Settings{model: nil}, _session_payload), do: :ok
+
+  defp validate_configured_model(%Settings{model: configured_model}, %{} = session_payload) do
+    configured_model = normalize_model_id(configured_model)
+    current_model = session_payload |> get_in(["models", "currentModelId"]) |> normalize_model_id()
+    available_models = session_payload |> get_in(["models", "availableModels"]) |> model_ids()
+
+    cond do
+      is_nil(configured_model) ->
+        :ok
+
+      configured_model in available_models ->
+        :ok
+
+      available_models == [] and current_model == configured_model ->
+        :ok
+
+      true ->
+        {:error,
+         {:codebuddy_model_mismatch,
+          %{
+            configured_model: configured_model,
+            current_model: current_model,
+            available_models: available_models
+          }}}
+    end
+  end
+
+  defp model_ids(models) when is_list(models) do
+    models
+    |> Enum.flat_map(fn
+      model when is_binary(model) ->
+        [model]
+
+      %{"id" => id} when is_binary(id) ->
+        [id]
+
+      %{"modelId" => id} when is_binary(id) ->
+        [id]
+
+      %{"name" => id} when is_binary(id) ->
+        [id]
+
+      _model ->
+        []
+    end)
+    |> Enum.map(&normalize_model_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp model_ids(_models), do: []
+
+  defp normalize_model_id(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      model -> model
+    end
+  end
+
+  defp normalize_model_id(_value), do: nil
 
   defp auth_method_ids(methods) when is_list(methods) do
     Enum.flat_map(methods, fn

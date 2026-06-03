@@ -1,4 +1,4 @@
-defmodule SymphonyElixir.Config.Schema.AgentRuntime do
+defmodule SymphonyElixir.Config.Schema.Runtime.Agent do
   @moduledoc false
   use Ecto.Schema
   import Ecto.Changeset

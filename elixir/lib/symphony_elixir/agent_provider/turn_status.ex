@@ -1,25 +1,27 @@
 defmodule SymphonyElixir.AgentProvider.TurnStatus do
   @moduledoc false
 
-  @type status :: :completed | :failed | :cancelled | :input_required | :timeout
+  @type status :: :completed | :failed | :cancelled | :input_required | :timeout | :blocked
 
   @completed "completed"
   @failed "failed"
   @cancelled "cancelled"
   @input_required "input_required"
   @timeout "timeout"
+  @blocked "blocked"
 
   @status_by_atom %{
     completed: @completed,
     failed: @failed,
     cancelled: @cancelled,
     input_required: @input_required,
-    timeout: @timeout
+    timeout: @timeout,
+    blocked: @blocked
   }
 
   @atom_by_status Map.new(@status_by_atom, fn {atom, status} -> {status, atom} end)
-  @atoms [:completed, :failed, :cancelled, :input_required, :timeout]
-  @strings [@completed, @failed, @cancelled, @input_required, @timeout]
+  @atoms [:completed, :failed, :cancelled, :input_required, :timeout, :blocked]
+  @strings [@completed, @failed, @cancelled, @input_required, @timeout, @blocked]
 
   @spec completed() :: String.t()
   def completed, do: @completed
@@ -35,6 +37,9 @@ defmodule SymphonyElixir.AgentProvider.TurnStatus do
 
   @spec timeout() :: String.t()
   def timeout, do: @timeout
+
+  @spec blocked() :: String.t()
+  def blocked, do: @blocked
 
   @spec atoms() :: [status()]
   def atoms, do: @atoms

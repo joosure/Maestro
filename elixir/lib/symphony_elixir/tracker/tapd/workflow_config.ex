@@ -10,13 +10,12 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
 
   @type workflow :: Effective.t()
 
-  @spec default_raw_state_by_route_key(module()) :: map()
-  def default_raw_state_by_route_key(profile_module \\ ProfileRegistry.default_profile_module()) do
-    profile_module.default_raw_state_by_route_key()
-  end
+  @spec identity_raw_state_by_route_key(module()) :: map()
+  def identity_raw_state_by_route_key(profile_module \\ ProfileRegistry.default_profile_module()),
+    do: WorkflowRoutePolicy.identity_raw_state_by_route_key(profile_module)
 
   @spec route_keys(module()) :: [atom()]
-  def route_keys(profile_module \\ ProfileRegistry.default_profile_module()), do: Map.keys(default_raw_state_by_route_key(profile_module))
+  def route_keys(profile_module \\ ProfileRegistry.default_profile_module()), do: WorkflowRoutePolicy.route_keys(profile_module)
 
   @spec resolve_raw_state_by_route_key(map() | nil, map() | nil, module()) :: map()
   def resolve_raw_state_by_route_key(
@@ -24,11 +23,17 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
         base_raw_state_by_route_key \\ nil,
         profile_module \\ ProfileRegistry.default_profile_module()
       ) do
-    base = base_raw_state_by_route_key || default_raw_state_by_route_key(profile_module)
+    resolve_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module, %{})
+  end
 
-    base
-    |> normalize_raw_state_by_route_key(profile_module)
-    |> merge_raw_state_by_route_key(raw_state_by_route_key, profile_module)
+  @spec resolve_raw_state_by_route_key(map() | nil, map() | nil, module(), map()) :: map()
+  def resolve_raw_state_by_route_key(
+        raw_state_by_route_key,
+        base_raw_state_by_route_key,
+        profile_module,
+        policy_by_route_key
+      ) do
+    WorkflowRoutePolicy.resolve_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module, policy_by_route_key)
   end
 
   @spec workflow_profile(map()) :: map()
@@ -56,18 +61,19 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
     profile_module = profile_context.module
     profile_options = profile_context.options
 
-    base_raw_state_by_route_key =
-      resolve_raw_state_by_route_key(
-        lifecycle_map(tracker, "raw_state_by_route_key"),
-        nil,
-        profile_module
-      )
-
     base_policy_by_route_key =
       WorkflowRoutePolicy.resolve_policy_by_route_key(
         lifecycle_map(tracker, "policy_by_route_key"),
         ProfileRegistry.default_policy_by_route_key(profile_module, profile_options),
         profile_module
+      )
+
+    base_raw_state_by_route_key =
+      resolve_raw_state_by_route_key(
+        lifecycle_map(tracker, "raw_state_by_route_key"),
+        nil,
+        profile_module,
+        base_policy_by_route_key
       )
 
     tracker
@@ -136,6 +142,13 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
     profile_module = profile_context.module
     profile_options = profile_context.options
 
+    policy_by_route_key =
+      WorkflowRoutePolicy.resolve_policy_by_route_key(
+        lifecycle_map(tracker, "policy_by_route_key"),
+        ProfileRegistry.default_policy_by_route_key(profile_module, profile_options),
+        profile_module
+      )
+
     %{
       workitem_type_id: workitem_type_id,
       active_states: List.wrap(TrackerConfig.active_states(tracker)),
@@ -145,14 +158,10 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
         resolve_raw_state_by_route_key(
           lifecycle_map(tracker, "raw_state_by_route_key"),
           nil,
-          profile_module
+          profile_module,
+          policy_by_route_key
         ),
-      policy_by_route_key:
-        WorkflowRoutePolicy.resolve_policy_by_route_key(
-          lifecycle_map(tracker, "policy_by_route_key"),
-          ProfileRegistry.default_policy_by_route_key(profile_module, profile_options),
-          profile_module
-        )
+      policy_by_route_key: policy_by_route_key
     }
     |> effective_workflow(profile_context)
   end
@@ -167,7 +176,7 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
       active_states: [],
       terminal_states: [],
       state_phase_map: %{},
-      raw_state_by_route_key: default_raw_state_by_route_key(profile_module),
+      raw_state_by_route_key: identity_raw_state_by_route_key(profile_module),
       policy_by_route_key: ProfileRegistry.default_policy_by_route_key(profile_module, profile_options)
     }
     |> effective_workflow(profile_context)
@@ -211,6 +220,11 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
        when is_map(workflow) do
     profile_module = profile_context.module
 
+    policy_by_route_key =
+      workflow
+      |> string_field("policy_by_route_key")
+      |> WorkflowRoutePolicy.resolve_policy_by_route_key(base_policy_by_route_key, profile_module)
+
     %{
       workitem_type_id: workitem_type_id,
       active_states: normalize_state_list(string_field(workflow, "active_states")),
@@ -225,11 +239,8 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
       raw_state_by_route_key:
         workflow
         |> string_field("raw_state_by_route_key")
-        |> resolve_raw_state_by_route_key(base_raw_state_by_route_key, profile_module),
-      policy_by_route_key:
-        workflow
-        |> string_field("policy_by_route_key")
-        |> WorkflowRoutePolicy.resolve_policy_by_route_key(base_policy_by_route_key, profile_module)
+        |> resolve_raw_state_by_route_key(base_raw_state_by_route_key, profile_module, policy_by_route_key),
+      policy_by_route_key: policy_by_route_key
     }
     |> effective_workflow(profile_context)
   end
@@ -260,40 +271,6 @@ defmodule SymphonyElixir.Tracker.Tapd.WorkflowConfig do
   end
 
   defp normalize_state_list(_values), do: []
-
-  defp normalize_raw_state_by_route_key(raw_state_by_route_key, profile_module) when is_map(raw_state_by_route_key) do
-    default_raw_state_by_route_key = default_raw_state_by_route_key(profile_module)
-
-    Enum.reduce(default_raw_state_by_route_key, default_raw_state_by_route_key, fn {route_key, default_state}, acc ->
-      normalized_state =
-        raw_state_by_route_key
-        |> string_field(Atom.to_string(route_key))
-        |> normalize_string()
-
-      Map.put(acc, route_key, normalized_state || default_state)
-    end)
-  end
-
-  defp normalize_raw_state_by_route_key(_raw_state_by_route_key, profile_module),
-    do: default_raw_state_by_route_key(profile_module)
-
-  defp merge_raw_state_by_route_key(base_raw_state_by_route_key, raw_state_by_route_key, profile_module) when is_map(raw_state_by_route_key) do
-    Enum.reduce(default_raw_state_by_route_key(profile_module), base_raw_state_by_route_key, fn {route_key, _default_state}, acc ->
-      normalized_state =
-        raw_state_by_route_key
-        |> string_field(Atom.to_string(route_key))
-        |> normalize_string()
-
-      if is_nil(normalized_state) do
-        acc
-      else
-        Map.put(acc, route_key, normalized_state)
-      end
-    end)
-  end
-
-  defp merge_raw_state_by_route_key(base_raw_state_by_route_key, _raw_state_by_route_key, _profile_module),
-    do: base_raw_state_by_route_key
 
   defp workflow_facts(%{kind: kind, version: version, options: options, module: profile_module} = profile_context) do
     %{

@@ -18,12 +18,12 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
     Usage
   }
 
+  alias SymphonyElixir.AgentProvider.OpenCode.AppServer.Transport.SyncMessage
   alias SymphonyElixir.AgentProvider.OpenCode.{Settings, Tooling}
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
 
   @provider_kind Kinds.opencode()
   @poll_interval_ms 250
-  @post_message_listener_drain_ms 100
 
   @type session :: %{
           agent_provider_kind: String.t(),
@@ -124,6 +124,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
     turn_ref = make_ref()
     owner = self()
+    message_id = turn_message_id()
 
     Messages.emit(
       on_message,
@@ -140,6 +141,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
         correlation_id: session.run_id,
         session_id: session.session_id,
         thread_id: session.thread_id,
+        message_id: message_id,
         prompt_hash: :crypto.hash(:sha256, prompt) |> Base.encode16(case: :lower)
       })
     )
@@ -149,9 +151,9 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
         EventStream.stream_session_events(session, turn_ref, owner, on_message)
       end)
 
-    message_task =
+    prompt_task =
       Task.Supervisor.async_nolink(SymphonyElixir.TaskSupervisor, fn ->
-        HttpRequests.post_turn_message(session, prompt)
+        SyncMessage.run(session, prompt, message_id)
       end)
 
     started_at_ms = monotonic_ms()
@@ -159,9 +161,8 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
     result =
       await_turn_result(
         session,
-        issue,
         turn_ref,
-        message_task,
+        prompt_task,
         listener_task,
         started_at_ms,
         started_at_ms,
@@ -170,7 +171,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
       )
 
     stop_async_task(listener_task)
-    stop_async_task(message_task)
+    stop_async_task(prompt_task)
 
     case result do
       {:ok, %{} = response} ->
@@ -258,52 +259,136 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
     DynamicToolBridge.stop(Map.get(session, :dynamic_tool_bridge))
   end
 
-  defp await_turn_result(session, issue, turn_ref, message_task, listener_task, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms) do
-    message_ref = message_task.ref
+  defp await_turn_result(
+         session,
+         turn_ref,
+         prompt_task,
+         listener_task,
+         started_at_ms,
+         last_activity_ms,
+         turn_timeout_ms,
+         stall_timeout_ms
+       ) do
+    prompt_ref = prompt_task.ref
     listener_ref = listener_task.ref
 
     receive do
       {^turn_ref, :activity, activity_ms} ->
-        await_turn_result(session, issue, turn_ref, message_task, listener_task, started_at_ms, max(last_activity_ms, activity_ms), turn_timeout_ms, stall_timeout_ms)
+        await_turn_result(
+          session,
+          turn_ref,
+          prompt_task,
+          listener_task,
+          started_at_ms,
+          max(last_activity_ms, activity_ms),
+          turn_timeout_ms,
+          stall_timeout_ms
+        )
 
       {^turn_ref, :turn_failed, reason} ->
         HttpRequests.abort_session(session)
+        stop_async_task(prompt_task)
         {:error, reason}
 
       {^turn_ref, :stream_error, reason} ->
         HttpRequests.abort_session(session)
+        stop_async_task(prompt_task)
         {:error, reason}
 
-      {^message_ref, result} ->
-        flush_task_down(message_ref)
-        Process.sleep(@post_message_listener_drain_ms)
+      {^prompt_ref, {:ok, %{} = response}} ->
+        flush_task_down(prompt_ref)
+        {:ok, response}
+
+      {^prompt_ref, {:error, reason}} ->
+        flush_task_down(prompt_ref)
         stop_async_task(listener_task)
-        result
+        {:error, reason}
 
       {^listener_ref, _result} ->
         flush_task_down(listener_ref)
-        await_turn_result(session, issue, turn_ref, message_task, listener_task, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms)
 
-      {:DOWN, ^message_ref, :process, _pid, reason} ->
+        await_turn_result(
+          session,
+          turn_ref,
+          prompt_task,
+          listener_task,
+          started_at_ms,
+          last_activity_ms,
+          turn_timeout_ms,
+          stall_timeout_ms
+        )
+
+      {:DOWN, ^prompt_ref, :process, _pid, :normal} ->
+        case take_task_result(prompt_ref) do
+          {:ok, {:ok, %{} = response}} ->
+            {:ok, response}
+
+          {:ok, {:error, reason}} ->
+            stop_async_task(listener_task)
+            {:error, reason}
+
+          :missing ->
+            await_turn_result(
+              session,
+              turn_ref,
+              prompt_task,
+              listener_task,
+              started_at_ms,
+              last_activity_ms,
+              turn_timeout_ms,
+              stall_timeout_ms
+            )
+        end
+
+      {:DOWN, ^prompt_ref, :process, _pid, reason} ->
         stop_async_task(listener_task)
 
         {:error,
-         {:message_post_transport_error,
+         {:turn_message_transport_error,
           Map.merge(Context.session(session), %{
             cause: Diagnostics.preview_value(reason),
             message: "OpenCode message task exited unexpectedly while waiting for the turn response"
           })}}
 
       {:DOWN, ^listener_ref, :process, _pid, _reason} ->
-        await_turn_result(session, issue, turn_ref, message_task, listener_task, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms)
+        await_turn_result(
+          session,
+          turn_ref,
+          prompt_task,
+          listener_task,
+          started_at_ms,
+          last_activity_ms,
+          turn_timeout_ms,
+          stall_timeout_ms
+        )
 
       {port, {:data, {:eol, chunk}}} when port == session.port ->
         Diagnostics.log_port_output("server", IO.chardata_to_string(chunk))
-        await_turn_result(session, issue, turn_ref, message_task, listener_task, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms)
+
+        await_turn_result(
+          session,
+          turn_ref,
+          prompt_task,
+          listener_task,
+          started_at_ms,
+          last_activity_ms,
+          turn_timeout_ms,
+          stall_timeout_ms
+        )
 
       {port, {:data, {:noeol, chunk}}} when port == session.port ->
         Diagnostics.log_port_output("server", IO.chardata_to_string(chunk))
-        await_turn_result(session, issue, turn_ref, message_task, listener_task, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms)
+
+        await_turn_result(
+          session,
+          turn_ref,
+          prompt_task,
+          listener_task,
+          started_at_ms,
+          last_activity_ms,
+          turn_timeout_ms,
+          stall_timeout_ms
+        )
 
       {port, {:exit_status, status}} when port == session.port ->
         {:error, {:port_exit, status}}
@@ -314,14 +399,25 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
         cond do
           turn_timeout_ms > 0 and now_ms - started_at_ms > turn_timeout_ms ->
             HttpRequests.abort_session(session)
+            stop_async_task(prompt_task)
             {:error, :turn_timeout}
 
           stall_timeout_ms > 0 and now_ms - last_activity_ms > stall_timeout_ms ->
             HttpRequests.abort_session(session)
+            stop_async_task(prompt_task)
             {:error, :stall_timeout}
 
           true ->
-            await_turn_result(session, issue, turn_ref, message_task, listener_task, started_at_ms, last_activity_ms, turn_timeout_ms, stall_timeout_ms)
+            await_turn_result(
+              session,
+              turn_ref,
+              prompt_task,
+              listener_task,
+              started_at_ms,
+              last_activity_ms,
+              turn_timeout_ms,
+              stall_timeout_ms
+            )
         end
     end
   end
@@ -341,7 +437,16 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer do
     end
   end
 
+  defp take_task_result(ref) do
+    receive do
+      {^ref, result} -> {:ok, result}
+    after
+      0 -> :missing
+    end
+  end
+
   defp monotonic_ms, do: System.monotonic_time(:millisecond)
   defp elapsed_ms(started_at_ms), do: max(monotonic_ms() - started_at_ms, 0)
   defp default_on_message(_message), do: :ok
+  defp turn_message_id, do: "msg_" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 end

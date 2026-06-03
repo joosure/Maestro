@@ -47,43 +47,34 @@ defmodule SymphonyElixir.Workflow.Effective do
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = effective), do: Map.from_struct(effective)
 
-  @spec fetch(t(), atom() | String.t()) :: {:ok, term()} | :error
-  def fetch(%__MODULE__{} = effective, key) do
+  @spec fetch(t(), atom()) :: {:ok, term()} | :error
+  def fetch(%__MODULE__{} = effective, key) when is_atom(key) do
     effective
     |> to_map()
-    |> Map.fetch(normalize_key(key))
+    |> Map.fetch(key)
   end
 
-  @spec get_and_update(t(), atom() | String.t(), (term() -> {term(), term()} | :pop)) ::
+  def fetch(%__MODULE__{}, _key), do: :error
+
+  @spec get_and_update(t(), atom(), (term() -> {term(), term()} | :pop)) ::
           {term(), t()}
-  def get_and_update(%__MODULE__{} = effective, key, fun) when is_function(fun, 1) do
-    normalized_key = normalize_key(key)
-    current_value = Map.get(effective, normalized_key)
+  def get_and_update(%__MODULE__{} = effective, key, fun) when is_atom(key) and is_function(fun, 1) do
+    current_value = Map.get(effective, key)
 
     case fun.(current_value) do
       {get_value, updated_value} ->
-        {get_value, struct!(effective, %{normalized_key => updated_value})}
+        {get_value, struct!(effective, %{key => updated_value})}
 
       :pop ->
-        pop(effective, normalized_key)
+        pop(effective, key)
     end
   end
 
-  @spec pop(t(), atom() | String.t()) :: {term(), t()}
-  def pop(%__MODULE__{} = effective, key) do
-    normalized_key = normalize_key(key)
-
+  @spec pop(t(), atom()) :: {term(), t()}
+  def pop(%__MODULE__{} = effective, key) when is_atom(key) do
     {
-      Map.get(effective, normalized_key),
-      struct!(effective, %{normalized_key => nil})
+      Map.get(effective, key),
+      struct!(effective, %{key => nil})
     }
   end
-
-  defp normalize_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> key
-  end
-
-  defp normalize_key(key), do: key
 end

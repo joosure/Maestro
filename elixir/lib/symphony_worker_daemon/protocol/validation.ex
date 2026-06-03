@@ -10,6 +10,7 @@ defmodule SymphonyWorkerDaemon.Protocol.Validation do
   @default_env_bytes 65_536
   @default_dynamic_tool_bridge_bytes 65_536
   @default_input_bytes 1_048_576
+  @default_payload_encoding "utf-8"
   @create_request_keys ProtocolFields.create_request_keys()
   @caller_keys ProtocolFields.caller_keys()
   @command_keys ProtocolFields.command_keys()
@@ -216,8 +217,8 @@ defmodule SymphonyWorkerDaemon.Protocol.Validation do
   defp validate_idempotency_key(_request), do: {:error, :idempotency_key_missing}
 
   defp validate_input_payload(%{@input_key => input} = request) when is_binary(input) do
-    case Map.get(request, ProtocolFields.encoding(), "utf-8") do
-      "utf-8" -> :ok
+    case Map.get(request, ProtocolFields.encoding(), @default_payload_encoding) do
+      @default_payload_encoding -> :ok
       _encoding -> {:error, {:payload_invalid, ProtocolFields.encoding()}}
     end
   end

@@ -1,0 +1,828 @@
+#!/usr/bin/env python3
+"""Generate a local Maestro/Symphony TAPD workflow file.
+
+This is a one-time setup helper for newcomers. It reads TAPD credentials from
+environment variables, probes TAPD workflow metadata with read-only API calls,
+asks the operator to confirm ambiguous route/status mappings, and writes a local
+WORKFLOW*.md file based on a bundled template.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import sys
+import textwrap
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any, Mapping, NoReturn
+
+from workflow_template_utils import (
+    WorkflowTemplateError,
+    expand_workflow_partials,
+    set_change_proposal_gate,
+)
+
+REQUIRED_ENV = ("TAPD_API_USER", "TAPD_API_PASSWORD", "TAPD_WORKSPACE_ID")
+ROUTE_PHASES = {
+    "planning": "todo",
+    "developing": "in_progress",
+    "review": "human_review",
+    "merging": "merging",
+    "rework": "rework",
+    "resolved": "done",
+    "rejected": "canceled",
+}
+EXPECTED_BACKLOG_DISPLAY = "需求池"
+EXPECTED_DISPLAY_BY_ROUTE = {
+    "planning": "待开发",
+    "developing": "开发中",
+    "review": "评审中",
+    "merging": "合并中",
+    "rework": "返工",
+    "resolved": "已完成",
+    "rejected": "已拒绝",
+}
+ACTIVE_ROUTE_KEYS = ("planning", "developing", "merging", "rework")
+TERMINAL_ROUTE_KEYS = ("resolved", "rejected")
+EXPECTED_TRANSITION_ROUTE_KEYS = (
+    ("planning", "developing"),
+    ("developing", "review"),
+    ("review", "merging"),
+    ("merging", "resolved"),
+    ("review", "rework"),
+    ("rework", "review"),
+    ("review", "rejected"),
+    ("merging", "rework"),
+)
+PREFERRED_TERMINAL = ("resolved", "done", "completed", "closed", "fixed", "accepted")
+AVOIDED_TERMINAL = (
+    "rejected",
+    "reject",
+    "canceled",
+    "cancelled",
+    "duplicate",
+    "invalid",
+)
+
+
+def main() -> int:
+    args = parse_args()
+    repo_root = Path(__file__).resolve().parents[1]
+    if args.env_file:
+        load_env_file(Path(args.env_file).expanduser().resolve())
+    template_path = resolve_template(repo_root, args.template)
+    output_path = Path(args.output).expanduser().resolve()
+
+    missing = [name for name in REQUIRED_ENV if not os.environ.get(name, "").strip()]
+    if missing:
+        fail("missing required env vars: " + ", ".join(missing))
+
+    if output_path.exists() and not args.overwrite:
+        fail(
+            f"output already exists: {output_path}\nPass --overwrite if you want to replace it."
+        )
+
+    client = TapdClient(
+        endpoint=args.endpoint.rstrip("/"),
+        api_user=os.environ["TAPD_API_USER"],
+        api_password=os.environ["TAPD_API_PASSWORD"],
+        workspace_id=os.environ["TAPD_WORKSPACE_ID"],
+    )
+
+    print("==> Checking TAPD credentials")
+    client.get("/quickstart/testauth", {})
+
+    requested_workitem_type_id = first_non_empty(
+        args.workitem_type_id, os.environ.get("TAPD_WORKITEM_TYPE_ID")
+    )
+
+    print("==> Reading TAPD workflow metadata")
+    status_map_states = client.status_map("story")
+    if not requested_workitem_type_id:
+        requested_workitem_type_id = client.infer_story_workitem_type_id()
+    first_states = client.workflow_states(
+        "/workflows/first_step", requested_workitem_type_id
+    )
+    terminal_states = client.workflow_states(
+        "/workflows/last_steps", requested_workitem_type_id, extra={"type": "status"}
+    )
+    all_states = merge_workflow_states(status_map_states, first_states, terminal_states)
+
+    print_detected(
+        status_map_states, first_states, terminal_states, requested_workitem_type_id
+    )
+
+    if args.interactive:
+        route_states = prompt_route_states(first_states, terminal_states, all_states)
+    else:
+        route_states = expected_route_states(all_states)
+
+    backlog_state = expected_backlog_state(all_states)
+    transition_edges = client.all_transitions("story", requested_workitem_type_id)
+    validate_expected_transitions(
+        route_states, transition_edges, requested_workitem_type_id, backlog_state
+    )
+
+    workflow_text = template_path.read_text(encoding="utf-8")
+    workflow_text = replace_lifecycle_block(
+        workflow_text, render_lifecycle(route_states)
+    )
+    workflow_text = maybe_insert_workitem_type_id(
+        workflow_text, requested_workitem_type_id
+    )
+    workflow_text = set_change_proposal_gate(
+        workflow_text, "approval_required", args.require_pr_approval
+    )
+    try:
+        workflow_text = expand_workflow_partials(workflow_text, template_path, repo_root)
+    except WorkflowTemplateError as error:
+        fail(str(error))
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(workflow_text, encoding="utf-8")
+
+    print("==> Wrote local workflow")
+    print(f"    {output_path}")
+    symphony_bin = repo_root / "elixir" / "bin" / "symphony"
+    print("\nNext step:")
+    print(
+        "  "
+        + relpath_for_display(symphony_bin)
+        + " --i-understand-that-this-will-be-running-without-the-usual-guardrails "
+        + relpath_for_display(output_path)
+    )
+    return 0
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate a local TAPD-backed Maestro/Symphony workflow file.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(
+            """
+            Required environment variables:
+              TAPD_API_USER
+              TAPD_API_PASSWORD
+              TAPD_WORKSPACE_ID
+
+            Optional environment variables:
+              TAPD_WORKITEM_TYPE_ID    Narrow probing to one TAPD Story/workitem type.
+
+            This script only reads TAPD metadata and writes a local workflow file.
+            It does not modify TAPD backend workflow settings.
+            """
+        ).strip(),
+    )
+    parser.add_argument(
+        "--template",
+        default="tapd/cnb/codebuddy_code",
+        help="Bundled workflow template alias",
+    )
+    parser.add_argument(
+        "--output",
+        default="./quickstart/WORKFLOW.tapd-cnb-codebuddy.local.md",
+        help="Path to write the generated local workflow file",
+    )
+    parser.add_argument(
+        "--endpoint", default="https://api.tapd.cn", help="TAPD API endpoint"
+    )
+    parser.add_argument(
+        "--env-file",
+        help="Optional local env file containing TAPD_API_USER/TAPD_API_PASSWORD/TAPD_WORKSPACE_ID",
+    )
+    parser.add_argument(
+        "--workitem-type-id", help="Optional TAPD workitem_type_id scope"
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace output file if it already exists",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Advanced fallback: ask for route/status mapping instead of enforcing the quickstart display names",
+    )
+    parser.add_argument(
+        "--require-pr-approval",
+        action="store_true",
+        help="Keep the PR approval gate enabled in the generated local workflow. By default quickstart disables it so newcomers can observe the full automation loop.",
+    )
+    return parser.parse_args()
+
+
+def load_env_file(path: Path) -> None:
+    if not path.is_file():
+        fail(f"env file not found: {path}")
+
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            fail(f"invalid env file line {line_number}: expected KEY=VALUE")
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = unquote_env_value(value.strip())
+        if not key:
+            fail(f"invalid env file line {line_number}: empty key")
+        if key not in os.environ:
+            os.environ[key] = value
+
+
+def unquote_env_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def resolve_template(repo_root: Path, template_alias: str) -> Path:
+    cleaned = template_alias.strip().replace("\\", "/")
+    if not cleaned:
+        fail("--template is required")
+    if cleaned.startswith("/") or ".." in Path(cleaned).parts:
+        fail("--template must be a relative alias under elixir/priv/workflow_templates")
+    if not cleaned.endswith(".md"):
+        cleaned += ".md"
+    template_path = repo_root / "elixir" / "priv" / "workflow_templates" / cleaned
+    if not template_path.is_file():
+        fail(f"workflow template not found: {template_path}")
+    return template_path
+
+
+class TapdClient:
+    def __init__(
+        self, endpoint: str, api_user: str, api_password: str, workspace_id: str
+    ) -> None:
+        self.endpoint = endpoint
+        self.workspace_id = workspace_id
+        token = base64.b64encode(f"{api_user}:{api_password}".encode("utf-8")).decode(
+            "ascii"
+        )
+        self.headers = {
+            "Authorization": f"Basic {token}",
+            "Accept": "application/json",
+        }
+
+    def get(self, path: str, params: Mapping[str, str | None]) -> Any:
+        query = {"workspace_id": self.workspace_id}
+        query.update({key: value for key, value in params.items() if value})
+        url = f"{self.endpoint}{path}?{urllib.parse.urlencode(query)}"
+        request = urllib.request.Request(url, headers=self.headers, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            body = error.read().decode("utf-8", errors="replace")
+            fail(f"TAPD HTTP error {error.code} for {path}: {body}")
+        except urllib.error.URLError as error:
+            fail(f"TAPD request failed for {path}: {error}")
+        except json.JSONDecodeError as error:
+            fail(f"TAPD returned non-JSON response for {path}: {error}")
+
+        if not tapd_success(payload):
+            fail(
+                f"TAPD business error for {path}: {json.dumps(payload, ensure_ascii=False)}"
+            )
+        return payload.get("data")
+
+    def status_map(self, system: str) -> list[dict[str, str]]:
+        data = self.get("/workflows/status_map", {"system": system})
+        return decode_workflow_states(data)
+
+    def workflows(self, system: str) -> list[dict[str, str]]:
+        data = self.get("/workflows", {"system": system})
+        if not isinstance(data, list):
+            return []
+        workflows = []
+        for entry in data:
+            workflow = entry.get("Workflow", entry) if isinstance(entry, dict) else {}
+            if isinstance(workflow, dict):
+                workflows.append(
+                    {
+                        key: str(value)
+                        for key, value in workflow.items()
+                        if value is not None
+                    }
+                )
+        return workflows
+
+    def workitem_types(self) -> list[dict[str, str]]:
+        data = self.get("/workitem_types", {})
+        if not isinstance(data, list):
+            return []
+        workitem_types = []
+        for entry in data:
+            workitem_type = (
+                entry.get("WorkitemType", entry) if isinstance(entry, dict) else {}
+            )
+            if isinstance(workitem_type, dict):
+                workitem_types.append(
+                    {
+                        key: str(value)
+                        for key, value in workitem_type.items()
+                        if value is not None
+                    }
+                )
+        return workitem_types
+
+    def infer_story_workitem_type_id(self) -> str | None:
+        candidates = [
+            workitem_type["id"]
+            for workitem_type in self.workitem_types()
+            if workitem_type.get("entity_type") == "story" and workitem_type.get("id")
+        ]
+        candidates = unique(candidates)
+        if len(candidates) == 1:
+            return candidates[0]
+
+        fallback_candidates = []
+        for workflow in self.workflows("story"):
+            system_name = workflow.get("system_name", "")
+            prefix = "workitem_app_"
+            if system_name.startswith(prefix):
+                fallback_candidates.append(system_name[len(prefix) :])
+        fallback_candidates = unique(fallback_candidates)
+        return fallback_candidates[0] if len(fallback_candidates) == 1 else None
+
+    def all_transitions(
+        self, system: str, workitem_type_id: str | None
+    ) -> list[tuple[str, str]]:
+        params = {"system": system}
+        if workitem_type_id:
+            params["workitem_type_id"] = workitem_type_id
+        data = self.get("/workflows/all_transitions", params)
+        return decode_transition_edges(data)
+
+    def workflow_states(
+        self,
+        path: str,
+        workitem_type_id: str | None,
+        extra: dict[str, str] | None = None,
+    ) -> list[dict[str, str]]:
+        params: dict[str, str | None] = {
+            "system": "story",
+            "workitem_type_id": workitem_type_id,
+        }
+        if extra:
+            params.update(extra)
+        data = self.get(path, params)
+        return decode_workflow_states(data)
+
+
+def tapd_success(payload: Any) -> bool:
+    return isinstance(payload, dict) and payload.get("status") in (1, "1")
+
+
+def decode_workflow_states(data: Any) -> list[dict[str, str]]:
+    values: list[dict[str, str]] = []
+    if isinstance(data, dict):
+        for raw, payload in data.items():
+            raw_value = first_non_empty(raw)
+            if raw_value:
+                values.append(
+                    {
+                        "raw": raw_value,
+                        "display": display_name_from_payload(payload) or raw_value,
+                    }
+                )
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                step = item.get("WorkflowStep", item)
+                if isinstance(step, dict):
+                    raw_value = first_non_empty(
+                        step.get("status"), step.get("id"), step.get("name")
+                    )
+                    if raw_value:
+                        values.append(
+                            {
+                                "raw": raw_value,
+                                "display": display_name_from_payload(step) or raw_value,
+                            }
+                        )
+    else:
+        fail(f"unexpected TAPD workflow payload: {data!r}")
+    return unique_states(values)
+
+
+def display_name_from_payload(payload: Any) -> str | None:
+    if isinstance(payload, str):
+        return first_non_empty(payload)
+    if isinstance(payload, dict):
+        return first_non_empty(
+            payload.get("label"),
+            payload.get("display_name"),
+            payload.get("name"),
+            payload.get("title"),
+            payload.get("status_name"),
+        )
+    return None
+
+
+def decode_transition_edges(data: Any) -> list[tuple[str, str]]:
+    if not isinstance(data, list):
+        return []
+    edges: list[tuple[str, str]] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        previous_state = first_non_empty(
+            entry.get("StepPrevious"), entry.get("previous"), entry.get("from")
+        )
+        next_state = first_non_empty(
+            entry.get("StepNext"), entry.get("next"), entry.get("to")
+        )
+        if previous_state and next_state:
+            edges.append((previous_state, next_state))
+    return unique(edges)
+
+
+def validate_expected_transitions(
+    route_states: dict[str, str],
+    transition_edges: list[tuple[str, str]],
+    workitem_type_id: str | None,
+    backlog_state: str | None = None,
+) -> None:
+    edge_set = set(transition_edges)
+    missing = []
+    if backlog_state:
+        planning_state = route_states["planning"]
+        if (backlog_state, planning_state) not in edge_set:
+            missing.append(
+                f"{EXPECTED_BACKLOG_DISPLAY} -> {EXPECTED_DISPLAY_BY_ROUTE['planning']} ({backlog_state} -> {planning_state})"
+            )
+
+    for from_route, to_route in EXPECTED_TRANSITION_ROUTE_KEYS:
+        from_state = route_states[from_route]
+        to_state = route_states[to_route]
+        if (from_state, to_state) not in edge_set:
+            missing.append(
+                f"{EXPECTED_DISPLAY_BY_ROUTE[from_route]} -> {EXPECTED_DISPLAY_BY_ROUTE[to_route]} ({from_state} -> {to_state})"
+            )
+
+    if missing:
+        detected = (
+            "\n".join(
+                f"  - {previous} -> {next_state}"
+                for previous, next_state in transition_edges
+            )
+            or "  <none>"
+        )
+        scope = (
+            f"workitem_type_id={workitem_type_id}"
+            if workitem_type_id
+            else "system=story"
+        )
+        fail(
+            "TAPD workflow transitions do not match the quickstart expected flow.\n"
+            f"Transition lookup scope: {scope}\n"
+            "Please go back to the TAPD workflow configuration page and create/fix these transitions:\n"
+            + "\n".join(f"  - {item}" for item in missing)
+            + "\n\nDetected TAPD transitions from API:\n"
+            + detected
+        )
+
+
+def print_detected(
+    status_map_states: list[dict[str, str]],
+    first_states: list[dict[str, str]],
+    terminal_states: list[dict[str, str]],
+    workitem_type_id: str | None,
+) -> None:
+    if workitem_type_id:
+        print(f"    workitem_type_id: {workitem_type_id}")
+    print("    status map states:")
+    print_state_list(status_map_states)
+    print("    first states:")
+    print_state_list(first_states)
+    print("    terminal states:")
+    print_state_list(terminal_states)
+    print()
+
+
+def print_state_list(states: list[dict[str, str]]) -> None:
+    if not states:
+        print("      <none>")
+        return
+    for state in states:
+        print(f"      {state_label(state)}")
+
+
+def state_label(state: dict[str, str]) -> str:
+    raw = state["raw"]
+    display = state.get("display") or raw
+    if display == raw:
+        return raw
+    return f"{display} -> {raw}"
+
+
+def expected_backlog_state(states: list[dict[str, str]]) -> str:
+    raw_status = resolve_state_input(EXPECTED_BACKLOG_DISPLAY, states)
+    if raw_status:
+        return raw_status
+
+    detected = "\n".join(f"  - {state_label(state)}" for state in states) or "  <none>"
+    fail(
+        "TAPD workflow does not match the quickstart expected status names.\n"
+        f"Please go back to the TAPD workflow configuration page and create/fix this backlog display name:\n  - {EXPECTED_BACKLOG_DISPLAY}\n\n"
+        "Detected TAPD states from API:\n" + detected
+    )
+
+
+def expected_route_states(states: list[dict[str, str]]) -> dict[str, str]:
+    route_states: dict[str, str] = {}
+    missing: list[str] = []
+
+    for route_key, display_name in EXPECTED_DISPLAY_BY_ROUTE.items():
+        raw_status = resolve_state_input(display_name, states)
+        if raw_status:
+            route_states[route_key] = raw_status
+        else:
+            missing.append(f"{display_name} ({route_key})")
+
+    if missing:
+        detected = (
+            "\n".join(f"  - {state_label(state)}" for state in states) or "  <none>"
+        )
+        fail(
+            "TAPD workflow does not match the quickstart expected status names.\n"
+            "Please go back to the TAPD workflow configuration page and create/fix these status display names:\n"
+            + "\n".join(f"  - {item}" for item in missing)
+            + "\n\nDetected TAPD states from API:\n"
+            + detected
+            + "\n\nExpected display names are fixed for the quickstart path: "
+            + ", ".join([EXPECTED_BACKLOG_DISPLAY, *EXPECTED_DISPLAY_BY_ROUTE.values()])
+        )
+
+    return route_states
+
+
+def infer_route_states(
+    first_states: list[dict[str, str]], terminal_states: list[dict[str, str]]
+) -> dict[str, str | None]:
+    return {
+        "planning": first_states[0]["raw"] if first_states else None,
+        "developing": pick_state(
+            first_states,
+            "developing",
+            "development",
+            "doing",
+            "in_progress",
+            "in progress",
+            "开发中",
+        ),
+        "review": pick_state(
+            first_states,
+            "review",
+            "status_5",
+            "human_review",
+            "human review",
+            "评审中",
+            "待评审",
+        ),
+        "merging": pick_state(first_states, "merging", "merge", "合并中", "待发布"),
+        "rework": pick_state(
+            first_states, "rework", "fixing", "changes_requested", "返工"
+        ),
+        "resolved": pick_state(terminal_states, *PREFERRED_TERMINAL, "已完成", "完成")
+        or (terminal_states[0]["raw"] if terminal_states else None),
+        "rejected": pick_state(
+            terminal_states, *AVOIDED_TERMINAL, "已拒绝", "拒绝", "已取消", "取消"
+        ),
+    }
+
+
+def prompt_route_states(
+    first_states: list[dict[str, str]],
+    terminal_states: list[dict[str, str]],
+    all_states: list[dict[str, str]],
+) -> dict[str, str]:
+    inferred = infer_route_states(first_states, terminal_states)
+    print("Please confirm TAPD status for each Maestro route key.")
+    print(
+        "You may enter the TAPD page display name or the raw status. The script will write raw status to WORKFLOW."
+    )
+    print()
+
+    route_help = {
+        "planning": "待开发/已排队，Maestro 可先把它流转到 developing",
+        "developing": "开发中，Maestro 会派发 Agent 执行",
+        "review": "人工评审/等待确认，Maestro 不派发 Agent",
+        "merging": "准备合并，Maestro 执行 land/merge 流程",
+        "rework": "返工，Maestro 重新派发 Agent",
+        "resolved": "已完成",
+        "rejected": "已拒绝",
+    }
+
+    route_states: dict[str, str] = {}
+    for route_key in ROUTE_PHASES:
+        default_raw = inferred.get(route_key)
+        default_state = find_state_by_raw(all_states, default_raw)
+        default_label = state_label(default_state) if default_state else default_raw
+        prompt = f"{route_key} ({route_help[route_key]})"
+        if default_label:
+            prompt += f" [{default_label}]"
+        prompt += ": "
+        while True:
+            value = input(prompt).strip()
+            resolved = resolve_state_input(value, all_states) if value else default_raw
+            if resolved:
+                route_states[route_key] = resolved
+                break
+            print(
+                "  value is required. Enter a TAPD display name such as 开发中, or a raw status such as status_9."
+            )
+    return route_states
+
+
+def render_lifecycle(route_states: Mapping[str, str | None]) -> str:
+    missing = [key for key, value in route_states.items() if not value]
+    if missing:
+        fail("missing route states: " + ", ".join(missing))
+
+    active_states = unique([str(route_states[key]) for key in ACTIVE_ROUTE_KEYS])
+    terminal_states = unique([str(route_states[key]) for key in TERMINAL_ROUTE_KEYS])
+    phase_items = unique(
+        [(str(route_states[key]), ROUTE_PHASES[key]) for key in ROUTE_PHASES]
+    )
+
+    lines: list[str] = [
+        "  lifecycle:",
+        "    # Generated by scripts/tapd-workflow-init.",
+        "    # Review this block before using it against a production TAPD workspace.",
+        "    active_states:",
+    ]
+    lines.extend(f"      - {yaml_scalar(value)}" for value in active_states)
+    lines.append("    terminal_states:")
+    lines.extend(f"      - {yaml_scalar(value)}" for value in terminal_states)
+    lines.append("    state_phase_map:")
+    lines.extend(f"      {yaml_scalar(raw)}: {phase}" for raw, phase in phase_items)
+    lines.append("    raw_state_by_route_key:")
+    lines.extend(
+        f"      {route_key}: {yaml_scalar(str(route_states[route_key]))}"
+        for route_key in ROUTE_PHASES
+    )
+    return "\n".join(lines)
+
+
+def replace_lifecycle_block(workflow_text: str, lifecycle_block: str) -> str:
+    marker = "  lifecycle:\n"
+    start = workflow_text.find(marker)
+    if start == -1:
+        fail("template does not contain tracker.lifecycle block")
+    end = workflow_text.find("polling:\n", start)
+    if end == -1:
+        fail("template does not contain polling block after tracker.lifecycle")
+    return workflow_text[:start] + lifecycle_block.rstrip() + "\n" + workflow_text[end:]
+
+
+def maybe_insert_workitem_type_id(
+    workflow_text: str, workitem_type_id: str | None
+) -> str:
+    if not workitem_type_id:
+        return workflow_text
+    commented = '      # workitem_type_id: "1153070854001000001"'
+    replacement = f'      workitem_type_id: "{workitem_type_id}"'
+    if commented in workflow_text:
+        return workflow_text.replace(commented, replacement, 1)
+    workspace_line = "      workspace_id: $TAPD_WORKSPACE_ID\n"
+    if workspace_line in workflow_text:
+        return workflow_text.replace(
+            workspace_line, workspace_line + replacement + "\n", 1
+        )
+    return workflow_text
+
+
+def yaml_scalar(value: str) -> str:
+    if (
+        value == ""
+        or any(ch in value for ch in ":#{}[],&*?|<>=!%@`\"'\\")
+        or value.strip() != value
+    ):
+        return json.dumps(value, ensure_ascii=False)
+    lower = value.lower()
+    if lower in {"true", "false", "null", "yes", "no", "on", "off"}:
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+
+def merge_workflow_states(*state_lists: list[dict[str, str]]) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    for states in state_lists:
+        merged.extend(states)
+    return unique_states(merged)
+
+
+def unique_states(states: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for state in states:
+        raw = first_non_empty(state.get("raw"))
+        if raw and raw not in seen:
+            seen.add(raw)
+            result.append(
+                {"raw": raw, "display": first_non_empty(state.get("display")) or raw}
+            )
+    return result
+
+
+def pick_state(states: list[dict[str, str]], *names: str) -> str | None:
+    for name in names:
+        resolved = resolve_state_input(name, states)
+        if resolved:
+            return resolved
+    return None
+
+
+def find_state_by_raw(
+    states: list[dict[str, str]], raw: str | None
+) -> dict[str, str] | None:
+    if not raw:
+        return None
+    for state in states:
+        if state.get("raw") == raw:
+            return state
+    return None
+
+
+def resolve_state_input(value: str, states: list[dict[str, str]]) -> str | None:
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    for state in states:
+        if state.get("raw") == normalized:
+            return state["raw"]
+
+    lowered = normalized.lower()
+    raw_matches = [
+        state["raw"] for state in states if state.get("raw", "").lower() == lowered
+    ]
+    if len(raw_matches) == 1:
+        return raw_matches[0]
+
+    display_matches = [
+        state["raw"]
+        for state in states
+        if (state.get("display") or "").strip().lower() == lowered
+    ]
+    if len(display_matches) == 1:
+        return display_matches[0]
+
+    return None
+
+
+def first_non_empty(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def unique(values: list[Any]) -> list[Any]:
+    seen = set()
+    result = []
+    for value in values:
+        key = (
+            json.dumps(value, ensure_ascii=False, sort_keys=True)
+            if isinstance(value, (list, dict, tuple))
+            else value
+        )
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result
+
+
+def relpath_for_display(path: Path) -> str:
+    try:
+        relative = os.path.relpath(path, Path.cwd())
+    except ValueError:
+        return str(path)
+    if relative.startswith("../"):
+        return relative
+    if relative == ".":
+        return str(path)
+    return "./" + relative
+
+
+def fail(message: str) -> NoReturn:
+    print(f"tapd-workflow-init: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

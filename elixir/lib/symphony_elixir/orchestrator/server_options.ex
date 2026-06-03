@@ -1,6 +1,9 @@
 defmodule SymphonyElixir.Orchestrator.ServerOptions do
   @moduledoc false
 
+  @worker_exit_issue_refresh_timeout_ms 2_000
+  @worker_exit_issue_fact_freshness_ms 10_000
+
   alias SymphonyElixir.Agent.Runner.ActiveSessions
   alias SymphonyElixir.ChangeProposalReconciliation.CandidateInbox
   alias SymphonyElixir.Config
@@ -55,6 +58,9 @@ defmodule SymphonyElixir.Orchestrator.ServerOptions do
   @spec worker_exit_opts() :: keyword()
   def worker_exit_opts do
     [
+      fetch_issue_states_by_ids: &Tracker.fetch_issue_states_by_ids/1,
+      issue_refresh_timeout_ms: @worker_exit_issue_refresh_timeout_ms,
+      issue_fact_freshness_ms: @worker_exit_issue_fact_freshness_ms,
       notify_dashboard: &notify_dashboard/0
     ]
   end
@@ -65,7 +71,7 @@ defmodule SymphonyElixir.Orchestrator.ServerOptions do
     config = Config.settings!()
     poll_interval_ms = Runtime.running_poll_interval_ms(state, config.polling.interval_ms)
     read_timeout_ms = Runtime.agent_provider_timeout_option("read_timeout_ms", 5_000)
-    non_active_completion_grace_ms = max(poll_interval_ms, read_timeout_ms * 2)
+    completion_grace_ms = max(poll_interval_ms, read_timeout_ms * 2)
 
     [
       emit_event: emit_event,
@@ -73,7 +79,7 @@ defmodule SymphonyElixir.Orchestrator.ServerOptions do
       cleanup_issue_workspace: &cleanup_issue_workspace/3,
       cleanup_active_agent_session: &ActiveSessions.cleanup_owner/2,
       record_session_completion_totals: &RunningState.record_session_completion/2,
-      non_active_completion_grace_ms: non_active_completion_grace_ms,
+      completion_grace_ms: completion_grace_ms,
       schedule_retry: fn state, issue_id, attempt, metadata ->
         Retry.schedule(state, issue_id, attempt, metadata, emit_event: emit_event)
       end
@@ -94,7 +100,8 @@ defmodule SymphonyElixir.Orchestrator.ServerOptions do
   @spec change_proposal_reconciler_opts() :: keyword()
   def change_proposal_reconciler_opts do
     [
-      targeted_issue_ids_fn: &CandidateInbox.drain_issue_ids/1
+      targeted_issue_ids_fn: &CandidateInbox.drain_issue_ids/1,
+      defer_targeted_issue_ids_fn: &CandidateInbox.defer_issue_ids/2
     ]
   end
 

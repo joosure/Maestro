@@ -34,6 +34,12 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Tooling.PlannedToolPlugin.Schema
         object?(type) ->
           "z.record(z.string(), z.unknown())"
 
+        array?(type) ->
+          property_schema
+          |> array_item_schema()
+          |> zod_source(true)
+          |> then(&"z.array(#{&1})")
+
         string?(type) ->
           "z.string()"
 
@@ -63,9 +69,14 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Tooling.PlannedToolPlugin.Schema
 
   defp nullable_object?(type), do: list_type?(type, "object") and list_type?(type, "null")
   defp object?(type), do: type == "object" or list_type?(type, "object")
+  defp array?(type), do: type == "array" or list_type?(type, "array")
   defp string?(type), do: type == "string" or list_type?(type, "string")
   defp boolean?(type), do: type == "boolean" or list_type?(type, "boolean")
   defp number?(type), do: type in ["number", "integer"] or list_type?(type, "number") or list_type?(type, "integer")
+
+  defp array_item_schema(property_schema) do
+    Map.get(property_schema, "items") || Map.get(property_schema, :items) || %{}
+  end
 
   defp list_type?(types, type) when is_list(types), do: type in types
   defp list_type?(_types, _type), do: false

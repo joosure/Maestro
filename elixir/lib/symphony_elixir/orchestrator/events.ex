@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Orchestrator.Events do
   alias SymphonyElixir.{Config, Issue}
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
   alias SymphonyElixir.Tracker
+  alias SymphonyElixir.Workflow.{IssueContext, RouteRef}
 
   @spec emit_route_transition(
           Logger.level(),
@@ -24,6 +25,10 @@ defmodule SymphonyElixir.Orchestrator.Events do
         extra_fields
       )
       when is_map(extra_fields) do
+    profile_context = IssueContext.profile_context(issue)
+    route_ref = RouteRef.new!(profile_context, route_key)
+    target_route_ref = RouteRef.new!(profile_context, transition_target)
+
     ObservabilityLogger.emit(
       level,
       event,
@@ -33,12 +38,13 @@ defmodule SymphonyElixir.Orchestrator.Events do
           issue_id: issue.id,
           issue_identifier: issue.identifier,
           tracker_kind: tracker_kind(),
-          route_key: route_key,
-          target_route: transition_target,
           target_state: target_state,
           current_state: issue.state
         },
-        extra_fields
+        route_ref
+        |> RouteRef.event_fields()
+        |> Map.merge(RouteRef.transition_target_event_fields(target_route_ref))
+        |> Map.merge(extra_fields)
       )
     )
   end

@@ -7,8 +7,10 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
   alias SymphonyElixir.RepoProvider
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Workflow.ChangeProposalReconciliation.{Config, Decision, Facts}
+  alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.ProfileRegistry
   alias SymphonyElixir.Workflow.RouteFacts
+  alias SymphonyElixir.Workflow.RouteRef
 
   @spec config_invalid(map(), map(), term()) :: map()
   def config_invalid(settings, state, reason) when is_map(settings) and is_map(state) do
@@ -21,7 +23,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
   def reconciliation_started(settings, state, %Config{} = config, source_raw_states)
       when is_map(settings) and is_map(state) and is_list(source_raw_states) do
     emit(settings, :info, Contract.event(:reconciliation_started), nil, state, %{
-      source_routes: config.source_routes,
+      source_route_refs: Enum.map(config.source_routes, &route_ref_map/1),
       source_states: source_raw_states
     })
   end
@@ -35,22 +37,42 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
   @spec candidate_selected(map(), Issue.t(), map(), RouteFacts.t()) :: map()
   def candidate_selected(settings, %Issue{} = issue, state, %RouteFacts{} = route_facts)
       when is_map(settings) and is_map(state) do
-    emit(settings, :info, Contract.event(:candidate_selected), issue, state, %{
-      source_route: route_facts.route_key,
-      source_state: route_facts.raw_state
-    })
+    emit(
+      settings,
+      :info,
+      Contract.event(:candidate_selected),
+      issue,
+      state,
+      route_facts
+      |> source_route_fields(settings, issue)
+      |> Map.put(:source_state, route_facts.raw_state)
+    )
   end
 
   @spec candidate_skipped(map(), Issue.t(), map(), atom(), map()) :: map()
   def candidate_skipped(settings, %Issue{} = issue, state, reason, extra_fields)
       when is_map(settings) and is_map(state) and is_atom(reason) and is_map(extra_fields) do
+    candidate_skipped(settings, issue, state, reason, nil, extra_fields)
+  end
+
+  @spec candidate_skipped(map(), Issue.t(), map(), atom(), RouteFacts.t() | nil, map()) :: map()
+  def candidate_skipped(settings, %Issue{} = issue, state, reason, route_facts, extra_fields)
+      when is_map(settings) and is_map(state) and is_atom(reason) and is_map(extra_fields) do
+    route_fields =
+      case route_facts do
+        %RouteFacts{} -> source_route_fields(route_facts, settings, issue)
+        _route_facts -> %{}
+      end
+
     emit(
       settings,
       :info,
       Contract.event(:candidate_skipped),
       issue,
       state,
-      Map.merge(%{skip_reason: Contract.reason_name(reason)}, extra_fields)
+      %{skip_reason: Contract.reason_name(reason)}
+      |> Map.merge(route_fields)
+      |> Map.merge(extra_fields)
     )
   end
 
@@ -65,10 +87,10 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
       state,
       Map.merge(
         %{
-          source_route: route_facts.route_key,
           source_state: route_facts.raw_state
         },
-        change_proposal_reference_fields(reference)
+        source_route_fields(route_facts, settings, issue)
+        |> Map.merge(change_proposal_reference_fields(reference))
       )
     )
   end
@@ -94,11 +116,11 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
       state,
       Map.merge(
         %{
-          source_route: route_facts.route_key,
           source_state: route_facts.raw_state,
           lookup_failure_reason: Contract.reason_name(reason)
         },
-        extra_fields
+        source_route_fields(route_facts, settings, issue)
+        |> Map.merge(extra_fields)
       )
     )
   end
@@ -106,25 +128,32 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
   @spec decision(map(), Issue.t(), map(), RouteFacts.t(), Facts.t(), Decision.t()) :: map()
   def decision(settings, %Issue{} = issue, state, %RouteFacts{} = route_facts, %Facts{} = facts, %Decision{} = decision)
       when is_map(settings) and is_map(state) do
-    emit(settings, :info, Contract.event(:decision), issue, state, %{
-      decision: decision.action,
-      reason: decision.reason,
-      source_route: route_facts.route_key,
-      source_state: route_facts.raw_state,
-      target_route: decision.target_route,
-      repo_provider_kind: facts.provider_kind,
-      repository: facts.repository,
-      change_proposal_number: facts.number,
-      change_proposal_url: facts.url,
-      change_proposal_branch: facts.branch,
-      head_sha: facts.head_sha,
-      provider_state: facts.provider_state,
-      review_summary: facts.review_summary,
-      check_summary: facts.check_summary,
-      mergeability_summary: facts.mergeability_summary,
-      retryable: facts.retryable?,
-      error: if(is_nil(facts.error), do: nil, else: inspect(facts.error))
-    })
+    emit(
+      settings,
+      :info,
+      Contract.event(:decision),
+      issue,
+      state,
+      %{
+        decision: decision.action,
+        reason: decision.reason,
+        source_state: route_facts.raw_state,
+        repo_provider_kind: facts.provider_kind,
+        repository: facts.repository,
+        change_proposal_number: facts.number,
+        change_proposal_url: facts.url,
+        change_proposal_branch: facts.branch,
+        head_sha: facts.head_sha,
+        provider_state: facts.provider_state,
+        review_summary: facts.review_summary,
+        check_summary: facts.check_summary,
+        mergeability_summary: facts.mergeability_summary,
+        retryable: facts.retryable?,
+        error: if(is_nil(facts.error), do: nil, else: inspect(facts.error))
+      }
+      |> Map.merge(source_route_fields(route_facts, settings, issue))
+      |> Map.merge(target_route_fields(decision))
+    )
   end
 
   @spec transition(
@@ -148,9 +177,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
       state,
       Map.merge(
         %{
-          source_route: route_facts.route_key,
           source_state: route_facts.raw_state,
-          target_route: decision.target_route,
           repo_provider_kind: facts.provider_kind,
           change_proposal_number: facts.number,
           change_proposal_url: facts.url,
@@ -159,6 +186,8 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
           reason: decision.reason
         },
         normalize_transition_fields(extra_fields)
+        |> Map.merge(source_route_fields(route_facts, settings, issue))
+        |> Map.merge(target_route_fields(decision))
       )
     )
   end
@@ -181,6 +210,77 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Events do
   defp reference_value(reference, key) when is_map(reference) and is_atom(key) do
     Map.get(reference, key) || Map.get(reference, Atom.to_string(key))
   end
+
+  defp source_route_fields(%RouteFacts{} = route_facts, settings, issue) do
+    settings
+    |> route_ref(issue, route_facts.route_key)
+    |> case do
+      {:ok, route_ref} -> prefixed_route_ref_fields(:source, route_ref)
+      {:error, _reason} -> %{source_workflow_route_key: route_key_name(route_facts.route_key)}
+    end
+  end
+
+  defp target_route_fields(%Decision{target_route_ref: %RouteRef{} = route_ref}) do
+    prefixed_route_ref_fields(:target, route_ref)
+  end
+
+  defp target_route_fields(_decision), do: %{}
+
+  defp route_ref(settings, %Issue{} = issue, route_key) do
+    profile_context =
+      if issue_workflow_profile?(issue) do
+        IssueContext.profile_context(issue)
+      else
+        profile_context(settings)
+      end
+
+    RouteRef.new(profile_context, route_key)
+  end
+
+  defp profile_context(settings) do
+    case ProfileRegistry.resolve(settings.workflow.profile) do
+      {:ok, profile_context} -> profile_context
+      {:error, _reason} -> %{}
+    end
+  end
+
+  defp issue_workflow_profile?(%Issue{} = issue) do
+    issue
+    |> IssueContext.workflow_map(%{})
+    |> Map.get(:profile)
+    |> case do
+      profile when is_map(profile) -> map_size(profile) > 0
+      _profile -> false
+    end
+  end
+
+  defp prefixed_route_ref_fields(:source, %RouteRef{} = route_ref) do
+    %{
+      source_workflow_profile: route_ref.profile_kind,
+      source_workflow_profile_version: route_ref.profile_version,
+      source_workflow_route_key: route_key_name(route_ref.route_key)
+    }
+  end
+
+  defp prefixed_route_ref_fields(:target, %RouteRef{} = route_ref) do
+    %{
+      target_workflow_profile: route_ref.profile_kind,
+      target_workflow_profile_version: route_ref.profile_version,
+      target_workflow_route_key: route_key_name(route_ref.route_key)
+    }
+  end
+
+  defp route_ref_map(%RouteRef{} = route_ref) do
+    %{
+      "workflow_profile" => route_ref.profile_kind,
+      "workflow_profile_version" => route_ref.profile_version,
+      "workflow_route_key" => route_key_name(route_ref.route_key)
+    }
+  end
+
+  defp route_key_name(route_key) when is_atom(route_key), do: Atom.to_string(route_key)
+  defp route_key_name(route_key) when is_binary(route_key), do: route_key
+  defp route_key_name(_route_key), do: nil
 
   defp emit(settings, level, event, issue, state, extra_fields) do
     profile = profile_fields(settings)

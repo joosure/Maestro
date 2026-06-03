@@ -94,7 +94,7 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
 
   defp gate(%RouteFacts{action: :wait, route_key: route_key, lifecycle_phase: lifecycle_phase} = route_facts, _capabilities, _evidence) do
     approval_gate? = route_key == :review
-    human_review_gate? = WorkflowLifecycle.normalize_phase(lifecycle_phase) == WorkflowLifecycle.human_review()
+    human_review_gate? = WorkflowLifecycle.human_review_phase?(lifecycle_phase)
 
     cond do
       approval_gate? ->
@@ -139,6 +139,17 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
       "workflow",
       "Route policy is stop; no automatic dispatch is allowed.",
       ["new non-terminal route before more work can run"],
+      observed_route_evidence(route_facts)
+    )
+  end
+
+  defp gate(%RouteFacts{action: :disabled} = route_facts, _capabilities, _evidence) do
+    gate_map(
+      ReadinessContract.blocked(),
+      ReadinessContract.route_wait_gate(),
+      "workflow",
+      "Route policy is disabled; automatic dispatch is not allowed.",
+      ["route moves to an enabled state"],
       observed_route_evidence(route_facts)
     )
   end
@@ -243,7 +254,7 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
       policy =
         workflow
         |> Map.get(:policy_by_route_key, %{})
-        |> policy_for_route_key(route_key)
+        |> route_policy_for(route_key)
         |> Policy.new!()
 
       RouteFacts.new!(%{
@@ -265,17 +276,18 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
     type_workflow = workflow_for_type(settings_lifecycle, map_field(issue, :workitem_type_id))
     issue_workflow = map_field(issue, :workflow) |> normalize_map()
 
-    raw_state_by_route_key =
-      profile_module.default_raw_state_by_route_key()
-      |> merge_raw_state_by_route_key(map_field(settings_lifecycle, :raw_state_by_route_key), profile_module)
-      |> merge_raw_state_by_route_key(map_field(type_workflow, :raw_state_by_route_key), profile_module)
-      |> merge_raw_state_by_route_key(map_field(issue_workflow, :raw_state_by_route_key), profile_module)
-
     policy_by_route_key =
       ProfileRegistry.default_policy_by_route_key(profile_module, profile_options)
       |> resolve_policy_by_route_key(map_field(settings_lifecycle, :policy_by_route_key), profile_module)
       |> resolve_policy_by_route_key(map_field(type_workflow, :policy_by_route_key), profile_module)
-      |> resolve_policy_by_route_key(map_field(issue_workflow, :policy_by_route_key), profile_module)
+      |> merge_effective_policy_by_route_key(map_field(issue_workflow, :policy_by_route_key), profile_module)
+
+    raw_state_by_route_key =
+      RoutePolicy.identity_raw_state_by_route_key(profile_module)
+      |> resolve_raw_state_by_route_key(map_field(settings_lifecycle, :raw_state_by_route_key), profile_module, policy_by_route_key)
+      |> resolve_raw_state_by_route_key(map_field(type_workflow, :raw_state_by_route_key), profile_module, policy_by_route_key)
+      |> merge_effective_raw_state_by_route_key(map_field(issue_workflow, :raw_state_by_route_key), profile_module, policy_by_route_key)
+      |> RoutePolicy.remove_disabled_raw_states(policy_by_route_key, profile_module)
 
     state_phase_map =
       %{}
@@ -521,27 +533,27 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
     |> RoutePolicy.raw_state_for_route_key(route_key)
   end
 
-  defp policy_for_route_key(policy_by_route_key, route_key)
-       when is_map(policy_by_route_key) and is_atom(route_key) do
-    Map.get(policy_by_route_key, route_key) ||
-      Map.get(policy_by_route_key, Atom.to_string(route_key)) ||
-      %{action: :dispatch}
+  defp route_policy_for(policy_by_route_key, route_key) do
+    case RoutePolicy.policy_for_route_key(policy_by_route_key, route_key) do
+      policy when is_map(policy) and map_size(policy) > 0 -> policy
+      _policy -> %{action: :dispatch}
+    end
   end
-
-  defp policy_for_route_key(_policy_by_route_key, _route_key), do: %{action: :dispatch}
 
   defp resolve_policy_by_route_key(base_policy_by_route_key, policy_by_route_key, profile_module) do
     RoutePolicy.resolve_policy_by_route_key(policy_by_route_key, base_policy_by_route_key, profile_module)
   end
 
-  defp merge_raw_state_by_route_key(base_raw_state_by_route_key, raw_state_by_route_key, profile_module)
-       when is_map(base_raw_state_by_route_key) do
-    Enum.reduce(profile_module.route_keys(), base_raw_state_by_route_key, fn route_key, acc ->
-      case raw_state_by_route_key |> map_field(route_key) |> normalize_string() do
-        nil -> acc
-        raw_state -> Map.put(acc, route_key, raw_state)
-      end
-    end)
+  defp merge_effective_policy_by_route_key(base_policy_by_route_key, policy_by_route_key, profile_module) do
+    RoutePolicy.merge_effective_policy_by_route_key(policy_by_route_key, base_policy_by_route_key, profile_module)
+  end
+
+  defp resolve_raw_state_by_route_key(base_raw_state_by_route_key, raw_state_by_route_key, profile_module, policy_by_route_key) do
+    RoutePolicy.resolve_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module, policy_by_route_key)
+  end
+
+  defp merge_effective_raw_state_by_route_key(base_raw_state_by_route_key, raw_state_by_route_key, profile_module, policy_by_route_key) do
+    RoutePolicy.merge_effective_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module, policy_by_route_key)
   end
 
   defp merge_map(base, value) when is_map(base) and is_map(value), do: Map.merge(base, value)

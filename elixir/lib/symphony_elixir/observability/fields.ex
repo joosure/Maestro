@@ -51,6 +51,14 @@ defmodule SymphonyElixir.Observability.Fields do
     workflow_profile
     workflow_profile_version
     workflow_route_key
+    workflow_transition_target_route_key
+    source_workflow_profile
+    source_workflow_profile_version
+    source_workflow_route_key
+    source_route_refs
+    target_workflow_profile
+    target_workflow_profile_version
+    target_workflow_route_key
     workflow_route_action
     workflow_gate_status
     workflow_gate
@@ -124,6 +132,14 @@ defmodule SymphonyElixir.Observability.Fields do
     workflow_profile
     workflow_profile_version
     workflow_route_key
+    workflow_transition_target_route_key
+    source_workflow_profile
+    source_workflow_profile_version
+    source_workflow_route_key
+    source_route_refs
+    target_workflow_profile
+    target_workflow_profile_version
+    target_workflow_route_key
     workflow_route_action
     workflow_gate_status
     workflow_gate

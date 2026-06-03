@@ -3,6 +3,20 @@ defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Run do
 
   alias SymphonyElixir.RepoProvider.CNB.Normalizer.Values
 
+  @status_completed "completed"
+  @status_in_progress "in_progress"
+  @conclusion_success "success"
+  @conclusion_neutral "neutral"
+  @conclusion_skipped "skipped"
+  @conclusion_cancelled "cancelled"
+  @conclusion_failure "failure"
+
+  @successful_states ["success", "passed"]
+  @skipped_states ["skip", "skipped"]
+  @cancelled_states ["cancel", "cancelled", "canceled"]
+  @failing_states ["failure", "failed", "error", "timed_out", "action_required"]
+  @pending_states ["pending", "queued", "created", "running", "in_progress", "checking", "start", ""]
+
   @spec normalize_run_summary(map()) :: map()
   def normalize_run_summary(build) do
     raw_status = Map.get(build, "status")
@@ -88,35 +102,26 @@ defmodule SymphonyElixir.RepoProvider.CNB.Normalizer.Run do
       |> String.downcase()
 
     cond do
-      normalized in ["success", "passed"] ->
-        {"completed", "success"}
+      normalized in @successful_states ->
+        {@status_completed, @conclusion_success}
 
       normalized == "neutral" ->
-        {"completed", "neutral"}
+        {@status_completed, @conclusion_neutral}
 
-      normalized in ["skip", "skipped"] ->
-        {"completed", "skipped"}
+      normalized in @skipped_states ->
+        {@status_completed, @conclusion_skipped}
 
-      normalized in ["cancel", "cancelled", "canceled"] ->
-        {"completed", "cancelled"}
+      normalized in @cancelled_states ->
+        {@status_completed, @conclusion_cancelled}
 
-      normalized in ["failure", "failed", "error", "timed_out", "action_required"] ->
-        {"completed", "failure"}
+      normalized in @failing_states ->
+        {@status_completed, @conclusion_failure}
 
-      normalized in [
-        "pending",
-        "queued",
-        "created",
-        "running",
-        "in_progress",
-        "checking",
-        "start",
-        ""
-      ] ->
-        {"in_progress", nil}
+      normalized in @pending_states ->
+        {@status_in_progress, nil}
 
       true ->
-        {"completed", normalized}
+        {@status_completed, normalized}
     end
   end
 
