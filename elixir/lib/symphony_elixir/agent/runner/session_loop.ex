@@ -76,7 +76,7 @@ defmodule SymphonyElixir.Agent.Runner.SessionLoop do
         max_turns
       )
 
-    SessionCleanup.stop(
+    cleanup_session(
       session,
       SessionCleanup.stop_options(session, result, issue),
       issue,
@@ -86,12 +86,10 @@ defmodule SymphonyElixir.Agent.Runner.SessionLoop do
       "normal"
     )
 
-    ActiveSessions.unregister()
-
     result
   rescue
     exception ->
-      SessionCleanup.stop(
+      cleanup_session(
         session,
         AgentProvider.failed_session_stop_options(
           issue,
@@ -105,14 +103,12 @@ defmodule SymphonyElixir.Agent.Runner.SessionLoop do
         "exception"
       )
 
-      ActiveSessions.unregister()
-
       reraise(exception, __STACKTRACE__)
   catch
     kind, reason ->
       stacktrace = __STACKTRACE__
 
-      SessionCleanup.stop(
+      cleanup_session(
         session,
         AgentProvider.failed_session_stop_options(
           issue,
@@ -126,8 +122,19 @@ defmodule SymphonyElixir.Agent.Runner.SessionLoop do
         "exception"
       )
 
-      ActiveSessions.unregister()
-
       :erlang.raise(kind, reason, stacktrace)
+  end
+
+  defp cleanup_session(session, stop_opts, issue, worker_host, workspace, run_id, reason) do
+    case ActiveSessions.claim_current_cleanup() do
+      :ok ->
+        SessionCleanup.stop(session, stop_opts, issue, worker_host, workspace, run_id, reason)
+
+      :not_registered ->
+        :ok
+
+      :unavailable ->
+        SessionCleanup.stop(session, stop_opts, issue, worker_host, workspace, run_id, reason)
+    end
   end
 end

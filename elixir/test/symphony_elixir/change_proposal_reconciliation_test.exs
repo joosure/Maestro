@@ -8,8 +8,9 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     KnownTarget
   }
 
-  alias SymphonyElixir.ChangeProposalReconciliation.Producer.Watcher
+  alias SymphonyElixir.ChangeProposalReconciliation.Producer.{StartupBacklogBootstrap, Watcher}
   alias SymphonyElixir.Observability.EventStore
+  alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
   alias SymphonyElixir.Orchestrator.State
   alias SymphonyElixir.RepoProvider.ChangeProposalInspector
 
@@ -19,6 +20,8 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     Facts
   }
 
+  alias SymphonyElixir.Workflow.RouteRef
+
   setup do
     Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
 
@@ -27,7 +30,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
       Application.delete_env(:symphony_elixir, :memory_repo_provider_issue_comments)
       Application.delete_env(:symphony_elixir, :memory_repo_provider_review_comments)
       Application.delete_env(:symphony_elixir, :memory_repo_provider_reviews)
-      Application.delete_env(:symphony_elixir, :memory_repo_provider_checks)
+      Application.delete_env(:symphony_elixir, :memory_repo_change_proposal_checks)
       Application.delete_env(:symphony_elixir, :memory_tracker_issue_state_overrides)
     end)
 
@@ -55,7 +58,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
           "candidates" => %{
             "source_routes" => ["review"]
           },
-          "transitions" => %{
+          "outcome_routes" => %{
             "ready" => "not-a-route"
           }
         }
@@ -63,7 +66,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     )
 
     assert {:error, {:invalid_workflow_config, message}} = SymphonyElixir.Config.validate!()
-    assert message =~ "transitions.ready"
+    assert message =~ "outcome_routes.ready"
   end
 
   test "configuration validation rejects static candidate issue ids" do
@@ -149,14 +152,14 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
         ] do
       write_memory_reconciliation_workflow!([],
         change_proposal_reconciliation: %{
-          "transitions" => %{
+          "outcome_routes" => %{
             field => route
           }
         }
       )
 
       assert {:error, {:invalid_workflow_config, message}} = SymphonyElixir.Config.validate!()
-      assert message =~ "transitions.#{field}"
+      assert message =~ "outcome_routes.#{field}"
       assert message =~ route
       assert message =~ "invalid_target_route_lifecycle_phase"
     end
@@ -172,7 +175,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     )
 
     assert {:error, {:invalid_workflow_config, message}} = SymphonyElixir.Config.validate!()
-    assert message =~ "transitions.ready"
+    assert message =~ "outcome_routes.ready"
     assert message =~ "merging"
     assert message =~ "invalid_target_route_policy_action"
   end
@@ -203,9 +206,10 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     ]
 
     for {name, facts, counters, action, reason, target_route} <- cases do
-      assert %Decision{action: ^action, reason: ^reason, target_route: ^target_route} =
-               Decision.decide(config, nil, %{}, facts, counters),
-             name
+      decision = Decision.decide(config, nil, %{}, facts, counters)
+
+      assert %Decision{action: ^action, reason: ^reason} = decision, name
+      assert decision.target_route_ref == maybe_route_ref(target_route), name
     end
   end
 
@@ -223,6 +227,83 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     assert CandidateInbox.drain_issue_ids(2) == ["issue-a", "issue-b"]
     assert CandidateInbox.drain_issue_ids(2) == ["issue-c"]
     assert CandidateInbox.drain_issue_ids(2) == []
+  end
+
+  test "runtime candidate inbox suspends repeatedly deferred issue ids and reactivates on enqueue" do
+    inbox = start_supervised!({CandidateInbox, name: nil, max_defer_count: 2, max_defer_age_ms: 60_000})
+
+    assert {:ok, %{accepted_count: 1, suspended_count: 0}} =
+             CandidateInbox.defer_issue_ids(["issue-deferred"],
+               server: inbox,
+               now_ms: 1_000,
+               reason: :source_route_pending,
+               route: :developing
+             )
+
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == ["issue-deferred"]
+
+    assert {:ok, %{accepted_count: 1, suspended_count: 0}} =
+             CandidateInbox.defer_issue_ids(["issue-deferred"],
+               server: inbox,
+               now_ms: 2_000,
+               reason: :source_route_pending,
+               route: :developing
+             )
+
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == ["issue-deferred"]
+
+    assert {:ok, %{accepted_count: 0, suspended_count: 1, suspended_issue_ids: ["issue-deferred"]}} =
+             CandidateInbox.defer_issue_ids(["issue-deferred"],
+               server: inbox,
+               now_ms: 3_000,
+               reason: :source_route_pending,
+               route: :developing
+             )
+
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == []
+
+    assert %{
+             deferred_count: 0,
+             suspended_count: 1,
+             suspended: %{
+               "issue-deferred" => %{
+                 deferred_count: 3,
+                 last_deferred_route: :developing,
+                 suspend_reason: :defer_policy_exceeded
+               }
+             }
+           } = CandidateInbox.lifecycle_snapshot(server: inbox)
+
+    assert {:ok, %{accepted_count: 1, reactivated_count: 1}} =
+             CandidateInbox.reactivate_issue_ids(["issue-deferred"], server: inbox)
+
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == ["issue-deferred"]
+    assert %{deferred_count: 0, suspended_count: 0} = CandidateInbox.lifecycle_snapshot(server: inbox)
+  end
+
+  test "runtime candidate inbox accepts defer details map from reconciler callback" do
+    inbox = start_supervised!({CandidateInbox, name: nil, max_defer_count: 2, max_defer_age_ms: 60_000})
+
+    assert {:ok, %{accepted_count: 1, suspended_count: 0}} =
+             CandidateInbox.defer_issue_ids(["issue-running"], %{
+               server: inbox,
+               now_ms: 1_000,
+               reason: :running_or_claimed,
+               route: :review
+             })
+
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == ["issue-running"]
+
+    assert %{
+             deferred_count: 1,
+             deferred: %{
+               "issue-running" => %{
+                 deferred_count: 1,
+                 defer_reason: :running_or_claimed,
+                 last_deferred_route: :review
+               }
+             }
+           } = CandidateInbox.lifecycle_snapshot(server: inbox)
   end
 
   test "known target registration stores bounded change proposal metadata and enqueues issue id" do
@@ -246,6 +327,37 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
 
     assert [^target] = ChangeProposalReconciliation.known_targets()
     assert CandidateInbox.drain_issue_ids(10) == ["issue-known"]
+  end
+
+  test "known target registration releases active typed-tool blocker for the same issue" do
+    blocked_registry = start_supervised!({BlockedResourceRegistry, name: nil, persistence_path: false})
+
+    assert {:ok, _record} =
+             BlockedResourceRegistry.register(
+               %{
+                 "resource_kind" => "tracker_issue",
+                 "resource_id" => "issue-known-unblocked",
+                 "blocker_code" => "review_handoff_blocked_after_retries"
+               },
+               server: blocked_registry
+             )
+
+    assert BlockedResourceRegistry.active_for_issue?("issue-known-unblocked", server: blocked_registry)
+
+    assert {:ok, %{target: %{issue_id: "issue-known-unblocked"}}} =
+             ChangeProposalReconciliation.register_known_target(
+               known_target_attrs("issue-known-unblocked"),
+               blocked_resource_registry: blocked_registry
+             )
+
+    refute BlockedResourceRegistry.active_for_issue?("issue-known-unblocked", server: blocked_registry)
+
+    assert %{
+             "status" => "released",
+             "release_reason" => "known_target_updated"
+           } =
+             BlockedResourceRegistry.snapshot(server: blocked_registry)
+             |> Enum.find(fn record -> get_in(record, ["resource", "id"]) == "issue-known-unblocked" end)
   end
 
   test "known target registry evicts oldest targets when max target count is exceeded" do
@@ -286,6 +398,34 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
              KnownTarget.Registry.get("issue-expired", server: registry, now_ms: 1_099)
 
     assert is_nil(KnownTarget.Registry.get("issue-expired", server: registry, now_ms: 1_100))
+  end
+
+  test "known target registry persists canonical targets to internal storage" do
+    path =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-known-targets-#{System.unique_integer([:positive])}.json"
+      )
+
+    {:ok, registry} = KnownTarget.Registry.start_link(name: nil, persistence_path: path)
+
+    assert {:ok, _target} =
+             KnownTarget.Registry.register(known_target_attrs("issue-persisted"),
+               server: registry,
+               now_ms: 1_000
+             )
+
+    assert File.exists?(path)
+
+    GenServer.stop(registry)
+
+    {:ok, restored} = KnownTarget.Registry.start_link(name: nil, persistence_path: path)
+
+    assert %{
+             issue_id: "issue-persisted",
+             number: "persisted-35",
+             repository: "acme/widgets"
+           } = KnownTarget.Registry.get("issue-persisted", server: restored)
   end
 
   test "known target registration observes runtime inbox drops" do
@@ -345,6 +485,55 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
            } = KnownTarget.Registry.get("issue-attach")
 
     assert CandidateInbox.drain_issue_ids(10) == ["issue-attach"]
+  end
+
+  test "tracker attach change proposal producer stores tracker-canonical issue ids" do
+    write_memory_reconciliation_workflow!([])
+    settings = SymphonyElixir.Config.settings!()
+    tapd_tracker = %{settings.tracker | kind: "tapd"}
+
+    assert :ok =
+             ChangeProposalReconciliation.record_tracker_tool_result(
+               tapd_tracker,
+               "custom_tracker_attach",
+               %{
+                 "issue_id" => "TAPD-1153000000000000001",
+                 "url" => "https://cnb.cool/acme/widgets/-/pulls/42"
+               },
+               {:success, %{"attachment" => %{"url" => "https://cnb.cool/acme/widgets/-/pulls/42"}}},
+               settings: settings,
+               tool_context: tracker_tool_context("custom_tracker_attach", "tracker.attach_change_proposal")
+             )
+
+    assert %{issue_id: "1153000000000000001"} = KnownTarget.Registry.get("1153000000000000001")
+    assert is_nil(KnownTarget.Registry.get("TAPD-1153000000000000001"))
+    assert CandidateInbox.drain_issue_ids(10) == ["1153000000000000001"]
+  end
+
+  test "tracker attach change proposal producer prefers canonical issue id from tool payload" do
+    write_memory_reconciliation_workflow!([])
+    settings = SymphonyElixir.Config.settings!()
+    tapd_tracker = %{settings.tracker | kind: "tapd"}
+
+    assert :ok =
+             ChangeProposalReconciliation.record_tracker_tool_result(
+               tapd_tracker,
+               "custom_tracker_attach",
+               %{
+                 "issue_id" => "TAPD-1153000000000000001",
+                 "url" => "https://cnb.cool/acme/widgets/-/pulls/42"
+               },
+               {:success,
+                %{
+                  "issue" => %{"id" => "1153000000000000001", "identifier" => "TAPD-1153000000000000001"},
+                  "attachment" => %{"url" => "https://cnb.cool/acme/widgets/-/pulls/42"}
+                }},
+               settings: settings,
+               tool_context: tracker_tool_context("custom_tracker_attach", "tracker.attach_change_proposal")
+             )
+
+    assert %{issue_id: "1153000000000000001"} = KnownTarget.Registry.get("1153000000000000001")
+    assert CandidateInbox.drain_issue_ids(10) == ["1153000000000000001"]
   end
 
   test "tracker tool producer does not infer producer action from tool name suffix" do
@@ -452,35 +641,33 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     )
 
     settings = SymphonyElixir.Config.settings!()
-    test_pid = self()
 
     assert :ok =
              ChangeProposalReconciliation.record_tracker_tool_result(
                settings.tracker,
                "custom_tracker_move",
                %{"issue_id" => "issue-review-reference", "state_name" => "review"},
-               {:success, %{"issue" => %{"id" => "issue-review-reference"}}},
+               {:success,
+                %{
+                  "issue" => %{
+                    "id" => "issue-review-reference",
+                    "state" => "In Review",
+                    "workflow" => %{
+                      "change_proposal" => %{
+                        "url" => "https://example.test/acme/widgets/-/pulls/43",
+                        "branch" => "feature/review-reference"
+                      }
+                    }
+                  }
+                }},
                settings: settings,
                tool_context: tracker_tool_context("custom_tracker_move", "tracker.move_issue"),
                env: [probe: :review_transition_fetch],
                producer_private_probe: :must_not_reach_tracker,
                tracker_fetch_issue_states_by_ids_fn: fn _tracker, ["issue-review-reference"], opts ->
-                 send(test_pid, {:fetch_issue_states_by_ids_opts, opts})
-                 Tracker.fetch_issue_states_by_ids(["issue-review-reference"], opts)
-               end,
-               tracker_fetch_change_proposal_reference_fn: fn tracker, fetched_issue, opts ->
-                 send(test_pid, {:fetch_change_proposal_reference_opts, opts})
-                 Tracker.fetch_change_proposal_reference(tracker, fetched_issue, opts)
+                 flunk("move producer should use issue payload before fetching by arguments; got #{inspect(opts)}")
                end
              )
-
-    assert_receive {:fetch_issue_states_by_ids_opts, fetch_opts}
-    assert_receive {:fetch_change_proposal_reference_opts, reference_opts}
-
-    assert Keyword.fetch!(fetch_opts, :env) == [probe: :review_transition_fetch]
-    assert Keyword.fetch!(reference_opts, :env) == [probe: :review_transition_fetch]
-    refute Keyword.has_key?(fetch_opts, :producer_private_probe)
-    refute Keyword.has_key?(reference_opts, :producer_private_probe)
 
     assert %{
              issue_id: "issue-review-reference",
@@ -489,6 +676,95 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
            } = KnownTarget.Registry.get("issue-review-reference")
 
     assert CandidateInbox.drain_issue_ids(10) == ["issue-review-reference"]
+  end
+
+  test "tracker move issue producer reuses internal known target for canonical tracker issue ids" do
+    write_memory_reconciliation_workflow!([],
+      change_proposal_reconciliation: %{
+        "candidates" => %{
+          "discovery" => "runtime_targeted"
+        }
+      }
+    )
+
+    settings = SymphonyElixir.Config.settings!()
+    tapd_tracker = %{settings.tracker | kind: "tapd"}
+
+    assert {:ok, _target} =
+             KnownTarget.Registry.register(%{
+               "issue_id" => "1153000000000000001",
+               "url" => "https://cnb.cool/acme/widgets/-/pulls/42",
+               "repo_provider_kind" => "cnb",
+               "repository" => "acme/widgets"
+             })
+
+    assert :ok =
+             ChangeProposalReconciliation.record_tracker_tool_result(
+               tapd_tracker,
+               "custom_tracker_move",
+               %{"issue_id" => "TAPD-1153000000000000001", "state_name" => "review"},
+               {:success,
+                %{
+                  "issue" => %{
+                    "id" => "1153000000000000001",
+                    "identifier" => "TAPD-1153000000000000001",
+                    "state" => %{"id" => "In Review", "name" => "In Review", "type" => "human_review"}
+                  }
+                }},
+               settings: settings,
+               tool_context: tracker_tool_context("custom_tracker_move", "tracker.move_issue"),
+               tracker_fetch_issue_states_by_ids_fn: fn _tracker, _issue_ids, _opts ->
+                 flunk("move producer should use canonical issue payload before fetching by arguments")
+               end
+             )
+
+    assert %{issue_id: "1153000000000000001"} = KnownTarget.Registry.get("1153000000000000001")
+    assert is_nil(KnownTarget.Registry.get("TAPD-1153000000000000001"))
+    assert CandidateInbox.drain_issue_ids(10) == ["1153000000000000001"]
+  end
+
+  test "tracker move issue producer prefers canonical moved issue payload over argument fetch" do
+    write_memory_reconciliation_workflow!([],
+      change_proposal_reconciliation: %{
+        "candidates" => %{
+          "discovery" => "runtime_targeted"
+        }
+      }
+    )
+
+    settings = SymphonyElixir.Config.settings!()
+    tapd_tracker = %{settings.tracker | kind: "tapd"}
+
+    assert {:ok, _target} =
+             KnownTarget.Registry.register(%{
+               "issue_id" => "1153000000000000001",
+               "url" => "https://cnb.cool/acme/widgets/-/pulls/42",
+               "repo_provider_kind" => "cnb",
+               "repository" => "acme/widgets"
+             })
+
+    assert :ok =
+             ChangeProposalReconciliation.record_tracker_tool_result(
+               tapd_tracker,
+               "custom_tracker_move",
+               %{"issue_id" => "TAPD-1153000000000000001", "state_name" => "review"},
+               {:success,
+                %{
+                  "issue" => %{
+                    "id" => "1153000000000000001",
+                    "identifier" => "TAPD-1153000000000000001",
+                    "state" => %{"id" => "In Review", "name" => "In Review", "type" => "human_review"}
+                  }
+                }},
+               settings: settings,
+               tool_context: tracker_tool_context("custom_tracker_move", "tracker.move_issue"),
+               tracker_fetch_issue_states_by_ids_fn: fn _tracker, _issue_ids, _opts ->
+                 flunk("move producer should use the canonical issue payload before fetching by arguments")
+               end
+             )
+
+    assert %{issue_id: "1153000000000000001"} = KnownTarget.Registry.get("1153000000000000001")
+    assert CandidateInbox.drain_issue_ids(10) == ["1153000000000000001"]
   end
 
   test "known-target watcher enqueues only registered targets when provider facts change" do
@@ -502,7 +778,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
 
     put_ready_repo_provider_payloads()
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "status" => "queued", "conclusion" => nil}
     ])
 
@@ -548,7 +824,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
 
     assert CandidateInbox.drain_issue_ids(10) == []
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "status" => "completed", "conclusion" => "success"}
     ])
 
@@ -565,6 +841,86 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
              )
 
     assert CandidateInbox.drain_issue_ids(10) == ["issue-watch"]
+  end
+
+  test "known-target watcher releases active typed-tool blocker when provider facts change" do
+    write_memory_reconciliation_workflow!([],
+      change_proposal_reconciliation: %{
+        "candidates" => %{
+          "discovery" => "runtime_targeted"
+        }
+      }
+    )
+
+    registry = start_supervised!({KnownTarget.Registry, name: nil})
+    inbox = start_supervised!({CandidateInbox, name: nil})
+    blocked_registry = start_supervised!({BlockedResourceRegistry, name: nil, persistence_path: false})
+
+    assert {:ok, _target} =
+             KnownTarget.Registry.register(known_target_attrs("issue-watch-unblocked"),
+               server: registry,
+               now_ms: 1_000
+             )
+
+    assert {:ok, _record} =
+             BlockedResourceRegistry.register(
+               %{
+                 "resource_kind" => "tracker_issue",
+                 "resource_id" => "issue-watch-unblocked",
+                 "blocker_code" => "review_handoff_blocked_after_retries"
+               },
+               server: blocked_registry
+             )
+
+    assert %{
+             inspected_count: 1,
+             enqueued_count: 1,
+             changed_count: 1,
+             due_count: 1,
+             error_count: 0
+           } =
+             Watcher.run_once(
+               registry: registry,
+               inbox: inbox,
+               blocked_resource_registry: blocked_registry,
+               now_ms: 1_001,
+               change_proposal_facts_fn: fn _repo, _target, _opts -> ready_facts() end
+             )
+
+    refute BlockedResourceRegistry.active_for_issue?("issue-watch-unblocked", server: blocked_registry)
+  end
+
+  test "startup backlog bootstrap enqueues source-route issues for runtime targeted reconciliation" do
+    review_issue =
+      memory_issue(%{
+        "id" => "issue-bootstrap-review",
+        "identifier" => "MEM-BOOTSTRAP-REVIEW",
+        "title" => "Existing review issue",
+        "state" => "In Review"
+      })
+
+    active_issue =
+      memory_issue(%{
+        "id" => "issue-bootstrap-active",
+        "identifier" => "MEM-BOOTSTRAP-ACTIVE",
+        "title" => "Active issue",
+        "state" => "In Progress"
+      })
+
+    write_memory_reconciliation_workflow!([review_issue, active_issue],
+      change_proposal_reconciliation: %{
+        "candidates" => %{
+          "discovery" => "runtime_targeted"
+        }
+      }
+    )
+
+    inbox = start_supervised!({CandidateInbox, name: nil})
+
+    assert %{status: :ok, candidate_count: 1, enqueued_count: 1} =
+             StartupBacklogBootstrap.run_once(inbox: inbox)
+
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == ["issue-bootstrap-review"]
   end
 
   test "known-target watcher observes provider inspect exceptions" do
@@ -687,7 +1043,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
   test "tracker change proposal reference prefers attached workflow metadata" do
     issue = %Issue{
       id: "issue-reference",
-      branch_name: "feature/fallback",
+      branch_name: "feature/issue-branch",
       workflow: %{
         "change_proposal" => %{
           "number" => 42,
@@ -704,61 +1060,65 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
            } = Tracker.change_proposal_reference(issue)
   end
 
-  test "tracker change proposal reference explicit facade accepts tracker and issue" do
-    tracker = %Tracker.Config{kind: "memory"}
-
-    issue = %Issue{
-      id: "issue-explicit-reference",
-      workflow: %{"change_proposal" => %{"url" => "https://example.test/acme/widgets/-/pulls/42"}}
+  test "tracker change proposal reference ignores provider attachment display metadata" do
+    issue = %{
+      "id" => "issue-attachment-reference",
+      "attachments" => [
+        %{
+          "title" => "Change proposal",
+          "url" => "https://example.test/acme/widgets/-/pulls/44"
+        }
+      ]
     }
 
-    assert {:ok, %Tracker.ChangeProposalReference{url: "https://example.test/acme/widgets/-/pulls/42"}} =
-             Tracker.fetch_change_proposal_reference(tracker, issue)
+    assert is_nil(Tracker.change_proposal_reference(issue))
   end
 
-  test "tapd tracker extracts change proposal reference from workpad comments" do
-    tracker = %Tracker.Config{
-      kind: "tapd",
-      endpoint: "https://api.tapd.cn",
-      auth: %{"api_key" => "tapd-user", "api_secret" => "tapd-secret"},
-      provider: %{"platform" => %{"workspace_id" => "12345678"}}
-    }
+  test "reconciler reads known target registry as the internal source of truth" do
+    issue =
+      memory_issue(%{
+        "id" => "issue-known-target-reference",
+        "identifier" => "MEM-KNOWN-TARGET-REFERENCE",
+        "title" => "Known target change proposal",
+        "state" => "In Review"
+      })
 
-    issue = %Issue{id: "1130000001"}
+    write_memory_reconciliation_workflow!([issue])
 
-    request_fun = fn request ->
-      assert request.method == "GET"
-      assert request.url == "https://api.tapd.cn/comments"
-      assert request.params["entry_type"] == "stories"
-      assert request.params["entry_id"] == "1130000001"
-      assert request.params["workspace_id"] == "12345678"
+    registry = start_supervised!({KnownTarget.Registry, name: nil})
 
-      {:ok,
-       %{
-         status: 200,
-         body: %{
-           "status" => 1,
-           "data" => [
-             %{
-               "Comment" => %{
-                 "id" => "comment-1",
-                 "description" => "## TAPD Workpad\n\n### Change Proposal\n\n- [CNB PR](https://cnb.cool/acme/widgets/-/pulls/42)\n"
-               }
-             }
-           ]
-         }
-       }}
-    end
-
-    assert {:ok,
-            %Tracker.ChangeProposalReference{
-              number: "42",
-              url: "https://cnb.cool/acme/widgets/-/pulls/42"
-            }} =
-             Tracker.fetch_change_proposal_reference(tracker, issue,
-               request_fun: request_fun,
-               retry_delays_ms: []
+    assert {:ok, _target} =
+             KnownTarget.Registry.register(
+               Map.merge(known_target_attrs("issue-known-target-reference"), %{
+                 "number" => "45",
+                 "url" => "https://example.test/acme/widgets/-/pulls/45",
+                 "branch" => "feature/known-target"
+               }),
+               server: registry
              )
+
+    settings = SymphonyElixir.Config.settings!()
+    state = State.initial(config: settings)
+
+    capture_log(fn ->
+      assert %State{} =
+               ChangeProposalReconciliation.reconcile(settings, state,
+                 known_target_registry: registry,
+                 change_proposal_facts_fn: fn _repo, %Tracker.ChangeProposalReference{} = reference, _opts ->
+                   assert reference.number == "45"
+                   assert reference.url == "https://example.test/acme/widgets/-/pulls/45"
+                   assert reference.branch == "feature/known-target"
+
+                   %{ready_facts() | number: 45, url: reference.url, branch: reference.branch}
+                 end
+               )
+    end)
+
+    event = recent_issue_event("issue-known-target-reference", "change_proposal_located")
+
+    assert event["change_proposal_number"] == "45"
+    assert event["change_proposal_url"] == "https://example.test/acme/widgets/-/pulls/45"
+    assert event["change_proposal_branch"] == "feature/known-target"
   end
 
   test "repo-provider inspector normalizes provider payloads into workflow facts" do
@@ -866,7 +1226,9 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     event = recent_issue_event("issue-located", "change_proposal_located")
 
     assert event["issue_identifier"] == "MEM-LOCATED"
-    assert event["source_route"] == "review"
+    assert event["source_workflow_profile"] == "coding_pr_delivery"
+    assert event["source_workflow_profile_version"] == 1
+    assert event["source_workflow_route_key"] == "review"
     assert event["source_state"] == "In Review"
     assert event["change_proposal_number"] == "42"
     assert event["change_proposal_url"] == "https://example.test/acme/widgets/-/pulls/42"
@@ -895,7 +1257,9 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     event = recent_issue_event("issue-reference-missing", "change_proposal_lookup_failed")
 
     assert event["issue_identifier"] == "MEM-REFERENCE-MISSING"
-    assert event["source_route"] == "review"
+    assert event["source_workflow_profile"] == "coding_pr_delivery"
+    assert event["source_workflow_profile_version"] == 1
+    assert event["source_workflow_route_key"] == "review"
     assert event["source_state"] == "In Review"
     assert event["lookup_failure_reason"] == "not_found"
     refute Map.has_key?(event, "error")
@@ -952,7 +1316,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     write_memory_reconciliation_workflow!([issue])
     put_ready_repo_provider_payloads()
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "status" => "queued", "conclusion" => nil}
     ])
 
@@ -1261,20 +1625,213 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
     assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == ["issue-inbox-2"]
   end
 
+  test "runtime-targeted candidates deferred by running issues are requeued" do
+    issue =
+      memory_issue(%{
+        "id" => "issue-running-target",
+        "identifier" => "MEM-RUNNING-TARGET",
+        "title" => "Running change proposal target",
+        "state" => "In Review",
+        "branch_name" => "feature/running-target"
+      })
+
+    write_memory_reconciliation_workflow!([issue],
+      tracker_active_states: ["Todo", "In Progress", "Rework"],
+      change_proposal_reconciliation: %{
+        "candidates" => %{
+          "discovery" => "runtime_targeted"
+        }
+      }
+    )
+
+    put_ready_repo_provider_payloads()
+    inbox = start_supervised!({CandidateInbox, name: nil})
+
+    assert {:ok, %{accepted_count: 1}} =
+             CandidateInbox.enqueue_issue_ids(["issue-running-target"], server: inbox)
+
+    settings = SymphonyElixir.Config.settings!()
+    running_state = %{State.initial(config: settings) | running: %{"issue-running-target" => %{}}}
+
+    assert %State{} =
+             ChangeProposalReconciliation.reconcile(settings, running_state,
+               targeted_issue_ids_fn: fn limit ->
+                 CandidateInbox.drain_issue_ids(limit: limit, server: inbox)
+               end,
+               defer_targeted_issue_ids_fn: fn issue_ids ->
+                 CandidateInbox.enqueue_issue_ids(issue_ids, server: inbox)
+               end
+             )
+
+    refute_receive {:memory_tracker_state_update, "issue-running-target", "Merging"}, 50
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == ["issue-running-target"]
+
+    assert {:ok, %{accepted_count: 1}} =
+             CandidateInbox.enqueue_issue_ids(["issue-running-target"], server: inbox)
+
+    assert %State{} =
+             ChangeProposalReconciliation.reconcile(settings, State.initial(config: settings),
+               targeted_issue_ids_fn: fn limit ->
+                 CandidateInbox.drain_issue_ids(limit: limit, server: inbox)
+               end,
+               defer_targeted_issue_ids_fn: fn issue_ids ->
+                 CandidateInbox.enqueue_issue_ids(issue_ids, server: inbox)
+               end
+             )
+
+    assert_receive {:memory_tracker_state_update, "issue-running-target", "Merging"}
+  end
+
+  test "runtime-targeted known targets remain queued until the source route is reached" do
+    issue =
+      memory_issue(%{
+        "id" => "issue-known-before-review",
+        "identifier" => "MEM-KNOWN-BEFORE-REVIEW",
+        "title" => "Known change proposal before review",
+        "state" => "In Progress",
+        "branch_name" => "feature/known-before-review"
+      })
+
+    write_memory_reconciliation_workflow!([issue],
+      tracker_active_states: ["Todo", "In Progress", "Rework"],
+      change_proposal_reconciliation: %{
+        "candidates" => %{
+          "discovery" => "runtime_targeted"
+        }
+      }
+    )
+
+    put_ready_repo_provider_payloads()
+    registry = start_supervised!({KnownTarget.Registry, name: nil})
+    inbox = start_supervised!({CandidateInbox, name: nil})
+
+    assert {:ok, _target} =
+             KnownTarget.Registry.register(known_target_attrs("issue-known-before-review"),
+               server: registry
+             )
+
+    assert {:ok, %{accepted_count: 1}} =
+             CandidateInbox.enqueue_issue_ids(["issue-known-before-review"], server: inbox)
+
+    settings = SymphonyElixir.Config.settings!()
+
+    assert %State{} =
+             ChangeProposalReconciliation.reconcile(settings, State.initial(config: settings),
+               known_target_registry: registry,
+               targeted_issue_ids_fn: fn limit ->
+                 CandidateInbox.drain_issue_ids(limit: limit, server: inbox)
+               end,
+               defer_targeted_issue_ids_fn: fn issue_ids ->
+                 CandidateInbox.enqueue_issue_ids(issue_ids, server: inbox)
+               end
+             )
+
+    refute_receive {:memory_tracker_state_update, "issue-known-before-review", "Merging"}, 50
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == ["issue-known-before-review"]
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issue_state_overrides, %{
+      "issue-known-before-review" => "In Review"
+    })
+
+    assert {:ok, %{accepted_count: 1}} =
+             CandidateInbox.enqueue_issue_ids(["issue-known-before-review"], server: inbox)
+
+    assert %State{} =
+             ChangeProposalReconciliation.reconcile(settings, State.initial(config: settings),
+               known_target_registry: registry,
+               targeted_issue_ids_fn: fn limit ->
+                 CandidateInbox.drain_issue_ids(limit: limit, server: inbox)
+               end,
+               defer_targeted_issue_ids_fn: fn issue_ids ->
+                 CandidateInbox.enqueue_issue_ids(issue_ids, server: inbox)
+               end
+             )
+
+    assert_receive {:memory_tracker_state_update, "issue-known-before-review", "Merging"}
+  end
+
+  test "runtime-targeted known targets emit suspension event when defer policy is exceeded" do
+    issue =
+      memory_issue(%{
+        "id" => "issue-known-suspended",
+        "identifier" => "MEM-KNOWN-SUSPENDED",
+        "title" => "Known change proposal suspended before review",
+        "state" => "In Progress",
+        "branch_name" => "feature/known-suspended"
+      })
+
+    write_memory_reconciliation_workflow!([issue],
+      tracker_active_states: ["Todo", "In Progress", "Rework"],
+      change_proposal_reconciliation: %{
+        "candidates" => %{
+          "discovery" => "runtime_targeted"
+        }
+      }
+    )
+
+    put_ready_repo_provider_payloads()
+    registry = start_supervised!({KnownTarget.Registry, name: nil})
+    inbox = start_supervised!({CandidateInbox, name: nil})
+
+    assert {:ok, _target} =
+             KnownTarget.Registry.register(known_target_attrs("issue-known-suspended"),
+               server: registry
+             )
+
+    assert {:ok, %{accepted_count: 1}} =
+             CandidateInbox.enqueue_issue_ids(["issue-known-suspended"], server: inbox)
+
+    settings = SymphonyElixir.Config.settings!()
+
+    assert %State{} =
+             ChangeProposalReconciliation.reconcile(settings, State.initial(config: settings),
+               known_target_registry: registry,
+               targeted_issue_ids_fn: fn limit ->
+                 CandidateInbox.drain_issue_ids(limit: limit, server: inbox)
+               end,
+               defer_targeted_issue_ids_fn: fn issue_ids, details ->
+                 CandidateInbox.defer_issue_ids(
+                   issue_ids,
+                   [server: inbox, max_defer_count: 0, now_ms: 1_000] ++ Map.to_list(details)
+                 )
+               end
+             )
+
+    assert CandidateInbox.drain_issue_ids(limit: 10, server: inbox) == []
+
+    assert %{
+             "event" => "change_proposal_candidate_suspended",
+             "issue_id" => "issue-known-suspended",
+             "reason" => "source_route_pending",
+             "source_workflow_profile" => "coding_pr_delivery",
+             "source_workflow_profile_version" => 1,
+             "source_workflow_route_key" => "developing"
+           } = recent_event("change_proposal_candidate_suspended")
+  end
+
   defp reconciliation_config do
     %Config{
       enabled?: true,
       candidate_discovery: :source_route_scan,
-      source_routes: [:review],
-      ready_target_route: :merging,
-      changes_requested_target_route: :rework,
-      failed_checks_target_route: :rework,
-      already_merged_target_route: :resolved,
+      source_routes: [route_ref(:review)],
+      outcome_routes: %{
+        ready: route_ref(:merging),
+        changes_requested: route_ref(:rework),
+        failed_checks: route_ref(:rework),
+        already_merged: route_ref(:resolved)
+      },
       require_approval?: true,
       require_passing_checks?: true,
       require_mergeable?: true,
       failed_checks_confirmation_count: 2
     }
+  end
+
+  defp maybe_route_ref(nil), do: nil
+  defp maybe_route_ref(route_key), do: route_ref(route_key)
+
+  defp route_ref(route_key) do
+    %RouteRef{profile_kind: "coding_pr_delivery", profile_version: 1, route_key: route_key}
   end
 
   defp ready_facts do
@@ -1347,7 +1904,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
         "passing_checks_required" => true,
         "mergeable_required" => true
       },
-      "transitions" => %{
+      "outcome_routes" => %{
         "ready" => "merging",
         "changes_requested" => "rework",
         "failed_checks" => "rework",
@@ -1410,7 +1967,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliationTest do
       }
     ])
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "status" => "completed", "conclusion" => "success"}
     ])
   end

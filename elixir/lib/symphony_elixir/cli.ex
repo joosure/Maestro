@@ -8,32 +8,60 @@ defmodule SymphonyElixir.CLI do
   alias SymphonyElixir.CLI.RepoProvider, as: RepoProviderCLI
   alias SymphonyElixir.Config
   alias SymphonyElixir.Observability.LogFile
+  alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
   alias SymphonyElixir.RepoProvider.Error, as: RepoProviderError
   alias SymphonyElixir.Tracker.Error, as: TrackerError
   alias SymphonyElixir.Workflow.Templates, as: WorkflowTemplates
   alias SymphonyWorkerDaemon.CLI, as: WorkerDaemonCLI
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
-  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer, template: :string]
+  @switches [
+    {@acknowledgement_switch, :boolean},
+    host: :string,
+    logs_root: :string,
+    port: :integer,
+    template: :string
+  ]
+  @blocked_resource_switches [
+    issue_id: :string,
+    reason: :string,
+    resource_id: :string,
+    resource_kind: :string
+  ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
           required(:file_regular?) => (String.t() -> boolean()),
           required(:set_workflow_file_path) => (String.t() -> :ok | {:error, term()}),
           required(:set_logs_root) => (String.t() -> :ok | {:error, term()}),
-          required(:set_server_port_override) => (non_neg_integer() | nil -> :ok | {:error, term()}),
+          required(:set_server_port_override) => (non_neg_integer() | nil ->
+                                                    :ok | {:error, term()}),
+          optional(:set_server_host_override) => (String.t() -> :ok | {:error, term()}),
           required(:validate_config) => (-> :ok | {:error, term()}),
           required(:ensure_all_started) => (-> ensure_started_result()),
           optional(:worker_daemon_evaluate) => ([String.t()] -> :ok | {:error, String.t()}),
-          optional(:accounts_login) => (String.t(), String.t(), keyword() -> {:ok, map()} | {:error, term()}),
-          optional(:accounts_import) => (String.t(), String.t(), keyword() -> {:ok, map()} | {:error, term()}),
+          optional(:accounts_login) => (String.t(), String.t(), keyword() ->
+                                          {:ok, map()} | {:error, term()}),
+          optional(:accounts_import) => (String.t(), String.t(), keyword() ->
+                                           {:ok, map()} | {:error, term()}),
           optional(:accounts_list) => (String.t() | nil -> {:ok, [map()]} | {:error, term()}),
-          optional(:accounts_verify) => (String.t(), String.t(), keyword() -> {:ok, map()} | {:error, term()}),
-          optional(:accounts_pause) => (String.t(), String.t(), keyword() -> {:ok, map()} | {:error, term()}),
-          optional(:accounts_resume) => (String.t(), String.t() -> {:ok, map()} | {:error, term()}),
+          optional(:accounts_verify) => (String.t(), String.t(), keyword() ->
+                                           {:ok, map()} | {:error, term()}),
+          optional(:accounts_pause) => (String.t(), String.t(), keyword() ->
+                                          {:ok, map()} | {:error, term()}),
+          optional(:accounts_resume) => (String.t(), String.t() ->
+                                           {:ok, map()} | {:error, term()}),
           optional(:accounts_remove) => (String.t(), String.t() -> :ok | {:error, term()}),
-          optional(:accounts_enable) => (String.t(), String.t() -> {:ok, map()} | {:error, term()}),
-          optional(:accounts_disable) => (String.t(), String.t() -> {:ok, map()} | {:error, term()})
+          optional(:accounts_enable) => (String.t(), String.t() ->
+                                           {:ok, map()} | {:error, term()}),
+          optional(:accounts_disable) => (String.t(), String.t() ->
+                                            {:ok, map()} | {:error, term()}),
+          optional(:accounts_list_leases) => (String.t() | nil, String.t() | nil ->
+                                                {:ok, [map()]} | {:error, term()}),
+          optional(:accounts_release_lease) => (String.t(), String.t(), String.t() ->
+                                                  {:ok, map()} | {:error, term()}),
+          optional(:blocked_resources_snapshot) => (-> [map()]),
+          optional(:blocked_resource_release) => (String.t(), String.t(), String.t() -> :ok)
         }
 
   @spec main([String.t()]) :: no_return()
@@ -52,7 +80,7 @@ defmodule SymphonyElixir.CLI do
   def main(args) do
     case evaluate(args) do
       :ok ->
-        if accounts_command?(args), do: System.halt(0), else: wait_for_shutdown()
+        if short_lived_command?(args), do: System.halt(0), else: wait_for_shutdown()
 
       {:error, message} ->
         IO.puts(:stderr, message)
@@ -60,8 +88,9 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
-  defp accounts_command?(["accounts" | _args]), do: true
-  defp accounts_command?(_args), do: false
+  defp short_lived_command?(["accounts" | _args]), do: true
+  defp short_lived_command?(["blocked-resources" | _args]), do: true
+  defp short_lived_command?(_args), do: false
 
   @spec evaluate([String.t()], deps()) :: :ok | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps())
@@ -74,11 +103,16 @@ defmodule SymphonyElixir.CLI do
     Map.get(deps, :worker_daemon_evaluate, &WorkerDaemonCLI.evaluate/1).(daemon_args)
   end
 
+  def evaluate(["blocked-resources" | blocked_resource_args], deps) do
+    evaluate_blocked_resources(blocked_resource_args, deps)
+  end
+
   def evaluate(args, deps) do
     case OptionParser.parse(args, strict: @switches) do
       {opts, workflow_args, []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),
+             :ok <- maybe_set_server_host(opts, deps),
              :ok <- maybe_set_server_port(opts, deps),
              {:ok, workflow_path} <- workflow_path(opts, workflow_args) do
           run(workflow_path, deps)
@@ -142,8 +176,8 @@ defmodule SymphonyElixir.CLI do
   defp usage_message do
     """
     Usage:
-      symphony [--logs-root <path>] [--port <port>] [--template <alias>]
-      symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]
+      symphony [--host <host>] [--logs-root <path>] [--port <port>] [--template <alias>]
+      symphony [--host <host>] [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]
       symphony accounts login claude_code <id> [--email <email>] [--token-stdin|--token-file <path>|--token-env <VAR>] [path-to-WORKFLOW.md]
       symphony accounts login codebuddy_code <id> [--internet-environment public|internal|ioa] [--email <email>] [--token-stdin|--token-file <path>|--token-env <VAR>] [path-to-WORKFLOW.md]
       symphony accounts login opencode <id> --env-name <MODEL_PROVIDER_API_KEY_ENV> [--email <email>] [--token-stdin|--token-file <path>|--token-env <VAR>] [path-to-WORKFLOW.md]
@@ -155,6 +189,11 @@ defmodule SymphonyElixir.CLI do
       symphony accounts enable <provider> <id> [path-to-WORKFLOW.md]
       symphony accounts disable <provider> <id> [path-to-WORKFLOW.md]
       symphony accounts remove <provider> <id> [path-to-WORKFLOW.md]
+      symphony accounts leases list [provider [id]] [path-to-WORKFLOW.md]
+      symphony accounts leases release <provider> <id> <lease-id> [path-to-WORKFLOW.md]
+      symphony blocked-resources list [path-to-WORKFLOW.md]
+      symphony blocked-resources release --issue-id <id> [--reason <text>] [path-to-WORKFLOW.md]
+      symphony blocked-resources release --resource-kind <kind> --resource-id <id> [--reason <text>] [path-to-WORKFLOW.md]
       symphony worker-daemon --workspace-root <path> [--host 127.0.0.1] [--port 4001] [--token-env SYMPHONY_WORKER_DAEMON_TOKEN]
 
     Provider aliases accepted for operator convenience: claude -> claude_code, codebuddy -> codebuddy_code, opencode -> opencode.
@@ -168,13 +207,150 @@ defmodule SymphonyElixir.CLI do
       file_regular?: &File.regular?/1,
       set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
       set_logs_root: &set_logs_root/1,
+      set_server_host_override: &set_server_host_override/1,
       set_server_port_override: &set_server_port_override/1,
       validate_config: &Config.validate!/0,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end,
-      worker_daemon_evaluate: &WorkerDaemonCLI.evaluate/1
+      worker_daemon_evaluate: &WorkerDaemonCLI.evaluate/1,
+      blocked_resources_snapshot: &blocked_resources_snapshot/0,
+      blocked_resource_release: &blocked_resource_release/3
     }
     |> Map.merge(AccountsCLI.runtime_deps())
   end
+
+  defp evaluate_blocked_resources(["list" | args], deps) do
+    with {:ok, _workflow_path} <- set_operator_workflow_path(args, deps) do
+      deps
+      |> Map.get(:blocked_resources_snapshot, &blocked_resources_snapshot/0)
+      |> then(& &1.())
+      |> print_blocked_resources()
+
+      :ok
+    end
+  end
+
+  defp evaluate_blocked_resources(["release" | args], deps) do
+    case OptionParser.parse(args, strict: @blocked_resource_switches) do
+      {opts, workflow_args, []} ->
+        with {:ok, _workflow_path} <- set_operator_workflow_path(workflow_args, deps),
+             {:ok, {resource_kind, resource_id}} <- release_resource(opts) do
+          reason = opts |> Keyword.get(:reason, "operator_release") |> normalize_operator_value()
+
+          deps
+          |> Map.get(:blocked_resource_release, &blocked_resource_release/3)
+          |> then(& &1.(resource_kind, resource_id, reason || "operator_release"))
+
+          IO.puts("released #{resource_kind}:#{resource_id} reason=#{reason || "operator_release"}")
+          :ok
+        end
+
+      _other ->
+        {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_blocked_resources(_args, _deps), do: {:error, usage_message()}
+
+  defp set_operator_workflow_path(workflow_args, deps) when is_list(workflow_args) do
+    case workflow_args do
+      [] ->
+        set_operator_workflow_path([Path.expand("WORKFLOW.md")], deps)
+
+      [workflow_path] ->
+        expanded_path = Path.expand(workflow_path)
+
+        if deps.file_regular?.(expanded_path) do
+          :ok = deps.set_workflow_file_path.(expanded_path)
+          {:ok, expanded_path}
+        else
+          {:error, "Workflow file not found: #{expanded_path}"}
+        end
+
+      _args ->
+        {:error, usage_message()}
+    end
+  end
+
+  defp release_resource(opts) do
+    issue_id = opts |> Keyword.get(:issue_id) |> normalize_operator_value()
+    resource_kind = opts |> Keyword.get(:resource_kind) |> normalize_operator_value()
+    resource_id = opts |> Keyword.get(:resource_id) |> normalize_operator_value()
+
+    cond do
+      issue_id && (resource_kind || resource_id) ->
+        {:error, "Pass either --issue-id or --resource-kind/--resource-id, not both"}
+
+      issue_id ->
+        {:ok, {"tracker_issue", issue_id}}
+
+      resource_kind && resource_id ->
+        {:ok, {resource_kind, resource_id}}
+
+      true ->
+        {:error, "Pass --issue-id or both --resource-kind and --resource-id"}
+    end
+  end
+
+  defp print_blocked_resources(records) when is_list(records) do
+    active_records =
+      Enum.filter(records, fn record ->
+        Map.get(record, "status") == "active"
+      end)
+
+    if active_records == [] do
+      IO.puts("No active blocked resources.")
+    else
+      Enum.each(active_records, fn record ->
+        resource = Map.get(record, "resource", %{})
+        resource_kind = Map.get(resource, "kind", "unknown")
+        resource_id = Map.get(resource, "id", "unknown")
+
+        IO.puts(
+          Enum.join(
+            [
+              "resource=#{resource_kind}:#{resource_id}",
+              "blocker_code=#{Map.get(record, "blocker_code", "unknown")}",
+              "original_error_code=#{Map.get(record, "original_error_code", "n/a")}",
+              "tool=#{Map.get(record, "tool_name", "n/a")}",
+              "run_id=#{Map.get(record, "run_id", "n/a")}",
+              "blocked_at_ms=#{Map.get(record, "blocked_at_ms", "n/a")}"
+            ],
+            " "
+          )
+        )
+      end)
+    end
+  end
+
+  defp blocked_resources_snapshot do
+    with_blocked_resource_registry(fn registry ->
+      BlockedResourceRegistry.snapshot(server: registry)
+    end)
+  end
+
+  defp blocked_resource_release(resource_kind, resource_id, reason) do
+    with_blocked_resource_registry(fn registry ->
+      BlockedResourceRegistry.release(resource_kind, resource_id, reason, server: registry)
+    end)
+  end
+
+  defp with_blocked_resource_registry(fun) when is_function(fun, 1) do
+    {:ok, registry} = BlockedResourceRegistry.start_link(name: nil)
+
+    try do
+      fun.(registry)
+    after
+      if Process.alive?(registry), do: GenServer.stop(registry)
+    end
+  end
+
+  defp normalize_operator_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> then(&if(&1 == "", do: nil, else: &1))
+  end
+
+  defp normalize_operator_value(_value), do: nil
 
   defp maybe_set_logs_root(opts, deps) do
     case Keyword.get_values(opts, :logs_root) do
@@ -238,6 +414,30 @@ defmodule SymphonyElixir.CLI do
     :ok
   end
 
+  defp set_server_host_override(host) do
+    Application.put_env(:symphony_elixir, :server_host_override, host)
+    :ok
+  end
+
+  defp maybe_set_server_host(opts, deps) do
+    case Keyword.get_values(opts, :host) do
+      [] ->
+        :ok
+
+      values ->
+        host = values |> List.last() |> String.trim()
+
+        if host == "" do
+          {:error, usage_message()}
+        else
+          set_host_override =
+            Map.get(deps, :set_server_host_override, &set_server_host_override/1)
+
+          set_host_override.(host)
+        end
+    end
+  end
+
   defp maybe_set_server_port(opts, deps) do
     case Keyword.get_values(opts, :port) do
       [] ->
@@ -262,10 +462,12 @@ defmodule SymphonyElixir.CLI do
   defp format_config_error(reason) do
     detail =
       case reason do
-        %TrackerError{operation: :validate_config, message: message} when is_binary(message) and message != "" ->
+        %TrackerError{operation: :validate_config, message: message}
+        when is_binary(message) and message != "" ->
           message
 
-        %RepoProviderError{operation: :validate_config, message: message} when is_binary(message) and message != "" ->
+        %RepoProviderError{operation: :validate_config, message: message}
+        when is_binary(message) and message != "" ->
           message
 
         _other ->

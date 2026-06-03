@@ -5,6 +5,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.TrackerToolResult
   alias SymphonyElixir.ChangeProposalReconciliation.KnownTarget.Fields, as: KnownTargetFields
   alias SymphonyElixir.ChangeProposalReconciliation.Producer.TrackerToolResultFields, as: ToolFields
   alias SymphonyElixir.Config
+  alias SymphonyElixir.Issue
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
   alias SymphonyElixir.RepoProvider
   alias SymphonyElixir.RepoProvider.Config, as: RepoConfig
@@ -16,17 +17,17 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.TrackerToolResult
   @spec record_tracker_tool_result(map(), String.t() | nil, term(), term(), keyword()) :: :ok
   def record_tracker_tool_result(tracker, tool, arguments, result, opts \\ [])
 
-  def record_tracker_tool_result(tracker, tool, arguments, {:success, _payload}, opts)
+  def record_tracker_tool_result(tracker, tool, arguments, {:success, payload}, opts)
       when is_map(tracker) and is_binary(tool) and is_list(opts) do
     attach_capability = Contract.tracker_attach_change_proposal_capability()
     move_capability = Contract.tracker_move_issue_capability()
 
     case tracker_tool_capability(tracker, tool, opts) do
       ^attach_capability ->
-        register_attach_target(tracker, tool, arguments, opts)
+        register_attach_target(tracker, tool, arguments, payload, opts)
 
       ^move_capability ->
-        register_review_transition_target(tracker, tool, arguments, opts)
+        register_review_transition_target(tracker, tool, arguments, payload, opts)
 
       nil ->
         emit_ignored(tracker, tool, arguments, :missing_workflow_capability, %{}, opts)
@@ -39,8 +40,8 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.TrackerToolResult
 
   def record_tracker_tool_result(_tracker, _tool, _arguments, _result, _opts), do: :ok
 
-  defp register_attach_target(tracker, tool, arguments, opts) when is_map(arguments) do
-    with {:ok, issue_id} <- required_string(arguments, KnownTargetFields.issue_id()),
+  defp register_attach_target(tracker, tool, arguments, payload, opts) when is_map(arguments) do
+    with {:ok, issue_id} <- canonical_issue_id(tracker, payload, arguments),
          {:ok, url} <- required_string(arguments, KnownTargetFields.url()) do
       settings = settings(opts)
       repo = repo_config(settings, opts)
@@ -64,20 +65,20 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.TrackerToolResult
     end
   end
 
-  defp register_attach_target(tracker, tool, arguments, opts) do
+  defp register_attach_target(tracker, tool, arguments, _payload, opts) do
     emit_ignored(tracker, tool, arguments, :invalid_arguments, %{}, opts)
     :ok
   end
 
-  defp register_review_transition_target(tracker, tool, arguments, opts) when is_map(arguments) do
+  defp register_review_transition_target(tracker, tool, arguments, payload, opts) when is_map(arguments) do
     with {:ok, issue_id} <- required_string(arguments, KnownTargetFields.issue_id()),
          {:ok, settings} <- fetch_settings(opts),
          {:ok, %ReconciliationConfig{enabled?: true} = config} <- ReconciliationConfig.from_settings(settings),
-         {:ok, [issue | _rest]} <- fetch_issue_states_by_ids(tracker, issue_id, opts),
+         {:ok, issue} <- move_result_issue(tracker, payload, issue_id, opts),
          true <- source_route_issue?(settings, config, issue),
-         {:ok, %ChangeProposalReference{} = reference} <- fetch_change_proposal_reference(tracker, issue, opts) do
+         %ChangeProposalReference{} = reference <- internal_change_proposal_reference(issue, opts) do
       attrs = %{
-        KnownTargetFields.issue_id() => issue_id,
+        KnownTargetFields.issue_id() => issue.id || normalize_issue_id(tracker, issue_id),
         KnownTargetFields.tracker_kind() => TrackerConfig.kind(tracker),
         KnownTargetFields.repo_provider_kind() => RepoProvider.current_kind(settings.repo),
         KnownTargetFields.repository() => RepoConfig.repository(settings.repo),
@@ -94,7 +95,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.TrackerToolResult
     end
   end
 
-  defp register_review_transition_target(tracker, tool, arguments, opts) do
+  defp register_review_transition_target(tracker, tool, arguments, _payload, opts) do
     emit_ignored(tracker, tool, arguments, :invalid_arguments, %{}, opts)
     :ok
   end
@@ -117,22 +118,112 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.TrackerToolResult
   end
 
   defp fetch_issue_states_by_ids(tracker, issue_id, opts) do
+    issue_id = normalize_issue_id(tracker, issue_id)
+
     opts
     |> Keyword.get(:tracker_fetch_issue_states_by_ids_fn, &Tracker.fetch_issue_states_by_ids/3)
     |> then(& &1.(tracker, [issue_id], TrackerCallOptions.fetch(opts)))
   end
 
-  defp fetch_change_proposal_reference(tracker, issue, opts) do
-    opts
-    |> Keyword.get(:tracker_fetch_change_proposal_reference_fn, &Tracker.fetch_change_proposal_reference/3)
-    |> then(& &1.(tracker, issue, TrackerCallOptions.fetch(opts)))
+  defp move_result_issue(tracker, payload, fallback_issue_id, opts) do
+    case issue_from_payload(payload) do
+      %Issue{} = issue ->
+        {:ok, issue}
+
+      nil ->
+        with {:ok, [issue | _rest]} <- fetch_issue_states_by_ids(tracker, fallback_issue_id, opts) do
+          {:ok, issue}
+        end
+    end
   end
+
+  defp canonical_issue_id(tracker, payload, arguments) do
+    with nil <- issue_id_from_payload(payload),
+         {:ok, issue_id} <- required_string(arguments, KnownTargetFields.issue_id()) do
+      {:ok, normalize_issue_id(tracker, issue_id)}
+    else
+      issue_id when is_binary(issue_id) -> {:ok, normalize_issue_id(tracker, issue_id)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp normalize_issue_id(tracker, issue_id) when is_map(tracker) and is_binary(issue_id) do
+    Tracker.normalize_issue_id(tracker, issue_id) || issue_id
+  end
+
+  defp issue_from_payload(payload) do
+    case payload_issue(payload) do
+      %Issue{} = issue ->
+        issue
+
+      issue when is_map(issue) ->
+        %Issue{
+          id: string_value(issue, "id"),
+          identifier: string_value(issue, "identifier"),
+          state: issue_state(issue),
+          lifecycle_phase: issue_lifecycle_phase(issue),
+          workflow: map_value(issue, "workflow") || %{}
+        }
+
+      _issue ->
+        nil
+    end
+  end
+
+  defp issue_id_from_payload(payload) do
+    payload
+    |> payload_issue()
+    |> case do
+      %Issue{id: issue_id} when is_binary(issue_id) -> issue_id
+      issue when is_map(issue) -> string_value(issue, "id")
+      _issue -> nil
+    end
+  end
+
+  defp payload_issue(%{"issue" => issue}), do: issue
+  defp payload_issue(%{issue: issue}), do: issue
+  defp payload_issue(_payload), do: nil
+
+  defp issue_state(issue) when is_map(issue) do
+    case map_value(issue, "state") do
+      state when is_map(state) -> string_value(state, "id") || string_value(state, "name")
+      state when is_binary(state) -> state
+      _state -> nil
+    end
+  end
+
+  defp issue_lifecycle_phase(issue) when is_map(issue) do
+    case map_value(issue, "state") do
+      state when is_map(state) -> string_value(state, "type")
+      _state -> nil
+    end
+  end
+
+  defp internal_change_proposal_reference(%Issue{} = issue, opts) do
+    Tracker.change_proposal_reference(issue) || known_target_reference(issue.id, opts)
+  end
+
+  defp known_target_reference(issue_id, opts) when is_binary(issue_id) do
+    opts
+    |> Keyword.get(:known_target_registry_opts, [])
+    |> Keyword.put_new(:server, Keyword.get(opts, :known_target_registry, SymphonyElixir.ChangeProposalReconciliation.KnownTarget.Registry))
+    |> then(&SymphonyElixir.ChangeProposalReconciliation.KnownTarget.Registry.get(issue_id, &1))
+    |> case do
+      %SymphonyElixir.ChangeProposalReconciliation.KnownTarget{} = target ->
+        SymphonyElixir.ChangeProposalReconciliation.KnownTarget.reference(target)
+
+      _target ->
+        nil
+    end
+  end
+
+  defp known_target_reference(_issue_id, _opts), do: nil
 
   defp source_route_issue?(settings, %ReconciliationConfig{} = config, issue) do
     context = RouteContext.for_issue(settings, issue)
 
     case RouteContext.route_facts(issue, context) do
-      %{route_key: route_key} -> route_key in config.source_routes
+      %{route_key: route_key} -> ReconciliationConfig.source_route?(config, route_key)
       _route_facts -> false
     end
   end
@@ -221,6 +312,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Producer.TrackerToolResult
   defp ignored_reason({:ok, []}), do: :issue_not_found
   defp ignored_reason({:ok, %ReconciliationConfig{enabled?: false}}), do: :reconciliation_disabled
   defp ignored_reason({:ok, nil}), do: :change_proposal_reference_unavailable
+  defp ignored_reason(nil), do: :change_proposal_reference_unavailable
   defp ignored_reason(false), do: :source_route_mismatch
   defp ignored_reason(_other), do: :tracker_tool_result_unavailable
 

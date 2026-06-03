@@ -39,6 +39,18 @@ defmodule SymphonyElixir.RepoProvider.ChangeProposalBody do
   @template_placeholder ~r/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/
   @template_keys ~w(title base head labels provider repository)
 
+  @minimal_generator_kind :minimal
+  @static_generator_kind :static
+  @template_generator_kind :template
+  @module_generator_kind :module
+
+  @generator_kind_by_name %{
+    "minimal" => @minimal_generator_kind,
+    "static" => @static_generator_kind,
+    "template" => @template_generator_kind,
+    "module" => @module_generator_kind
+  }
+
   @spec generate(Config.t() | map(), create_args()) ::
           {:ok, String.t()} | {:error, {:invalid_arguments, String.t()}}
   def generate(repo, args) when is_map(args) do
@@ -51,23 +63,25 @@ defmodule SymphonyElixir.RepoProvider.ChangeProposalBody do
 
   @spec validate_generator(term()) :: :ok | {:error, {:invalid_arguments, String.t()}}
   def validate_generator(nil), do: :ok
-  def validate_generator(:minimal), do: :ok
+  def validate_generator(@minimal_generator_kind), do: :ok
 
   def validate_generator(generator) when is_binary(generator) do
-    case normalize_kind(generator) do
+    case normalize_generator_kind(generator) do
       nil -> :ok
-      "minimal" -> :ok
-      kind -> {:error, invalid_generator("uses unsupported kind #{inspect(kind)}")}
+      @minimal_generator_kind -> :ok
+      {:unsupported, kind} -> {:error, invalid_generator("uses unsupported kind #{inspect(kind)}")}
+      kind -> {:error, invalid_generator("uses unsupported kind #{inspect(generator_kind_label(kind))}")}
     end
   end
 
   def validate_generator(%{} = generator) do
     case generator_kind(generator) do
       nil -> {:error, invalid_generator("requires kind")}
-      "minimal" -> :ok
-      "static" -> validate_required_binary(generator, "body", "static")
-      "template" -> validate_template_generator(generator)
-      "module" -> validate_module_generator(generator)
+      @minimal_generator_kind -> :ok
+      @static_generator_kind -> validate_required_binary(generator, "body", generator_kind_label(@static_generator_kind))
+      @template_generator_kind -> validate_template_generator(generator)
+      @module_generator_kind -> validate_module_generator(generator)
+      {:unsupported, kind} -> {:error, invalid_generator("uses unsupported kind #{inspect(kind)}")}
       kind -> {:error, invalid_generator("uses unsupported kind #{inspect(kind)}")}
     end
   end
@@ -75,25 +89,27 @@ defmodule SymphonyElixir.RepoProvider.ChangeProposalBody do
   def validate_generator(module) when is_atom(module), do: validate_module(module)
   def validate_generator(generator), do: {:error, invalid_generator("must be minimal, a map, or a module atom; got #{inspect(generator)}")}
 
-  defp render(nil, args, context), do: render(:minimal, args, context)
+  defp render(nil, args, context), do: render(@minimal_generator_kind, args, context)
 
   defp render(generator, args, context) when is_binary(generator) do
-    case normalize_kind(generator) do
-      nil -> render(:minimal, args, context)
-      "minimal" -> render(:minimal, args, context)
+    case normalize_generator_kind(generator) do
+      nil -> render(@minimal_generator_kind, args, context)
+      @minimal_generator_kind -> render(@minimal_generator_kind, args, context)
+      {:unsupported, kind} -> {:error, invalid_generator("uses unsupported kind #{inspect(kind)}")}
       kind -> {:error, invalid_generator("uses unsupported kind #{inspect(kind)}")}
     end
   end
 
-  defp render(:minimal, args, context), do: render_template(@minimal_template, args, context)
+  defp render(@minimal_generator_kind, args, context), do: render_template(@minimal_template, args, context)
 
   defp render(%{} = generator, args, context) do
     case generator_kind(generator) do
-      "minimal" -> render(:minimal, args, context)
-      "static" -> generator |> map_value("body") |> generated_body()
-      "template" -> generator |> map_value("template") |> render_template(args, context)
-      "module" -> generator |> map_value("module") |> render_module(args, context)
+      @minimal_generator_kind -> render(@minimal_generator_kind, args, context)
+      @static_generator_kind -> generator |> map_value("body") |> generated_body()
+      @template_generator_kind -> generator |> map_value("template") |> render_template(args, context)
+      @module_generator_kind -> generator |> map_value("module") |> render_module(args, context)
       nil -> {:error, invalid_generator("requires kind")}
+      {:unsupported, kind} -> {:error, invalid_generator("uses unsupported kind #{inspect(kind)}")}
       kind -> {:error, invalid_generator("uses unsupported kind #{inspect(kind)}")}
     end
   end
@@ -235,17 +251,26 @@ defmodule SymphonyElixir.RepoProvider.ChangeProposalBody do
     }
   end
 
-  defp generator_kind(generator), do: map_value(generator, "kind") |> normalize_kind()
+  defp generator_kind(generator), do: generator |> map_value("kind") |> normalize_generator_kind()
 
-  defp normalize_kind(kind) when is_binary(kind) do
+  defp normalize_generator_kind(kind) do
+    case normalize_kind_name(kind) do
+      nil -> nil
+      kind_name -> Map.get(@generator_kind_by_name, kind_name, {:unsupported, kind_name})
+    end
+  end
+
+  defp normalize_kind_name(kind) when is_binary(kind) do
     case kind |> String.trim() |> String.downcase() do
       "" -> nil
       normalized -> normalized
     end
   end
 
-  defp normalize_kind(kind) when is_atom(kind), do: kind |> Atom.to_string() |> normalize_kind()
-  defp normalize_kind(_kind), do: nil
+  defp normalize_kind_name(kind) when is_atom(kind), do: kind |> Atom.to_string() |> normalize_kind_name()
+  defp normalize_kind_name(_kind), do: nil
+
+  defp generator_kind_label(kind) when is_atom(kind), do: Atom.to_string(kind)
 
   defp map_value(map, key) when is_map(map) and is_binary(key) do
     Map.get(map, key) || map_get_existing_atom(map, key)

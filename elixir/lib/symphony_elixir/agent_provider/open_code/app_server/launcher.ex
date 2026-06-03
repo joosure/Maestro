@@ -51,7 +51,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.Launcher do
           nil -> CommandSpec.new(command: settings.command, env: env, cwd: workspace)
         end
 
-      target.executor.start(command_spec, target, Keyword.put(opts, :line, @port_line_bytes))
+      target.executor.start(command_spec, target, executor_opts(opts))
     end
   end
 
@@ -114,6 +114,12 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.Launcher do
       %Target{} = target -> %{target | workspace_path: workspace}
       _target -> Target.new(workspace_path: workspace, worker_host: Keyword.get(opts, :worker_host))
     end
+  end
+
+  defp executor_opts(opts) do
+    opts
+    |> Keyword.put(:line, @port_line_bytes)
+    |> Keyword.put_new(:provider_kind, @provider_kind)
   end
 
   defp runtime_env(%Settings{} = settings, workspace, opts) do

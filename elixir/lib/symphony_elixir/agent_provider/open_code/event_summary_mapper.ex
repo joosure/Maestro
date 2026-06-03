@@ -6,6 +6,10 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.EventSummaryMapper do
   alias SymphonyElixir.AgentProvider.Kinds
 
   @provider_kind Kinds.opencode()
+  @part_category_by_type %{
+    "tool" => :tool,
+    "step-finish" => :usage
+  }
 
   @spec summarize(term()) :: EventSummary.t()
   def summarize(message) do
@@ -160,11 +164,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.EventSummaryMapper do
   end
 
   defp part_category(%{} = part) do
-    case Access.map_value(part, :type) do
-      "tool" -> :tool
-      "step-finish" -> :usage
-      _ -> :message
-    end
+    Map.get(@part_category_by_type, Access.map_value(part, :type), :message)
   end
 
   defp part_category(_part), do: :message

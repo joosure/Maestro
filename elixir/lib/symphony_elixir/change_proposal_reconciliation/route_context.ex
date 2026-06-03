@@ -44,7 +44,8 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.RouteContext do
   def source_raw_states(settings, %Config{} = config) when is_map(settings) do
     route_maps = configured_raw_state_route_maps(settings)
 
-    config.source_routes
+    config
+    |> Config.source_route_keys()
     |> Enum.flat_map(fn route_key ->
       Enum.flat_map(route_maps, fn raw_state_by_route_key ->
         raw_state_by_route_key
@@ -114,20 +115,12 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.RouteContext do
     tracker
     |> TrackerConfig.lifecycle()
     |> map_value("raw_state_by_route_key")
-    |> raw_state_by_route_key(profile_context.module.default_raw_state_by_route_key(), profile_context)
+    |> raw_state_by_route_key(RoutePolicy.identity_raw_state_by_route_key(profile_context.module), profile_context)
   end
 
   defp raw_state_by_route_key(raw_state_by_route_key, base_map, %{module: profile_module})
        when is_map(base_map) do
-    Enum.reduce(RoutePolicy.route_keys(profile_module), base_map, fn route_key, acc ->
-      value = route_value(raw_state_by_route_key, route_key)
-
-      if present_string?(value) do
-        Map.put(acc, route_key, String.trim(value))
-      else
-        acc
-      end
-    end)
+    RoutePolicy.resolve_raw_state_by_route_key(raw_state_by_route_key, base_map, profile_module)
   end
 
   defp global_policy_by_route_key(tracker, profile_context) do
@@ -154,12 +147,6 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.RouteContext do
   rescue
     ArgumentError -> nil
   end
-
-  defp route_value(map, route_key) when is_map(map) and is_atom(route_key) do
-    Map.get(map, route_key) || Map.get(map, Atom.to_string(route_key))
-  end
-
-  defp route_value(_map, _route_key), do: nil
 
   defp present_string?(value), do: is_binary(value) and String.trim(value) != ""
 end

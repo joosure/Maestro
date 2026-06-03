@@ -172,6 +172,30 @@ defmodule SymphonyElixir.Platform.Process do
 
   def os_process_alive?(_os_pid), do: false
 
+  @spec os_process_command(pos_integer() | nil) :: {:ok, String.t()} | :error
+  def os_process_command(os_pid) when is_integer(os_pid) and os_pid > 0 do
+    case System.find_executable("ps") do
+      nil ->
+        :error
+
+      ps_executable ->
+        case CommandEnv.system_cmd(ps_executable, ["-o", "command=", "-p", Integer.to_string(os_pid)], stderr_to_stdout: true) do
+          {output, 0} ->
+            case String.trim(output) do
+              "" -> :error
+              command -> {:ok, command}
+            end
+
+          _other ->
+            :error
+        end
+    end
+  rescue
+    _error -> :error
+  end
+
+  def os_process_command(_os_pid), do: :error
+
   @spec descendant_os_pids(pos_integer() | nil) :: [pos_integer()]
   def descendant_os_pids(os_pid) when is_integer(os_pid) and os_pid > 0 do
     collect_descendant_os_pids([os_pid], MapSet.new([os_pid]), [])

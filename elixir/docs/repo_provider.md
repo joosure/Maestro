@@ -29,11 +29,15 @@ Repository-backed workflow templates also commonly consume:
 ```bash
 export SOURCE_REPO_URL=https://github.com/example-user/sample-repo.git
 export SOURCE_REPO_BASE_BRANCH=main
-export SOURCE_REPO_PROVIDER_REPOSITORY=example-user/sample-repo
+# Optional override. Usually inferred from SOURCE_REPO_URL.
+# export SOURCE_REPO_PROVIDER_REPOSITORY=example-user/sample-repo
 ```
 
 Treat `example-user/sample-repo` as a placeholder and replace it with the
-target repository.
+target repository. `SOURCE_REPO_PROVIDER_REPOSITORY` is optional for standard
+GitHub/CNB clone URLs because Maestro infers the provider repository path from
+`SOURCE_REPO_URL`; set it only when using a mirror, non-standard URL, or an
+explicit override.
 
 ## Prerequisites
 

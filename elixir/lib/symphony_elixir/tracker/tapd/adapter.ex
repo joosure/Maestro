@@ -16,7 +16,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
   alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Tracker.StatePrecondition
-  alias SymphonyElixir.Tracker.Tapd.{ChangeProposalReference, Client, ConfigValidator, ToolExecutor, WorkspacePreparation}
+  alias SymphonyElixir.Tracker.Tapd.{Client, ConfigValidator, ToolExecutor, WorkspacePreparation}
   alias SymphonyElixir.Tracker.Tapd.Client.Paths
   alias SymphonyElixir.Workflow.CapabilityNames
 
@@ -139,10 +139,16 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
     Client.fetch_issue_states_by_ids(issue_ids, tracker)
   end
 
-  @spec fetch_change_proposal_reference(TrackerConfig.t(), term(), keyword()) ::
-          {:ok, SymphonyElixir.Tracker.ChangeProposalReference.t() | nil} | {:error, term()}
-  def fetch_change_proposal_reference(tracker, issue, opts \\ []) when is_map(tracker) and is_list(opts) do
-    ChangeProposalReference.fetch(tracker, issue, opts)
+  @spec normalize_issue_id(TrackerConfig.t(), String.t()) :: String.t() | nil
+  def normalize_issue_id(_tracker, "TAPD-" <> id), do: normalize_issue_id_value(id)
+
+  def normalize_issue_id(_tracker, issue_id) when is_binary(issue_id), do: normalize_issue_id_value(issue_id)
+
+  defp normalize_issue_id_value(issue_id) when is_binary(issue_id) do
+    case String.trim(issue_id) do
+      "" -> nil
+      normalized -> normalized
+    end
   end
 
   # ── Writer ───────────────────────────────────────────────────────

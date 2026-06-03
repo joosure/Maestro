@@ -43,9 +43,9 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Error do
   defp classify({:session_create_timeout, _details}, _operation), do: {:agent_provider_response_timeout, true}
   defp classify({:session_create_http_error, _details}, _operation), do: {:agent_provider_start_failed, false}
   defp classify({:session_create_transport_error, _details}, _operation), do: {:agent_provider_start_failed, true}
-  defp classify({:message_post_timeout, _details}, _operation), do: {:agent_provider_response_timeout, true}
-  defp classify({:message_post_http_error, _details}, _operation), do: {:agent_provider_turn_failed, false}
-  defp classify({:message_post_transport_error, _details}, _operation), do: {:agent_provider_turn_failed, true}
+  defp classify({:turn_message_http_error, _details}, _operation), do: {:agent_provider_turn_failed, false}
+  defp classify({:turn_message_response_error, _details}, _operation), do: {:agent_provider_turn_failed, false}
+  defp classify({:turn_message_transport_error, _details}, _operation), do: {:agent_provider_turn_failed, true}
   defp classify({:event_stream_timeout, _details}, _operation), do: {:agent_provider_response_timeout, true}
   defp classify({:event_stream_failed, _details}, _operation), do: {:agent_provider_turn_failed, true}
   defp classify({:turn_input_required, _payload}, _operation), do: {:agent_provider_input_required, false}

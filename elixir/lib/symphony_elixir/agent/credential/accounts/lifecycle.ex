@@ -47,4 +47,26 @@ defmodule SymphonyElixir.Agent.Credential.Accounts.Lifecycle do
       Store.remove(provider_kind, id, store_opts)
     end
   end
+
+  @spec list_leases(String.t() | nil, String.t() | nil, keyword() | map() | nil) :: {:ok, [map()]} | {:error, term()}
+  def list_leases(nil, nil, opts), do: Store.list_leases(nil, nil, opts)
+
+  def list_leases(provider_kind, nil, opts) when is_binary(provider_kind) do
+    with {:ok, provider_kind} <- ProviderKind.canonical(provider_kind) do
+      Store.list_leases(provider_kind, nil, opts)
+    end
+  end
+
+  def list_leases(provider_kind, id, opts) when is_binary(provider_kind) and is_binary(id) do
+    with {:ok, provider_kind} <- ProviderKind.canonical(provider_kind) do
+      Store.list_leases(provider_kind, id, opts)
+    end
+  end
+
+  @spec release_lease(String.t(), String.t(), String.t(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}
+  def release_lease(provider_kind, id, lease_id, store_opts) do
+    with {:ok, provider_kind} <- ProviderKind.canonical(provider_kind) do
+      Store.release_lease(provider_kind, id, lease_id, store_opts)
+    end
+  end
 end

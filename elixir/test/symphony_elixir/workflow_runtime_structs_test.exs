@@ -2,7 +2,9 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
   use ExUnit.Case, async: true
 
   alias SymphonyElixir.Issue
+  alias SymphonyElixir.Workflow.Capabilities
   alias SymphonyElixir.Workflow.CompletionValidator
+  alias SymphonyElixir.Workflow.Effective
   alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.Profile.Config, as: ProfileConfig
   alias SymphonyElixir.Workflow.Profile.Defaults, as: ProfileDefaults
@@ -28,6 +30,11 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
              version: 1,
              options: ^options
            } = config
+
+    assert {:ok, "coding_pr_delivery"} = ProfileConfig.fetch(config, :kind)
+    assert :error = ProfileConfig.fetch(config, "kind")
+    assert config[:kind] == "coding_pr_delivery"
+    assert is_nil(config["kind"])
 
     assert ProfileConfig.to_map(config) == %{
              "kind" => "coding_pr_delivery",
@@ -55,15 +62,78 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
     assert defaults.allowed_execution_profiles == ["land", "ship"]
   end
 
-  test "route policy policy struct normalizes policy action and preserves map projection" do
+  test "coding PR delivery profile owns review handoff change-proposal-checks mode option" do
+    defaults = CodingPrDelivery.default_options()
+
+    assert CodingPrDelivery.review_handoff_change_proposal_checks_mode(defaults) ==
+             CodingPrDelivery.review_handoff_change_proposal_checks_required_when_available()
+
+    no_checks_options = %{
+      "readiness" => %{
+        "review_handoff" => %{
+          "change_proposal_checks" => %{
+            "mode" => CodingPrDelivery.review_handoff_change_proposal_checks_not_required()
+          }
+        }
+      }
+    }
+
+    assert :ok = CodingPrDelivery.validate_options(no_checks_options)
+    assert CodingPrDelivery.review_handoff_change_proposal_checks_not_required?(no_checks_options)
+
+    assert {:error, {:invalid_profile_option, "coding_pr_delivery", "readiness.review_handoff.change_proposal_checks.mode", "best_effort"}} =
+             CodingPrDelivery.validate_options(%{
+               "readiness" => %{
+                 "review_handoff" => %{
+                   "change_proposal_checks" => %{
+                     "mode" => "best_effort"
+                   }
+                 }
+               }
+             })
+  end
+
+  test "route policy policy struct preserves canonical effective map projection" do
     policy =
       Policy.new!(%{
-        "action" => "transition-then-dispatch",
-        "transition_target" => :developing
+        action: :transition_then_dispatch,
+        transition_target: :developing
       })
 
     assert policy.action == :transition_then_dispatch
+    assert {:ok, :transition_then_dispatch} = Policy.fetch(policy, :action)
+    assert :error = Policy.fetch(policy, "action")
+    assert policy[:action] == :transition_then_dispatch
+    assert is_nil(policy["action"])
     assert Policy.to_map(policy) == %{action: :transition_then_dispatch, transition_target: :developing}
+
+    assert_raise KeyError, fn -> Policy.new!(%{"action" => :dispatch}) end
+    assert_raise ArgumentError, fn -> Policy.new!(%{action: "dispatch"}) end
+  end
+
+  test "effective workflow struct access uses canonical atom fields only" do
+    workflow =
+      Effective.new!(%{
+        workitem_type_id: nil,
+        active_states: ["Developing"],
+        terminal_states: ["Done"],
+        state_phase_map: %{"Developing" => "coding", "Done" => "done"},
+        raw_state_by_route_key: %{developing: "Developing", resolved: "Done"},
+        policy_by_route_key: %{developing: %{action: :dispatch}, resolved: %{action: :stop}},
+        profile: ProfileRegistry.default_profile_config(),
+        profile_kind: "coding_pr_delivery",
+        profile_version: 1,
+        profile_options: %{},
+        allowed_execution_profiles: ["work"],
+        completion_contract: %{},
+        required_capabilities: [],
+        optional_capabilities: []
+      })
+
+    assert {:ok, "coding_pr_delivery"} = Effective.fetch(workflow, :profile_kind)
+    assert :error = Effective.fetch(workflow, "profile_kind")
+    assert workflow[:profile_kind] == "coding_pr_delivery"
+    assert is_nil(workflow["profile_kind"])
   end
 
   test "route facts resolve current issue route from workflow profile facts" do
@@ -112,6 +182,59 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
     assert facts.action == :wait
   end
 
+  test "disabled raw route mappings do not shadow lifecycle route fallback for issue capabilities" do
+    profile =
+      ProfileRegistry.resolve!(%{
+        "kind" => "coding_pr_delivery",
+        "version" => 1,
+        "options" => %{"routes" => %{"rework" => %{"enabled" => false}}}
+      })
+
+    settings = %{
+      workflow: %{profile: %{"kind" => profile.kind, "version" => profile.version, "options" => profile.options}},
+      tracker: %{
+        lifecycle: %{
+          raw_state_by_route_key: %{"rework" => "Merging"},
+          state_phase_map: %{"Merging" => "merging"}
+        }
+      }
+    }
+
+    issue = %{state: "Merging", lifecycle_phase: "merging"}
+
+    assert {:ok, capabilities, ^profile} = Capabilities.required_capabilities_for_issue(settings, issue)
+    assert "repo_provider.merge" in capabilities
+  end
+
+  test "issue capabilities read issue workflow policy as effective facts" do
+    settings = %{
+      workflow: %{profile: ProfileRegistry.default_profile_config()},
+      tracker: %{
+        lifecycle: %{
+          raw_state_by_route_key: %{"merging" => "Merging"},
+          state_phase_map: %{"Merging" => "merging"}
+        }
+      }
+    }
+
+    issue = %{
+      state: "Merging",
+      lifecycle_phase: "merging",
+      workflow: %{policy_by_route_key: %{merging: %{action: :wait}}}
+    }
+
+    raw_issue = %{
+      issue
+      | workflow: %{policy_by_route_key: %{"merging" => %{"action" => "wait"}}}
+    }
+
+    assert {:ok, effective_capabilities, _profile} = Capabilities.required_capabilities_for_issue(settings, issue)
+    refute "repo_provider.merge" in effective_capabilities
+
+    assert {:ok, raw_capabilities, _profile} = Capabilities.required_capabilities_for_issue(settings, raw_issue)
+    assert "repo_provider.merge" in raw_capabilities
+  end
+
   test "readiness facts expose approval gate for review route" do
     issue =
       issue_for_route("In Review", "human_review", %{
@@ -144,6 +267,30 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
     assert "linked change proposal exists" in facts["gate"]["required_evidence"]
     assert "repo_provider.merge" in facts["capabilities"]["conditional"]
     assert "repo_provider.merge" in facts["capabilities"]["required"]
+  end
+
+  test "readiness facts read issue workflow policy as effective facts" do
+    issue =
+      issue_for_route("Merging", "merging", %{
+        merging: "Merging"
+      })
+
+    effective_issue = %{issue | workflow: Map.put(issue.workflow, :policy_by_route_key, %{merging: %{action: :wait}})}
+
+    raw_issue = %{
+      issue
+      | workflow: Map.put(issue.workflow, :policy_by_route_key, %{"merging" => %{"action" => "wait"}})
+    }
+
+    effective_facts = Readiness.facts(effective_issue)
+    raw_facts = Readiness.facts(raw_issue)
+
+    assert effective_facts["route"]["action"] == "wait"
+    refute "repo_provider.merge" in effective_facts["capabilities"]["conditional"]
+
+    assert raw_facts["route"]["action"] == "dispatch"
+    assert raw_facts["route"]["execution_profile"] == "land"
+    assert "repo_provider.merge" in raw_facts["capabilities"]["conditional"]
   end
 
   test "readiness facts open merge gate when required merge evidence is present" do
@@ -191,7 +338,11 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
       )
 
     assert result["status"] == "passed"
-    assert result["route"] == "review"
+    assert result["workflow_profile"] == "coding_pr_delivery"
+    assert result["workflow_profile_version"] == 1
+    assert result["workflow_route_key"] == "review"
+    refute Map.has_key?(result, "profile")
+    refute Map.has_key?(result, "route")
     assert result["missing_evidence"] == []
     assert Enum.all?(result["checks"], &(Map.get(&1, "status") == "passed"))
   end
@@ -211,7 +362,9 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
       )
 
     assert result["status"] == "failed"
-    assert "developing" == result["route"]
+    assert result["workflow_route_key"] == "developing"
+    refute Map.has_key?(result, "profile")
+    refute Map.has_key?(result, "route")
     assert "commit or diff evidence exists" in result["missing_evidence"]
     assert "current or target route is allowed by the completion contract" in result["missing_evidence"]
   end

@@ -21,7 +21,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     implementation_evidence: "implementation_evidence",
     validation_passed: "validation_passed",
     change_proposal_linked: "change_proposal_linked",
-    provider_checks: "provider_checks",
+    change_proposal_checks: "change_proposal_checks",
     feedback_clear: "feedback_clear"
   }
 
@@ -39,10 +39,13 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     change_proposal_evidence_missing: "change_proposal_evidence_missing",
     change_proposal_not_ready: "change_proposal_not_ready",
     change_proposal_tracker_link_missing: "change_proposal_tracker_link_missing",
-    provider_checks_evidence_missing: "provider_checks_evidence_missing",
-    provider_checks_not_passing: "provider_checks_not_passing",
-    provider_checks_observation_stale: "provider_checks_observation_stale",
-    provider_checks_head_stale: "provider_checks_head_stale",
+    change_proposal_checks_evidence_missing: "change_proposal_checks_evidence_missing",
+    change_proposal_checks_not_passing: "change_proposal_checks_not_passing",
+    change_proposal_checks_unavailable: "change_proposal_checks_unavailable",
+    change_proposal_checks_unknown: "change_proposal_checks_unknown",
+    change_proposal_checks_absent_without_config: "change_proposal_checks_absent_without_config",
+    change_proposal_checks_observation_stale: "change_proposal_checks_observation_stale",
+    change_proposal_checks_head_stale: "change_proposal_checks_head_stale",
     feedback_evidence_missing: "feedback_evidence_missing",
     feedback_action_required: "feedback_action_required"
   }

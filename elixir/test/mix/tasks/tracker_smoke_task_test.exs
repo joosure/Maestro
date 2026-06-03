@@ -4,6 +4,7 @@ defmodule Mix.Tasks.Tracker.SmokeTest do
   import ExUnit.CaptureIO
 
   alias Mix.Tasks.Tracker.Smoke, as: TrackerSmokeTask
+  alias SymphonyElixir.Workflow.TemplateRegistry
 
   setup do
     Mix.Task.reenable("tracker.smoke")
@@ -30,7 +31,7 @@ defmodule Mix.Tasks.Tracker.SmokeTest do
   test "runs read-only tracker smoke for a bundled memory template" do
     output =
       capture_io(fn ->
-        TrackerSmokeTask.run(["--template", "memory/no_repo/mock", "--json"])
+        TrackerSmokeTask.run(["--template", TemplateRegistry.local_quickstart_alias(), "--json"])
       end)
 
     payload = Jason.decode!(output)
@@ -46,7 +47,7 @@ defmodule Mix.Tasks.Tracker.SmokeTest do
   test "fetches one targeted issue when issue id is supplied" do
     output =
       capture_io(fn ->
-        TrackerSmokeTask.run(["--template", "memory/no_repo/mock", "--issue", "local-memory-1", "--json"])
+        TrackerSmokeTask.run(["--template", TemplateRegistry.local_quickstart_alias(), "--issue", "local-memory-1", "--json"])
       end)
 
     payload = Jason.decode!(output)
@@ -64,7 +65,7 @@ defmodule Mix.Tasks.Tracker.SmokeTest do
       capture_io(fn ->
         TrackerSmokeTask.run([
           "--template",
-          "memory/no_repo/mock",
+          TemplateRegistry.local_quickstart_alias(),
           "--issue",
           "local-memory-1",
           "--confirm-state-write",
@@ -93,7 +94,14 @@ defmodule Mix.Tasks.Tracker.SmokeTest do
   test "rejects write-state without explicit state-write confirmation" do
     assert_raise Mix.Error, ~r/--write-state requires --confirm-state-write/, fn ->
       capture_io(fn ->
-        TrackerSmokeTask.run(["--template", "memory/no_repo/mock", "--issue", "local-memory-1", "--write-state", "routed"])
+        TrackerSmokeTask.run([
+          "--template",
+          TemplateRegistry.local_quickstart_alias(),
+          "--issue",
+          "local-memory-1",
+          "--write-state",
+          "routed"
+        ])
       end)
     end
   end

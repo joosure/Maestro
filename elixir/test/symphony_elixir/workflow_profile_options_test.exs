@@ -10,6 +10,65 @@ defmodule SymphonyElixir.WorkflowProfileOptionsTest do
     "names" => [],
     "handler" => "land"
   }
+  @schema %{
+    "requirements" => %{
+      type:
+        {:map,
+         %{
+           "enabled" => %{type: :boolean, default: true},
+           "mode" => %{type: {:enum, ["strict", "loose"]}, default: "strict"}
+         }}
+    },
+    "execution_profiles" => %{
+      type:
+        {:map,
+         %{
+           "allowed" => %{type: {:name_list, min: 1, unique: true}, default: ["land"]}
+         }}
+    },
+    "labels" => %{type: :string_list, default: []}
+  }
+
+  test "derives nested default options from schema" do
+    assert %{
+             "requirements" => %{"enabled" => true, "mode" => "strict"},
+             "execution_profiles" => %{"allowed" => ["land"]},
+             "labels" => []
+           } == Options.default_options(@schema)
+  end
+
+  test "validates profile options against schema" do
+    assert :ok == Options.validate(@kind, Options.default_options(@schema), @schema)
+
+    assert :ok ==
+             Options.validate(
+               @kind,
+               %{
+                 "requirements" => %{"enabled" => false, "mode" => "loose"},
+                 "execution_profiles" => %{"allowed" => ["land", "qa_gate"]},
+                 "labels" => ["frontend"]
+               },
+               @schema
+             )
+  end
+
+  test "rejects nested unknown schema options" do
+    assert {:error, {:unknown_profile_option, @kind, "requirements.unknown"}} =
+             Options.validate(@kind, %{"requirements" => %{"unknown" => true}}, @schema)
+  end
+
+  test "rejects invalid nested schema options" do
+    assert {:error, {:invalid_profile_option, @kind, "requirements.enabled", "true"}} =
+             Options.validate(@kind, %{"requirements" => %{"enabled" => "true"}}, @schema)
+  end
+
+  test "rejects invalid name-list schema options" do
+    assert {:error, {:invalid_profile_option, @kind, "execution_profiles.allowed", []}} =
+             Options.validate(@kind, %{"execution_profiles" => %{"allowed" => []}}, @schema)
+
+    assert {:error, {:invalid_profile_option, @kind, "execution_profiles.allowed", ["land", "land"]}} =
+             Options.validate(@kind, %{"execution_profiles" => %{"allowed" => ["land", "land"]}}, @schema)
+  end
 
   test "rejects unknown option keys" do
     assert :ok == Options.reject_unknown(@kind, %{"enabled" => false}, Map.keys(@defaults))

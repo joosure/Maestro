@@ -8,12 +8,23 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter do
   alias SymphonyElixir.Agent.Credential.Accounts.{Command, Options, Secret}
   alias SymphonyElixir.Agent.Credential.{Lease, Material}
   alias SymphonyElixir.Agent.Credential.Store
-  alias SymphonyElixir.AgentProvider.CodeBuddyCode.{AppServer, CredentialEnv, Error, EventSummaryMapper, Settings, Tooling}
+
+  alias SymphonyElixir.AgentProvider.CodeBuddyCode.{
+    AppServer,
+    CredentialEnv,
+    Error,
+    EventSummaryMapper,
+    ReleaseCredentialPreflight,
+    Settings,
+    Tooling
+  }
+
   alias SymphonyElixir.AgentProvider.{Config, Kinds, Session, TurnResult}
   alias SymphonyElixir.Workflow.CapabilityNames
 
   @provider_kind Kinds.codebuddy_code()
   @env_token_credential_kind CredentialEnv.env_token_credential_kind()
+  @default_auth_probe_prompt "Reply with exactly OK."
 
   @impl true
   def kind, do: @provider_kind
@@ -34,6 +45,9 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter do
 
   @impl true
   def dynamic_tool_inventory_opts, do: Tooling.dynamic_tool_inventory_opts()
+
+  @impl true
+  def release_credential_preflight_plan, do: ReleaseCredentialPreflight
 
   @impl true
   def validate_options(options), do: Settings.validate_options(options)
@@ -70,7 +84,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter do
     command = Keyword.get(opts, :command) || "codebuddy"
 
     command
-    |> Command.run(["--version"], CredentialEnv.env_token_env(Secret.read(account.secret_file), account.internet_environment), opts)
+    |> Command.run(verify_args(opts), CredentialEnv.env_token_env(Secret.read(account.secret_file), account.internet_environment), opts)
     |> case do
       {:ok, output} -> {:ok, %{account: Store.account_summary(account), output: String.trim(output)}}
       {:error, reason} -> {:error, reason}
@@ -79,6 +93,32 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter do
 
   def account_verify(%{credential_kind: credential_kind}, _opts, _store_opts) do
     {:error, {:unsupported_codebuddy_credential_kind, credential_kind}}
+  end
+
+  defp verify_args(opts) do
+    if Keyword.get(opts, :auth_probe, false) do
+      auth_probe_args(opts)
+    else
+      ["--version"]
+    end
+  end
+
+  defp auth_probe_args(opts) do
+    args = [
+      "-p",
+      Keyword.get(opts, :prompt, @default_auth_probe_prompt),
+      "--output-format",
+      "text",
+      "--max-turns",
+      "1",
+      "--tools",
+      ""
+    ]
+
+    case Keyword.get(opts, :model) do
+      model when is_binary(model) and model != "" -> args ++ ["--model", model]
+      _model -> args
+    end
   end
 
   @impl true

@@ -13,7 +13,10 @@ defmodule SymphonyElixir.Config do
   alias SymphonyElixir.Tracker.Error, as: TrackerError
   alias SymphonyElixir.Workflow
   alias SymphonyElixir.Workflow.Capabilities, as: WorkflowCapabilities
-  alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Config, as: ChangeProposalReconciliationConfig
+
+  alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Config,
+    as: ChangeProposalReconciliationConfig
+
   alias SymphonyElixir.Workflow.ExecutionProfileRegistry
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
@@ -42,9 +45,13 @@ defmodule SymphonyElixir.Config do
         settings
 
       {:error, reason} ->
-        raise ArgumentError, message: format_config_error(reason)
+        raise ArgumentError, message: format_error(reason)
     end
   end
+
+  @doc "Formats workflow configuration errors for user-facing messages."
+  @spec format_error(term()) :: String.t()
+  def format_error(reason), do: format_config_error(reason)
 
   @spec max_concurrent_agents_for_state(term()) :: pos_integer()
   def max_concurrent_agents_for_state(state_name) when is_binary(state_name) do
@@ -57,7 +64,8 @@ defmodule SymphonyElixir.Config do
     )
   end
 
-  def max_concurrent_agents_for_state(_state_name), do: settings!().agent.execution.max_concurrent_agents
+  def max_concurrent_agents_for_state(_state_name),
+    do: settings!().agent.execution.max_concurrent_agents
 
   @spec agent_provider_settings() :: agent_provider_settings()
   def agent_provider_settings do
@@ -74,9 +82,9 @@ defmodule SymphonyElixir.Config do
     settings!().agent.quota
   end
 
-  @spec agent_runtime_settings() :: map()
-  def agent_runtime_settings do
-    settings!().agent_runtime
+  @spec runtime_agent_settings() :: map()
+  def runtime_agent_settings do
+    settings!().runtime.agent
   end
 
   @spec agent_provider_options() :: map()
@@ -102,6 +110,14 @@ defmodule SymphonyElixir.Config do
 
       _ ->
         PromptTemplate.default_template()
+    end
+  end
+
+  @spec server_host() :: String.t()
+  def server_host do
+    case Application.get_env(:symphony_elixir, :server_host_override) do
+      host when is_binary(host) and host != "" -> host
+      _ -> settings!().server.host
     end
   end
 
@@ -138,8 +154,13 @@ defmodule SymphonyElixir.Config do
              :ok <- AgentProvider.validate_config(settings.agent_provider),
              :ok <- RepoProvider.validate_config(settings.repo),
              :ok <- WorkflowLifecycle.validate_state_phase_map(settings.tracker),
-             :ok <- ChangeProposalReconciliationConfig.validate_settings(settings, resolved_profile),
-             :ok <- ExecutionProfileRegistry.validate_selected_execution_profiles(settings, resolved_profile),
+             :ok <-
+               ChangeProposalReconciliationConfig.validate_settings(settings, resolved_profile),
+             :ok <-
+               ExecutionProfileRegistry.validate_selected_execution_profiles(
+                 settings,
+                 resolved_profile
+               ),
              :ok <-
                WorkflowCapabilities.validate_required_capabilities(
                  settings,
@@ -165,10 +186,12 @@ defmodule SymphonyElixir.Config do
       :workflow_front_matter_not_a_map ->
         "Failed to parse WORKFLOW.md: workflow front matter must decode to a map"
 
-      %TrackerError{operation: :validate_config, message: message} when is_binary(message) and message != "" ->
+      %TrackerError{operation: :validate_config, message: message}
+      when is_binary(message) and message != "" ->
         "Invalid WORKFLOW.md config: #{message}"
 
-      %RepoProviderError{operation: :validate_config, message: message} when is_binary(message) and message != "" ->
+      %RepoProviderError{operation: :validate_config, message: message}
+      when is_binary(message) and message != "" ->
         "Invalid WORKFLOW.md config: #{message}"
 
       {:unsupported_repo_provider_option, kind, option} ->

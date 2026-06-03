@@ -1,7 +1,9 @@
 # OpenCode Provider
 
-The `opencode` agent provider runs OpenCode in HTTP/SSE server mode behind the
-shared `AgentProvider` facade. It is implemented under
+The `opencode` agent provider runs OpenCode in server mode behind the shared
+`AgentProvider` facade. Turn results come from OpenCode's synchronous
+`/session/:id/message` endpoint; SSE is used for runtime events such as
+permission prompts, progress and errors. It is implemented under
 [`lib/symphony_elixir/agent_provider/open_code/`](../../lib/symphony_elixir/agent_provider/open_code/).
 
 Use this guide for concrete operator setup and current provider behavior.
@@ -23,7 +25,6 @@ agent_provider:
   kind: opencode
   options:
     command_argv: ["opencode", "serve", "--hostname", "127.0.0.1", "--port", "0"]
-    prompt_transport: http_sse
     agent: build
     credential_ref: "credential://opencode/openrouter"
 ```
@@ -34,6 +35,10 @@ same `opencode serve --hostname 127.0.0.1 --port 0` shape by default.
 `agent` defaults to `build`. `variant` may be `low`, `medium`, `high`, or
 `max`. `model` may be set when the OpenCode deployment expects an explicit
 provider-native model value.
+
+OpenCode does not expose a workflow `prompt_transport` option. Maestro always
+posts turns through `/session/:id/message` and uses the returned message as the
+authoritative turn result.
 
 Keep model-provider secrets out of `agent_provider.options.env` when using a
 managed `credential_ref`. Explicit `env` values win over generated credential
@@ -275,7 +280,8 @@ session-restricted context before launching OpenCode.
 ## Runtime Boundary
 
 OpenCode provider-neutral execution stays behind `AgentProvider`; OpenCode's
-HTTP/SSE details stay inside the OpenCode provider implementation.
+HTTP message API and SSE runtime events stay inside the OpenCode provider
+implementation.
 
 - [`app_server.ex`](../../lib/symphony_elixir/agent_provider/open_code/app_server.ex)
   owns session start, turn orchestration, task coordination, and terminal
@@ -284,8 +290,11 @@ HTTP/SSE details stay inside the OpenCode provider implementation.
   owns local runtime placement checks, workspace cwd validation, command launch,
   listening URL discovery, and provider process environment assembly.
 - [`app_server/http_requests.ex`](../../lib/symphony_elixir/agent_provider/open_code/app_server/http_requests.ex)
-  owns health checks, session creation, message posts, abort calls, and
-  HTTP/transport error shaping.
+  owns health checks, session creation, abort calls, and HTTP/transport error
+  shaping for those short server operations.
+- [`app_server/transport/sync_message.ex`](../../lib/symphony_elixir/agent_provider/open_code/app_server/transport/sync_message.ex)
+  owns synchronous `/session/:id/message` prompt posts and turn-response error
+  shaping.
 - [`app_server/event_stream.ex`](../../lib/symphony_elixir/agent_provider/open_code/app_server/event_stream.ex)
   owns SSE parsing, session filtering, permission replies, input rejection, and
   terminal stream failure detection.

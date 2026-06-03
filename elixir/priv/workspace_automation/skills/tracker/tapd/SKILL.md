@@ -26,13 +26,14 @@ For each TAPD tracker action, call the exact runtime tool name from the
 generated inventory for the matching semantic capability:
 
 - `tracker.issue_snapshot`: read the Story, raw status, workflow route states,
-  labels, comments, and workpad candidates.
+  labels, comments, and the adapter-resolved active workpad reference.
 - `tracker.move_issue`: move a Story to a workflow route, lifecycle phase, or
   raw status from the typed snapshot. The tool owns TAPD status update syntax.
-- `tracker.upsert_workpad`: create or update the single active workflow workpad
-  comment. The heading is the stable comment identity; the workflow-defined
-  section skeleton is the body structure. The tool canonicalizes the heading and
-  owns Markdown-to-TAPD rich text conversion.
+- `tracker.upsert_workpad`: create or update the single active workflow workpad.
+  Use the `workpad_id` returned by `tracker.issue_snapshot` when it is present.
+  If no `workpad_id` exists yet, omit it and let the typed tool create and
+  register the canonical workpad. The tool owns the provider comment mapping,
+  canonical Markdown rendering, and Markdown-to-TAPD rich text conversion.
 - `tracker.attach_change_proposal`: attach a PR/MR/change proposal URL to the
   Story. TAPD currently stores this through the canonical workpad comment.
 - `tracker.upsert_comment`: create a general Story comment or update a specific
@@ -55,10 +56,9 @@ actions.
 
 ## Common Calls
 
-Use the workpad heading required by the active workflow. The standard TAPD
-coding workflow uses `TAPD Workpad` as the stable comment identity and the
-workflow template's section skeleton as the body structure. Do not replace the
-heading with the first body section such as `### Plan`.
+Use `workpad_id` as the workpad identity. The stored workpad body is human
+readable content only; do not use headings, sections, checkbox text, or comment
+body shape to find or update a workpad.
 
 Read current Story context:
 
@@ -67,8 +67,7 @@ Read current Story context:
   "issue_id": "{{ issue.id }}",
   "include_comments": true,
   "include_attachments": true,
-  "comment_limit": 50,
-  "workpad_heading": "TAPD Workpad"
+  "comment_limit": 50
 }
 ```
 
@@ -88,14 +87,13 @@ Upsert the workflow workpad:
 ```json
 {
   "issue_id": "{{ issue.id }}",
-  "heading": "TAPD Workpad",
+  "workpad_id": "tapd:issue:{{ issue.id }}:workpad",
   "body": "### Plan\n\n- [x] ...\n\n### Validation\n\n- ..."
 }
 ```
 
-The upsert tool prefixes the canonical heading when the body omits it, so the
-stored TAPD comment starts with `## TAPD Workpad` and then the workflow body
-sections.
+When `workpad_id` is omitted, the upsert tool creates and registers the
+canonical workpad for the Story.
 
 Create a general comment:
 
@@ -120,7 +118,7 @@ Attach a change proposal:
 ```json
 {
   "issue_id": "{{ issue.id }}",
-  "url": "https://github.com/org/repo/pull/123",
+  "url": "https://provider.example/org/repo/change-proposals/123",
   "title": "TAPD implementation"
 }
 ```

@@ -24,7 +24,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     @repo_push_tool => :repo_push,
     @repo_diff_tool => :repo_diff_validation,
     @repo_create_or_update_change_proposal_tool => :repo_provider_change_proposal,
-    @repo_read_change_proposal_checks_tool => :repo_provider_checks,
+    @repo_read_change_proposal_checks_tool => :repo_change_proposal_checks,
     @repo_read_change_proposal_discussion_tool => :repo_provider_feedback,
     @repo_change_proposal_snapshot_tool => :repo_provider_snapshot
   }
@@ -36,7 +36,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
           | :repo_push
           | :repo_diff_validation
           | :repo_provider_change_proposal
-          | :repo_provider_checks
+          | :repo_change_proposal_checks
           | :repo_provider_feedback
           | :repo_provider_snapshot
 

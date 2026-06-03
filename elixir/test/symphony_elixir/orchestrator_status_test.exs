@@ -1211,7 +1211,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     opts = [
       now: active_at,
-      non_active_completion_grace_ms: 5_000,
+      completion_grace_ms: 5_000,
       record_session_completion_totals: fn state, _running_entry -> state end
     ]
 
@@ -1225,7 +1225,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert Process.alive?(worker_pid)
 
-    assert %{^issue_id => %{non_active_observed_at: ^active_at, issue: %{state: "Review"}}} =
+    assert %{^issue_id => %{completion_grace_observed_at: ^active_at, issue: %{state: "Review"}}} =
              state_with_grace.running
 
     final_state =
@@ -1241,7 +1241,392 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute MapSet.member?(final_state.claimed, issue_id)
   end
 
-  test "reconcile terminates non-active workers immediately when codex activity is stale" do
+  test "reconcile keeps recently active terminal workers alive during bounded completion grace" do
+    issue_id = "issue-terminal-grace"
+    active_at = DateTime.utc_now()
+    parent = self()
+
+    worker_pid =
+      spawn(fn ->
+        receive do
+          :done -> :ok
+        end
+      end)
+
+    on_exit(fn ->
+      if Process.alive?(worker_pid) do
+        Process.exit(worker_pid, :kill)
+      end
+    end)
+
+    running_entry = %{
+      pid: worker_pid,
+      ref: make_ref(),
+      identifier: "MT-DONE",
+      issue: %Issue{id: issue_id, identifier: "MT-DONE", state: "Merging"},
+      session_id: "thread-terminal-turn-grace",
+      last_agent_message: nil,
+      last_agent_timestamp: active_at,
+      last_agent_event: :tool_call_completed,
+      started_at: active_at
+    }
+
+    state = %{
+      running: %{issue_id => running_entry},
+      claimed: MapSet.new([issue_id]),
+      retry_attempts: %{}
+    }
+
+    done_issue = %Issue{id: issue_id, identifier: "MT-DONE", state: "Done"}
+
+    dispatch_context =
+      SymphonyElixir.Orchestrator.Dispatch.new_context(["In Progress", "Merging"], ["Done"])
+
+    opts = [
+      now: active_at,
+      completion_grace_ms: 5_000,
+      cleanup_issue_workspace: fn identifier, worker_host, workspace_path ->
+        send(parent, {:cleanup_workspace, identifier, worker_host, workspace_path})
+        :ok
+      end,
+      record_session_completion_totals: fn state, _running_entry -> state end
+    ]
+
+    state_with_grace =
+      SymphonyElixir.Orchestrator.Running.reconcile_issue_states(
+        [done_issue],
+        state,
+        dispatch_context,
+        opts
+      )
+
+    assert Process.alive?(worker_pid)
+    refute_received {:cleanup_workspace, _, _, _}
+
+    assert %{^issue_id => %{completion_grace_observed_at: ^active_at, issue: %{state: "Done"}}} =
+             state_with_grace.running
+
+    final_state =
+      SymphonyElixir.Orchestrator.Running.reconcile_issue_states(
+        [done_issue],
+        state_with_grace,
+        dispatch_context,
+        Keyword.put(opts, :now, DateTime.add(active_at, 6, :second))
+      )
+
+    assert wait_for_process_exit(worker_pid)
+    assert_received {:cleanup_workspace, "MT-DONE", nil, nil}
+    refute Map.has_key?(final_state.running, issue_id)
+    refute MapSet.member?(final_state.claimed, issue_id)
+  end
+
+  test "reconcile follows dispatch context for terminal completion grace" do
+    issue_id = "issue-custom-terminal-grace"
+    active_at = DateTime.utc_now()
+
+    worker_pid =
+      spawn(fn ->
+        receive do
+          :done -> :ok
+        end
+      end)
+
+    on_exit(fn ->
+      if Process.alive?(worker_pid) do
+        Process.exit(worker_pid, :kill)
+      end
+    end)
+
+    running_entry = %{
+      pid: worker_pid,
+      ref: make_ref(),
+      identifier: "MT-CUSTOM",
+      issue: %Issue{id: issue_id, identifier: "MT-CUSTOM", state: "Building"},
+      session_id: "thread-custom-terminal-grace",
+      last_agent_message: nil,
+      last_agent_timestamp: active_at,
+      last_agent_event: :tool_call_completed,
+      started_at: active_at
+    }
+
+    state = %{
+      running: %{issue_id => running_entry},
+      claimed: MapSet.new([issue_id]),
+      retry_attempts: %{}
+    }
+
+    accepted_issue = %Issue{id: issue_id, identifier: "MT-CUSTOM", state: "Accepted"}
+
+    dispatch_context =
+      SymphonyElixir.Orchestrator.Dispatch.new_context(["Building"], ["Accepted"])
+
+    opts = [
+      now: active_at,
+      completion_grace_ms: 5_000,
+      record_session_completion_totals: fn state, _running_entry -> state end
+    ]
+
+    state_with_grace =
+      SymphonyElixir.Orchestrator.Running.reconcile_issue_states(
+        [accepted_issue],
+        state,
+        dispatch_context,
+        opts
+      )
+
+    assert Process.alive?(worker_pid)
+
+    assert %{
+             ^issue_id => %{
+               completion_grace_observed_at: ^active_at,
+               issue: %{state: "Accepted"}
+             }
+           } = state_with_grace.running
+
+    final_state =
+      SymphonyElixir.Orchestrator.Running.reconcile_issue_states(
+        [accepted_issue],
+        state_with_grace,
+        dispatch_context,
+        Keyword.put(opts, :now, DateTime.add(active_at, 6, :second))
+      )
+
+    assert wait_for_process_exit(worker_pid)
+    refute Map.has_key?(final_state.running, issue_id)
+    refute MapSet.member?(final_state.claimed, issue_id)
+  end
+
+  test "normal worker exit suppresses continuation after refreshed terminal state" do
+    issue_id = "issue-terminal-normal-exit"
+    ref = make_ref()
+    now = DateTime.utc_now()
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      run_id: "run-terminal-normal-exit",
+      identifier: "MT-DONE-NORMAL",
+      issue: %Issue{id: issue_id, identifier: "MT-DONE-NORMAL", state: "Done"},
+      worker_host: nil,
+      workspace_path: nil,
+      session_id: "thread-terminal-normal-exit",
+      agent_provider_kind: "mock",
+      failure_class: nil,
+      started_at: now
+    }
+
+    state =
+      SymphonyElixir.Orchestrator.State.initial()
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+
+    assert {:noreply, final_state} =
+             SymphonyElixir.Orchestrator.WorkerExit.handle_down_message(state, ref, :normal, [])
+
+    refute Map.has_key?(final_state.running, issue_id)
+    refute Map.has_key?(final_state.retry_attempts, issue_id)
+    refute MapSet.member?(final_state.claimed, issue_id)
+    assert MapSet.member?(final_state.completed, issue_id)
+  end
+
+  test "normal worker exit refreshes stale running issue before scheduling continuation" do
+    issue_id = "issue-stale-terminal-normal-exit"
+    ref = make_ref()
+    now = DateTime.utc_now()
+    parent = self()
+
+    stale_issue = %Issue{id: issue_id, identifier: "MT-STALE-DONE", state: "In Progress"}
+    terminal_issue = %Issue{stale_issue | state: "Done"}
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      run_id: "run-stale-terminal-normal-exit",
+      identifier: "MT-STALE-DONE",
+      issue: stale_issue,
+      worker_host: nil,
+      workspace_path: nil,
+      session_id: "thread-stale-terminal-normal-exit",
+      agent_provider_kind: "mock",
+      failure_class: nil,
+      started_at: now
+    }
+
+    state =
+      SymphonyElixir.Orchestrator.State.initial()
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+
+    fetch_issue_states_by_ids = fn [^issue_id] ->
+      send(parent, {:worker_exit_issue_refresh, issue_id})
+      {:ok, [terminal_issue]}
+    end
+
+    log =
+      capture_log(fn ->
+        result =
+          SymphonyElixir.Orchestrator.WorkerExit.handle_down_message(
+            state,
+            ref,
+            :normal,
+            fetch_issue_states_by_ids: fetch_issue_states_by_ids
+          )
+
+        send(parent, {:worker_exit_result, result})
+      end)
+
+    assert_receive {:worker_exit_issue_refresh, ^issue_id}
+    assert_receive {:worker_exit_result, {:noreply, final_state}}
+
+    refute Map.has_key?(final_state.running, issue_id)
+    refute Map.has_key?(final_state.retry_attempts, issue_id)
+    refute MapSet.member?(final_state.claimed, issue_id)
+    assert MapSet.member?(final_state.completed, issue_id)
+    assert log =~ "agent_run_continuation_suppressed"
+    assert log =~ "current_state=\"Done\""
+    refute log =~ "result=continuation_scheduled"
+    refute log =~ "issue_retry_scheduled"
+  end
+
+  test "worker exit options inject bounded issue-state refresh" do
+    opts = SymphonyElixir.Orchestrator.ServerOptions.worker_exit_opts()
+
+    assert is_function(Keyword.fetch!(opts, :fetch_issue_states_by_ids), 1)
+    assert Keyword.fetch!(opts, :issue_refresh_timeout_ms) == 2_000
+    assert Keyword.fetch!(opts, :issue_fact_freshness_ms) == 10_000
+  end
+
+  test "normal worker exit uses fresh runtime issue fact without tracker refresh" do
+    issue_id = "issue-runtime-fact-terminal"
+    ref = make_ref()
+    now = DateTime.utc_now()
+    now_ms = System.monotonic_time(:millisecond)
+    parent = self()
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      run_id: "run-runtime-fact-terminal",
+      identifier: "MT-RUNTIME-FACT",
+      issue: %Issue{id: issue_id, identifier: "MT-RUNTIME-FACT", state: "In Progress"},
+      worker_host: nil,
+      workspace_path: nil,
+      session_id: "thread-runtime-fact-terminal",
+      agent_provider_kind: "mock",
+      failure_class: nil,
+      started_at: now
+    }
+
+    terminal_issue = %Issue{id: issue_id, identifier: "MT-RUNTIME-FACT", state: "Done"}
+
+    state =
+      SymphonyElixir.Orchestrator.State.initial()
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> SymphonyElixir.Orchestrator.AgentUpdates.worker_runtime_info(issue_id, %{
+        issue: terminal_issue,
+        issue_fact_source: :agent_turn_refresh,
+        monotonic_ms: now_ms
+      })
+
+    fetch_issue_states_by_ids = fn [^issue_id] ->
+      send(parent, {:unexpected_worker_exit_refresh, issue_id})
+      {:ok, [running_entry.issue]}
+    end
+
+    log =
+      capture_log(fn ->
+        result =
+          SymphonyElixir.Orchestrator.WorkerExit.handle_down_message(
+            state,
+            ref,
+            :normal,
+            fetch_issue_states_by_ids: fetch_issue_states_by_ids,
+            issue_fact_freshness_ms: 1_000,
+            monotonic_ms: now_ms + 1
+          )
+
+        send(parent, {:worker_exit_result, result})
+      end)
+
+    refute_receive {:unexpected_worker_exit_refresh, ^issue_id}, 50
+    assert_receive {:worker_exit_result, {:noreply, final_state}}
+
+    refute Map.has_key?(final_state.running, issue_id)
+    refute Map.has_key?(final_state.retry_attempts, issue_id)
+    refute MapSet.member?(final_state.claimed, issue_id)
+    assert MapSet.member?(final_state.completed, issue_id)
+    assert log =~ "agent_run_continuation_suppressed"
+    assert log =~ "current_state=\"Done\""
+    refute log =~ "worker_exit_issue_refresh_failed"
+    refute log =~ "result=continuation_scheduled"
+  end
+
+  test "normal worker exit bounds stale issue refresh before falling back to cached state" do
+    issue_id = "issue-stale-refresh-timeout"
+    ref = make_ref()
+    now = DateTime.utc_now()
+    parent = self()
+
+    stale_issue = %Issue{id: issue_id, identifier: "MT-STALE-TIMEOUT", state: "In Progress"}
+    terminal_issue = %Issue{stale_issue | state: "Done"}
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      run_id: "run-stale-refresh-timeout",
+      identifier: "MT-STALE-TIMEOUT",
+      issue: stale_issue,
+      worker_host: nil,
+      workspace_path: nil,
+      session_id: "thread-stale-refresh-timeout",
+      agent_provider_kind: "mock",
+      failure_class: nil,
+      started_at: now
+    }
+
+    state =
+      SymphonyElixir.Orchestrator.State.initial()
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+
+    fetch_issue_states_by_ids = fn [^issue_id] ->
+      send(parent, {:worker_exit_issue_refresh_started, issue_id})
+      Process.sleep(200)
+      {:ok, [terminal_issue]}
+    end
+
+    started_at_ms = System.monotonic_time(:millisecond)
+
+    log =
+      capture_log(fn ->
+        result =
+          SymphonyElixir.Orchestrator.WorkerExit.handle_down_message(
+            state,
+            ref,
+            :normal,
+            fetch_issue_states_by_ids: fetch_issue_states_by_ids,
+            issue_refresh_timeout_ms: 10
+          )
+
+        send(parent, {:worker_exit_result, result})
+      end)
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at_ms
+
+    assert_receive {:worker_exit_issue_refresh_started, ^issue_id}
+    assert_receive {:worker_exit_result, {:noreply, final_state}}
+    assert elapsed_ms < 500
+
+    refute Map.has_key?(final_state.running, issue_id)
+    assert MapSet.member?(final_state.completed, issue_id)
+    assert %{attempt: 1} = final_state.retry_attempts[issue_id]
+    assert log =~ "worker_exit_issue_refresh_failed"
+    assert log =~ "worker_exit_issue_refresh_timeout"
+    assert log =~ "result=continuation_scheduled"
+  end
+
+  test "reconcile terminates non-active workers immediately when agent activity is stale" do
     issue_id = "issue-non-active-stale"
     active_at = DateTime.add(DateTime.utc_now(), -20, :second)
 
@@ -1287,7 +1672,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
         state,
         dispatch_context,
         now: DateTime.utc_now(),
-        non_active_completion_grace_ms: 5_000,
+        completion_grace_ms: 5_000,
         record_session_completion_totals: fn state, _running_entry -> state end
       )
 

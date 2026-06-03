@@ -5,11 +5,13 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
   alias SymphonyElixir.AgentProvider.Error, as: ProviderError
   alias SymphonyElixir.AgentProvider.TurnStatus
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationName
 
   @spec terminal_event_for_status(term()) :: atom()
   def terminal_event_for_status(:completed), do: :agent_turn_completed
   def terminal_event_for_status(:timeout), do: :agent_turn_timeout
   def terminal_event_for_status(:input_required), do: :agent_turn_input_required
+  def terminal_event_for_status(:blocked), do: :agent_turn_blocked
   def terminal_event_for_status(:failed), do: :agent_turn_failed
   def terminal_event_for_status(:cancelled), do: :agent_turn_failed
   def terminal_event_for_status(_status), do: :agent_turn_completed
@@ -20,6 +22,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
   def terminal_event_for_error(:response_timeout), do: :agent_turn_timeout
   def terminal_event_for_error({:turn_input_required, _payload}), do: :agent_turn_input_required
   def terminal_event_for_error({:approval_required, _payload}), do: :agent_turn_input_required
+  def terminal_event_for_error({:turn_blocked, _payload}), do: :agent_turn_blocked
 
   def terminal_event_for_error(%ProviderError{code: code}) do
     code
@@ -32,6 +35,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
   @spec terminal_level(atom()) :: :info | :warning | :error
   def terminal_level(:agent_turn_completed), do: :info
   def terminal_level(:agent_turn_input_required), do: :warning
+  def terminal_level(:agent_turn_blocked), do: :warning
   def terminal_level(:agent_turn_timeout), do: :error
   def terminal_level(:agent_turn_failed), do: :error
 
@@ -41,12 +45,14 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
   @spec status_for_event(atom()) :: String.t()
   def status_for_event(:agent_turn_timeout), do: TurnStatus.timeout()
   def status_for_event(:agent_turn_input_required), do: TurnStatus.input_required()
+  def status_for_event(:agent_turn_blocked), do: TurnStatus.blocked()
   def status_for_event(:agent_turn_failed), do: TurnStatus.failed()
 
   @spec status_error_fields(term()) :: map()
   def status_error_fields(:completed), do: %{}
   def status_error_fields(:input_required), do: %{failure_class: TurnStatus.input_required(), retryable: false}
   def status_error_fields(:timeout), do: %{failure_class: TurnStatus.timeout(), retryable: true}
+  def status_error_fields(:blocked), do: %{failure_class: TurnStatus.blocked(), retryable: false}
   def status_error_fields(:failed), do: %{failure_class: "agent_provider_failure"}
   def status_error_fields(:cancelled), do: %{failure_class: TurnStatus.cancelled(), retryable: false}
   def status_error_fields(_status), do: %{}
@@ -57,9 +63,23 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
       agent_provider_kind: error.provider,
       failure_class: failure_class(error),
       error_code: error.code,
-      operation: error.operation || "run_turn",
+      operation: error.operation || OperationName.run_turn(),
       retryable: error.retryable?,
       error: error.message
+    }
+  end
+
+  def error_fields({:turn_blocked, blocker}) when is_map(blocker) do
+    %{
+      failure_class: TurnStatus.blocked(),
+      error_code: :typed_tool_non_retryable_blocker,
+      retryable: false,
+      error: "Agent turn blocked by non-retryable typed-tool failure.",
+      blocker_error_code: Map.get(blocker, "error_code"),
+      blocker_original_error_code: Map.get(blocker, "original_error_code"),
+      blocker_tool_name: Map.get(blocker, "tool_name"),
+      blocker_resource_kind: Map.get(blocker, "resource_kind"),
+      blocker_resource_id: Map.get(blocker, "resource_id")
     }
   end
 
@@ -89,10 +109,12 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
   def failure_class(:response_timeout), do: TurnStatus.timeout()
   def failure_class({:agent_turn_terminal_status, :timeout}), do: TurnStatus.timeout()
   def failure_class({:agent_turn_terminal_status, :input_required}), do: TurnStatus.input_required()
+  def failure_class({:agent_turn_terminal_status, :blocked}), do: TurnStatus.blocked()
   def failure_class({:agent_turn_terminal_status, :cancelled}), do: TurnStatus.cancelled()
   def failure_class({:agent_turn_terminal_status, :failed}), do: "agent_provider_failure"
   def failure_class({:turn_input_required, _payload}), do: TurnStatus.input_required()
   def failure_class({:approval_required, _payload}), do: TurnStatus.input_required()
+  def failure_class({:turn_blocked, _payload}), do: TurnStatus.blocked()
   def failure_class({:turn_cancelled, _payload}), do: TurnStatus.cancelled()
   def failure_class(_reason), do: "agent_provider_failure"
 
@@ -131,6 +153,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnEvents do
   defp error_code({:agent_turn_terminal_status, status}), do: status
   defp error_code({:turn_input_required, _payload}), do: :turn_input_required
   defp error_code({:approval_required, _payload}), do: :approval_required
+  defp error_code({:turn_blocked, _payload}), do: :typed_tool_non_retryable_blocker
   defp error_code({:turn_cancelled, _payload}), do: :turn_cancelled
   defp error_code(_reason), do: :agent_turn_failed
 

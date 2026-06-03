@@ -25,7 +25,6 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract do
   defdelegate feedback_key(), to: Evidence
   defdelegate status_key(), to: Evidence
   defdelegate source_key(), to: Evidence
-  defdelegate sections_key(), to: Evidence
   defdelegate key_key(), to: Evidence
   defdelegate id_key(), to: Evidence
   defdelegate url_key(), to: Evidence
@@ -38,7 +37,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract do
   defdelegate linked_to_tracker_key(), to: Evidence
   defdelegate observed_at_key(), to: Evidence
   defdelegate commands_key(), to: Evidence
-  defdelegate comment_id_key(), to: Evidence
+  defdelegate workpad_id_key(), to: Evidence
   defdelegate updated_at_key(), to: Evidence
   defdelegate provider_kind_key(), to: Evidence
   defdelegate repository_key(), to: Evidence
@@ -68,6 +67,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract do
   defdelegate complete_status(), to: Values
   defdelegate incomplete_status(), to: Values
   defdelegate unknown_status(), to: Values
+  defdelegate unavailable_status(), to: Values
   defdelegate not_required_status(), to: Values
   defdelegate pending_status(), to: Values
   defdelegate linked_status(), to: Values

@@ -71,6 +71,32 @@ defmodule SymphonyElixir.CLI.Accounts.Renderer do
     IO.puts("Disabled #{account.agent_provider_kind} account #{account.id}#{email_suffix(account)}")
   end
 
+  @spec leases_listed([map()]) :: :ok
+  def leases_listed([]), do: IO.puts("No active credential leases")
+
+  def leases_listed(leases) when is_list(leases) do
+    Enum.each(leases, fn lease ->
+      [
+        account_value(lease, :provider_kind),
+        account_value(lease, :account_id),
+        account_value(lease, :lease_id),
+        account_value(lease, :run_id) || "-",
+        account_value(lease, :worker_host) || "-",
+        account_value(lease, :acquired_at) || "-",
+        account_value(lease, :expires_at) || "-",
+        account_value(lease, :owner_node) || "-",
+        account_value(lease, :owner_pid) || "-"
+      ]
+      |> Enum.join("\t")
+      |> IO.puts()
+    end)
+  end
+
+  @spec lease_released(map()) :: :ok
+  def lease_released(lease) when is_map(lease) do
+    IO.puts("Released #{account_value(lease, :provider_kind)} account #{account_value(lease, :account_id)} lease #{account_value(lease, :lease_id)}")
+  end
+
   @spec format_error(term()) :: String.t()
   def format_error(reason), do: inspect(reason, limit: 20, printable_limit: 1_000)
 

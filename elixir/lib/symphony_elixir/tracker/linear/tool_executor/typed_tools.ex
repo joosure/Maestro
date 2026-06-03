@@ -1,9 +1,11 @@
 defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.DynamicTool.EvidencePayload
   alias SymphonyElixir.Agent.DynamicTool.MetadataContract
   alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Linear.Client
+  alias SymphonyElixir.Tracker.WorkpadRegistry
   alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.StateTransitionReadiness
 
@@ -125,26 +127,6 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   }
   """
 
-  @workpad_comments_query """
-  query SymphonyLinearWorkpadComments($issueId: String!, $first: Int!) {
-    issue(id: $issueId) {
-      id
-      comments(first: $first) {
-        nodes {
-          id
-          body
-          resolvedAt
-          createdAt
-          updatedAt
-          user {
-            name
-          }
-        }
-      }
-    }
-  }
-  """
-
   @create_comment_mutation """
   mutation SymphonyLinearCreateWorkpad($issueId: String!, $body: String!) {
     commentCreate(input: {issueId: $issueId, body: $body}) {
@@ -249,7 +231,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
       tool_spec(
         @issue_snapshot_tool,
         @issue_snapshot_capability,
-        "Read a Linear issue snapshot, including state, labels, attachments, comments, team states, and active workpad candidates.",
+        "Read a Linear issue snapshot, including state, labels, attachments, comments, team states, and the adapter-resolved active workpad reference.",
         "read_only",
         %{
           "type" => "object",
@@ -259,8 +241,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
             "issue_id" => %{"type" => "string", "description" => "Linear issue id or identifier."},
             "include_comments" => %{"type" => "boolean", "description" => "Whether to include issue comments."},
             "include_attachments" => %{"type" => "boolean", "description" => "Whether to include issue attachments."},
-            "comment_limit" => %{"type" => "integer", "description" => "Maximum comments to read."},
-            "workpad_heading" => %{"type" => "string", "description" => "Workpad heading used to identify the active workpad comment."}
+            "comment_limit" => %{"type" => "integer", "description" => "Maximum comments to read."}
           }
         }
       ),
@@ -284,39 +265,16 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
       tool_spec(
         @upsert_workpad_tool,
         @upsert_workpad_capability,
-        "Create or update the single Linear workpad comment for a workflow run. The heading is the workpad identity; the executor canonicalizes the stored comment body.",
+        "Create or update the single Linear workpad. The stable identity is workpad_id from linear_issue_snapshot or the internal workpad registry; tracker comment text is never parsed to discover workpads.",
         "write",
         %{
           "type" => "object",
           "additionalProperties" => false,
-          "required" => ["issue_id", "heading", "body"],
+          "required" => ["issue_id", "body"],
           "properties" => %{
             "issue_id" => %{"type" => "string", "description" => "Linear issue id or identifier."},
-            "heading" => %{"type" => "string", "description" => "Workpad title or Markdown heading used as the stable comment identity."},
-            "body" => %{"type" => "string", "description" => "Workpad body. The executor prefixes the canonical heading if it is omitted."},
-            "sections" => %{
-              "type" => ["array", "null"],
-              "description" => "Deprecated agent-declared section status hints. The backend accepts this field for compatibility, but it is not authoritative review-handoff readiness evidence.",
-              "items" => %{
-                "type" => "object",
-                "additionalProperties" => false,
-                "required" => ["key", "status"],
-                "properties" => %{
-                  "key" => %{
-                    "type" => "string",
-                    "enum" => ["plan", "acceptance_criteria", "validation"],
-                    "description" => "Canonical section key."
-                  },
-                  "status" => %{
-                    "type" => "string",
-                    "enum" => ["complete", "incomplete", "missing", "unknown"],
-                    "description" => "Backend-readable section completion status."
-                  }
-                }
-              }
-            },
-            "comment_id" => %{"type" => ["string", "null"], "description" => "Existing Linear comment id to update."},
-            "match_heading" => %{"type" => ["string", "null"], "description" => "Optional alternate workpad title or Markdown heading used to find an existing workpad."},
+            "body" => %{"type" => "string", "description" => "Workpad body to write. The executor does not inspect headings, sections, or checkbox text."},
+            "workpad_id" => %{"type" => ["string", "null"], "description" => "Existing workpad id to update. This is the stable tracker-level workpad identity."},
             "mode" => %{"type" => ["string", "null"], "description" => "Upsert mode. The current contract supports replace."}
           }
         }
@@ -426,7 +384,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
       {:success,
        success_payload(%{
          "issue" => snapshot_issue(issue, args),
-         "workpad" => workpad_from_issue(issue, args.workpad_heading)
+         "workpad" => workpad_from_registry(issue, args)
        })}
     else
       {:error, reason} -> typed_failure(reason)
@@ -456,7 +414,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     with {:ok, args} <- upsert_workpad_args(arguments),
          :ok <- validate_workpad_mode(args.mode),
          {:ok, comment} <- upsert_workpad_comment(tracker, args, opts) do
-      {:success, success_payload(%{"comment" => comment})}
+      {:success, success_payload(%{"comment" => comment}, EvidencePayload.workpad(comment))}
     else
       {:error, reason} -> typed_failure(reason)
     end
@@ -468,8 +426,17 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
          {:ok, response} <- graphql(tracker, @issue_attachments_query, %{issueId: args.issue_id}, opts, :attach_change_proposal),
          {:ok, issue} <- response_issue(response) do
       case existing_attachment(issue, args.url) do
-        nil -> create_attachment(tracker, args, opts)
-        attachment -> {:success, success_payload(%{"attachment" => Map.put(attachment, "existing", true)})}
+        nil ->
+          create_attachment(tracker, args, issue, opts)
+
+        attachment ->
+          attachment = Map.put(attachment, "existing", true)
+
+          {:success,
+           success_payload(
+             %{"attachment" => attachment, "issue" => minimal_issue_payload(issue)},
+             EvidencePayload.tracker_change_proposal(attachment, args)
+           )}
       end
     else
       {:error, reason} -> typed_failure(reason)
@@ -534,10 +501,19 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     StateTransitionReadiness.validate(
       workflow,
       issue,
+      review_handoff_readiness_opts(args, opts)
+    )
+  end
+
+  defp review_handoff_readiness_opts(args, opts) do
+    [
       target_state_name: args.state_name,
       issue_key: args.issue_id,
       run_id: readiness_run_id(opts)
-    )
+    ]
+    |> maybe_put_keyword(:gates, Keyword.get(opts, :gates))
+    |> maybe_put_keyword(:structured_execution_plan, Keyword.get(opts, :structured_execution_plan))
+    |> maybe_put_keyword(:structured_execution_plan_store, Keyword.get(opts, :structured_execution_plan_store))
   end
 
   defp readiness_run_id(opts) when is_list(opts) do
@@ -551,6 +527,9 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     do: Map.get(metadata, :run_id) || Map.get(metadata, "run_id")
 
   defp tool_context_run_id(_tool_context), do: nil
+
+  defp maybe_put_keyword(opts, _key, nil), do: opts
+  defp maybe_put_keyword(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp workflow(tracker) do
     SymphonyElixir.Tracker.Linear.WorkflowConfig.global_workflow(tracker)
@@ -582,20 +561,26 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     end
   end
 
-  defp upsert_workpad_comment(tracker, %{comment_id: comment_id} = args, opts) when is_binary(comment_id) do
-    update_workpad_comment(tracker, comment_id, args.body, opts)
+  defp upsert_workpad_comment(tracker, %{workpad_id: workpad_id} = args, opts) when is_binary(workpad_id) do
+    with {:ok, record} <- workpad_record_for_id(args.issue_id, workpad_id),
+         {:ok, provider_id} <- comment_provider_id(record),
+         {:ok, comment} <- update_workpad_comment(tracker, provider_id, args.body, opts) do
+      {:ok, register_workpad_comment(args, comment, record)}
+    end
   end
 
   defp upsert_workpad_comment(tracker, args, opts) do
-    with {:ok, response} <- graphql(tracker, @workpad_comments_query, %{issueId: args.issue_id, first: args.comment_limit}, opts, :upsert_workpad),
-         {:ok, issue} <- response_issue(response) do
-      case workpad_from_issue(issue, args.match_headings) do
-        %{"id" => comment_id} when is_binary(comment_id) ->
-          update_workpad_comment(tracker, comment_id, args.body, opts)
+    case WorkpadRegistry.get(@source_kind, args.issue_id) do
+      %{} = record ->
+        with {:ok, provider_id} <- comment_provider_id(record),
+             {:ok, comment} <- update_workpad_comment(tracker, provider_id, args.body, opts) do
+          {:ok, register_workpad_comment(args, comment, record)}
+        end
 
-        _workpad ->
-          create_workpad_comment(tracker, args.issue_id, args.body, opts)
-      end
+      _record ->
+        with {:ok, comment} <- create_workpad_comment(tracker, args.issue_id, args.body, opts) do
+          {:ok, register_workpad_comment(args, comment)}
+        end
     end
   end
 
@@ -615,7 +600,36 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     end
   end
 
-  defp create_attachment(tracker, args, opts) do
+  defp register_workpad_comment(args, comment, existing_record \\ nil)
+
+  defp register_workpad_comment(%{issue_id: issue_id} = args, comment, existing_record) when is_binary(issue_id) and is_map(comment) do
+    provider_id = Map.get(comment, "provider_object_id") || Map.get(comment, "provider_id") || Map.get(comment, "id")
+
+    workpad_id =
+      Map.get(args, :workpad_id) ||
+        string_value(existing_record || %{}, "id") ||
+        workpad_id(@source_kind, issue_id)
+
+    attrs =
+      comment
+      |> Map.take(["url"])
+      |> Map.put("tracker_kind", @source_kind)
+      |> Map.put("issue_id", issue_id)
+      |> Map.put("provider", @source_kind)
+      |> Map.put("id", workpad_id)
+      |> Map.put("provider_ref", %{"type" => "comment", "id" => provider_id})
+
+    WorkpadRegistry.register(attrs)
+
+    comment
+    |> Map.put("id", workpad_id)
+    |> Map.put("provider", @source_kind)
+    |> Map.put("provider_ref", %{"type" => "comment", "id" => provider_id})
+  end
+
+  defp register_workpad_comment(_args, comment, _existing_record), do: comment
+
+  defp create_attachment(tracker, args, issue, opts) do
     mutation =
       if github_pr_url?(args.url) do
         @attach_github_pr_mutation
@@ -634,7 +648,13 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
 
     with {:ok, response} <- graphql(tracker, mutation, variables, opts, :attach_change_proposal),
          {:ok, attachment} <- mutation_attachment(response, ["data", result_key], :attachment_create_failed) do
-      {:success, success_payload(%{"attachment" => Map.put(attachment, "existing", false)})}
+      attachment = Map.put(attachment, "existing", false)
+
+      {:success,
+       success_payload(
+         %{"attachment" => attachment, "issue" => minimal_issue_payload(issue)},
+         EvidencePayload.tracker_change_proposal(attachment, args)
+       )}
     else
       {:error, reason} -> typed_failure(reason)
     end
@@ -673,15 +693,13 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
 
   defp issue_snapshot_args(arguments) when is_map(arguments) do
     with {:ok, issue_id} <- required_string(arguments, "issue_id"),
-         {:ok, comment_limit} <- optional_integer(arguments, "comment_limit", 50, 1, 100),
-         {:ok, workpad_heading} <- optional_string(arguments, "workpad_heading", "## Claude Code Workpad") do
+         {:ok, comment_limit} <- optional_integer(arguments, "comment_limit", 50, 1, 100) do
       {:ok,
        %{
          issue_id: issue_id,
          include_comments: optional_boolean(arguments, "include_comments", true),
          include_attachments: optional_boolean(arguments, "include_attachments", true),
-         comment_limit: comment_limit,
-         workpad_heading: workpad_heading
+         comment_limit: comment_limit
        }}
     end
   end
@@ -706,26 +724,19 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
 
   defp upsert_workpad_args(arguments) when is_map(arguments) do
     with {:ok, issue_id} <- required_string(arguments, "issue_id"),
-         {:ok, heading} <- required_string(arguments, "heading"),
          {:ok, body} <- required_string(arguments, "body"),
-         {:ok, comment_id} <- optional_nullable_string(arguments, "comment_id"),
-         {:ok, match_heading} <- optional_nullable_string(arguments, "match_heading"),
-         {:ok, comment_limit} <- optional_integer(arguments, "comment_limit", 50, 1, 100),
-         {:ok, canonical_heading} <- canonical_workpad_heading(heading) do
+         {:ok, workpad_id} <- optional_nullable_string(arguments, "workpad_id") do
       {:ok,
        %{
          issue_id: issue_id,
-         heading: canonical_heading,
-         body: canonical_workpad_body(canonical_heading, body),
-         comment_id: comment_id,
-         match_headings: workpad_heading_candidates(match_heading || canonical_heading),
-         mode: nullable_string(arguments, "mode") || "replace",
-         comment_limit: comment_limit
+         body: body,
+         workpad_id: workpad_id,
+         mode: nullable_string(arguments, "mode") || "replace"
        }}
     end
   end
 
-  defp upsert_workpad_args(_arguments), do: {:error, {:invalid_arguments, "Expected an object with issue_id, heading, and body."}}
+  defp upsert_workpad_args(_arguments), do: {:error, {:invalid_arguments, "Expected an object with issue_id and body."}}
 
   defp attach_change_proposal_args(arguments) when is_map(arguments) do
     with {:ok, issue_id} <- required_string(arguments, "issue_id"),
@@ -786,13 +797,6 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     case nullable_string(arguments, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:invalid_arguments, "Missing required string field #{key}."}}
-    end
-  end
-
-  defp optional_string(arguments, key, default) do
-    case nullable_string(arguments, key) do
-      nil -> {:ok, default}
-      value -> {:ok, value}
     end
   end
 
@@ -910,14 +914,12 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   defp atom_key("include_comments"), do: :include_comments
   defp atom_key("include_attachments"), do: :include_attachments
   defp atom_key("comment_limit"), do: :comment_limit
-  defp atom_key("workpad_heading"), do: :workpad_heading
   defp atom_key("state_name"), do: :state_name
   defp atom_key("expected_current_state"), do: :expected_current_state
   defp atom_key("reason"), do: :reason
-  defp atom_key("heading"), do: :heading
   defp atom_key("body"), do: :body
+  defp atom_key("workpad_id"), do: :workpad_id
   defp atom_key("comment_id"), do: :comment_id
-  defp atom_key("match_heading"), do: :match_heading
   defp atom_key("mode"), do: :mode
   defp atom_key("url"), do: :url
   defp atom_key("title"), do: :title
@@ -1018,105 +1020,71 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     }
   end
 
+  defp minimal_issue_payload(issue) when is_map(issue) do
+    %{
+      "id" => Map.get(issue, "id"),
+      "identifier" => Map.get(issue, "identifier"),
+      "state" => Map.get(issue, "state")
+    }
+  end
+
   defp team_states(issue), do: get_in(issue, ["team", "states", "nodes"]) || []
   defp nodes(parent, key), do: get_in(parent, [key, "nodes"]) || []
 
-  defp canonical_workpad_heading(heading) do
-    title = workpad_heading_title(heading)
+  defp workpad_from_registry(issue, args) do
+    case WorkpadRegistry.get(@source_kind, args.issue_id) do
+      %{} = record ->
+        case comment_provider_id(record) do
+          {:ok, provider_id} ->
+            issue
+            |> nodes("comments")
+            |> Enum.find(&(Map.get(&1, "id") == provider_id))
+            |> case do
+              %{} = comment -> put_workpad_identity(comment, record)
+              nil -> registry_workpad_record(record)
+            end
 
-    if title == "" do
-      {:error, {:invalid_arguments, "Workpad heading must contain heading text."}}
-    else
-      {:ok, "## " <> title}
+          _reason ->
+            registry_workpad_record(record)
+        end
+
+      _record ->
+        nil
     end
   end
 
-  defp canonical_workpad_body(canonical_heading, body) do
-    body = String.trim_leading(body)
+  defp workpad_record_for_id(issue_id, workpad_id) do
+    case WorkpadRegistry.get(@source_kind, issue_id) do
+      %{"id" => ^workpad_id} = record ->
+        {:ok, record}
 
-    case String.split(body, "\n", parts: 2) do
-      [first_line, rest] ->
-        if workpad_heading_line?(first_line, canonical_heading) do
-          canonical_heading <> "\n" <> rest
-        else
-          canonical_heading <> "\n\n" <> body
-        end
-
-      [first_line] ->
-        if workpad_heading_line?(first_line, canonical_heading) do
-          canonical_heading
-        else
-          canonical_heading <> "\n\n" <> body
-        end
+      _record ->
+        {:error, {:invalid_arguments, "Unknown workpad_id #{inspect(workpad_id)} for issue #{inspect(issue_id)}."}}
     end
   end
 
-  defp workpad_heading_candidates(heading) do
-    title = workpad_heading_title(heading)
+  defp comment_provider_id(%{"provider_ref" => %{"type" => "comment", "id" => id}}) when is_binary(id), do: {:ok, id}
+  defp comment_provider_id(_record), do: {:error, {:invalid_arguments, "Workpad registry record is missing a comment provider reference."}}
 
-    [
-      "## " <> title,
-      title,
-      heading
-    ]
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
+  defp put_workpad_identity(%{"id" => provider_id} = comment, %{"id" => workpad_id} = record) when is_binary(provider_id) do
+    comment
+    |> Map.put("id", workpad_id)
+    |> Map.put_new("provider", "linear")
+    |> Map.put_new("provider_ref", Map.get(record, "provider_ref"))
   end
 
-  defp workpad_heading_title(heading) when is_binary(heading) do
-    heading
-    |> String.trim()
-    |> String.replace(~r/^#+\s*/, "")
-    |> String.trim()
+  defp registry_workpad_record(%{"id" => workpad_id} = record) do
+    record
+    |> Map.put_new("id", workpad_id)
+    |> Map.put_new("provider", @source_kind)
   end
 
-  defp workpad_heading_title(_heading), do: ""
-
-  defp workpad_heading_line?(line, canonical_heading) do
-    workpad_heading_title(line) == workpad_heading_title(canonical_heading)
+  defp workpad_id(tracker_kind, issue_id) when is_binary(tracker_kind) and is_binary(issue_id) do
+    tracker_kind <> ":issue:" <> issue_id <> ":workpad"
   end
 
-  defp workpad_from_issue(issue, heading_or_headings) do
-    headings =
-      heading_or_headings
-      |> List.wrap()
-      |> Enum.flat_map(&workpad_heading_candidates/1)
-      |> Enum.uniq()
-
-    comments = issue |> nodes("comments") |> Enum.filter(&active_comment?/1)
-
-    heading_match =
-      comments
-      |> Enum.filter(fn comment ->
-        body = Map.get(comment, "body")
-        is_binary(body) and Enum.any?(headings, &String.starts_with?(body, &1))
-      end)
-      |> latest_comment()
-
-    heading_match || latest_legacy_workpad_comment(comments)
-  end
-
-  defp active_comment?(comment) when is_map(comment), do: is_nil(Map.get(comment, "resolvedAt"))
-  defp active_comment?(_comment), do: false
-
-  defp latest_comment([]), do: nil
-  defp latest_comment(comments), do: Enum.max_by(comments, &comment_sort_key/1)
-
-  defp comment_sort_key(comment), do: Map.get(comment, "updatedAt") || Map.get(comment, "createdAt") || ""
-
-  defp latest_legacy_workpad_comment(comments) do
-    comments
-    |> Enum.filter(fn comment ->
-      body = Map.get(comment, "body")
-
-      is_binary(body) and
-        String.contains?(body, "### Plan") and
-        String.contains?(body, "### Acceptance Criteria") and
-        String.contains?(body, "### Validation")
-    end)
-    |> latest_comment()
-  end
+  defp string_value(map, key) when is_map(map) and is_binary(key), do: Map.get(map, key)
+  defp string_value(_map, _key), do: nil
 
   defp expected_current_state(_issue, nil), do: :ok
 
@@ -1156,7 +1124,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   defp canonical_url(url) when is_binary(url), do: String.trim(url)
   defp canonical_url(_url), do: nil
 
-  defp success_payload(data), do: %{"data" => data, "warnings" => []}
+  defp success_payload(data, evidence \\ nil), do: %{"data" => data, "warnings" => []} |> EvidencePayload.attach(evidence)
 
   defp typed_failure(reason) do
     {code, message, details} = typed_error(reason)

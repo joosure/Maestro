@@ -1,6 +1,10 @@
 defmodule SymphonyElixir.Workflow.Lifecycle do
   @moduledoc """
   Shared lifecycle semantics for workflow state handling.
+
+  This module owns tracker-neutral lifecycle phases and the behavior categories
+  Symphony derives from them. Trackers should map their raw project states into
+  these phases through workflow configuration.
   """
 
   @backlog "backlog"
@@ -15,8 +19,10 @@ defmodule SymphonyElixir.Workflow.Lifecycle do
 
   @phases [@backlog, @todo, @in_progress, @human_review, @merging, @rework, @done, @canceled, @unknown]
   @dispatch_blocker_phases [@todo, @in_progress, @merging, @rework]
-  @active_execution_phases MapSet.new(@dispatch_blocker_phases)
-  @terminal_phases MapSet.new([@done, @canceled])
+  @human_review_phases [@human_review]
+  @merge_phases [@merging]
+  @terminal_phases [@done, @canceled]
+  @phase_set @phases
 
   @spec phases() :: [String.t()]
   def phases, do: @phases
@@ -92,8 +98,7 @@ defmodule SymphonyElixir.Workflow.Lifecycle do
 
   @spec valid_phase?(term()) :: boolean()
   def valid_phase?(phase_name) do
-    normalized_phase = normalize_phase(phase_name)
-    is_binary(normalized_phase) and normalized_phase in @phases
+    phase_member?(phase_name, @phase_set)
   end
 
   @spec normalize_state_phase_map(nil | map()) :: map()
@@ -130,16 +135,22 @@ defmodule SymphonyElixir.Workflow.Lifecycle do
 
   @spec dispatch_blocker_phase?(term()) :: boolean()
   def dispatch_blocker_phase?(phase_name) do
-    phase_name
-    |> normalize_phase()
-    |> then(&MapSet.member?(@active_execution_phases, &1))
+    phase_member?(phase_name, @dispatch_blocker_phases)
+  end
+
+  @spec human_review_phase?(term()) :: boolean()
+  def human_review_phase?(phase_name) do
+    phase_member?(phase_name, @human_review_phases)
+  end
+
+  @spec merge_phase?(term()) :: boolean()
+  def merge_phase?(phase_name) do
+    phase_member?(phase_name, @merge_phases)
   end
 
   @spec terminal_phase?(term()) :: boolean()
   def terminal_phase?(phase_name) do
-    phase_name
-    |> normalize_phase()
-    |> then(&MapSet.member?(@terminal_phases, &1))
+    phase_member?(phase_name, @terminal_phases)
   end
 
   @spec validate_state_phase_map(map()) :: :ok | {:error, term()}
@@ -198,11 +209,12 @@ defmodule SymphonyElixir.Workflow.Lifecycle do
        when is_list(state_names) and is_map(state_phase_map) do
     Enum.reduce_while(state_names, :ok, fn state_name, :ok ->
       case phase_for_state(state_name, state_phase_map) do
-        phase when phase in @dispatch_blocker_phases ->
-          {:cont, :ok}
-
         phase ->
-          {:halt, {:error, {:invalid_tracker_state_phase_map, {:invalid_active_phase, state_name, phase}}}}
+          if dispatch_blocker_phase?(phase) do
+            {:cont, :ok}
+          else
+            {:halt, {:error, {:invalid_tracker_state_phase_map, {:invalid_active_phase, state_name, phase}}}}
+          end
       end
     end)
   end
@@ -211,11 +223,12 @@ defmodule SymphonyElixir.Workflow.Lifecycle do
        when is_list(state_names) and is_map(state_phase_map) do
     Enum.reduce_while(state_names, :ok, fn state_name, :ok ->
       case phase_for_state(state_name, state_phase_map) do
-        phase when phase in ~w[done canceled] ->
-          {:cont, :ok}
-
         phase ->
-          {:halt, {:error, {:invalid_tracker_state_phase_map, {:invalid_terminal_phase, state_name, phase}}}}
+          if terminal_phase?(phase) do
+            {:cont, :ok}
+          else
+            {:halt, {:error, {:invalid_tracker_state_phase_map, {:invalid_terminal_phase, state_name, phase}}}}
+          end
       end
     end)
   end
@@ -225,4 +238,10 @@ defmodule SymphonyElixir.Workflow.Lifecycle do
   end
 
   defp map_value(_map, _key), do: nil
+
+  defp phase_member?(phase_name, phase_set) do
+    phase_name
+    |> normalize_phase()
+    |> then(&Enum.member?(phase_set, &1))
+  end
 end

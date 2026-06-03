@@ -73,7 +73,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.Launcher do
       target.executor.start(
         command_spec,
         target,
-        Keyword.put(opts_from_runtime_context(runtime_context), :line, @port_line_bytes)
+        executor_opts(runtime_context)
       )
     end
   end
@@ -110,6 +110,13 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer.Launcher do
   defp opts_from_runtime_context(%{executor_opts: executor_opts}) when is_list(executor_opts), do: executor_opts
   defp opts_from_runtime_context(%{"executor_opts" => executor_opts}) when is_list(executor_opts), do: executor_opts
   defp opts_from_runtime_context(_runtime_context), do: []
+
+  defp executor_opts(runtime_context) do
+    runtime_context
+    |> opts_from_runtime_context()
+    |> Keyword.put(:line, @port_line_bytes)
+    |> Keyword.put_new(:provider_kind, @provider_kind)
+  end
 
   defp runtime_target(workspace, worker_host, runtime_context) when is_map(runtime_context) do
     case Map.get(runtime_context, :agent_runtime_target) || Map.get(runtime_context, "agent_runtime_target") do

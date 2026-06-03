@@ -1,0 +1,180 @@
+# Choose exactly one integration profile:
+#   docker compose -f deploy/compose/compose.integration.yml --profile opencode up -d --build
+#   docker compose -f deploy/compose/compose.integration.yml --profile codex up -d --build
+#   docker compose -f deploy/compose/compose.integration.yml --profile claude-code up -d --build
+#   docker compose -f deploy/compose/compose.integration.yml --profile codebuddy up -d --build
+
+x-symphony-common-environment: &symphony-common-environment
+  # System/runtime
+  HOST: 0.0.0.0
+  PORT: "4000"
+  SYMPHONY_WORKSPACE_ROOT: ${SYMPHONY_WORKSPACE_ROOT:-/workspaces}
+  SYMPHONY_AGENT_CREDENTIALS_STORE_ROOT: ${SYMPHONY_AGENT_CREDENTIALS_STORE_ROOT:-/app/.symphony/agent_credentials}
+  SYMPHONY_AGENT_CREDENTIAL_PREFLIGHT: ${SYMPHONY_AGENT_CREDENTIAL_PREFLIGHT:-auto}
+  SYMPHONY_AGENT_CREDENTIAL_PREFLIGHT_VERIFY_MODE: ${SYMPHONY_AGENT_CREDENTIAL_PREFLIGHT_VERIFY_MODE:-auth}
+  SYMPHONY_AGENT_CREDENTIAL_PREFLIGHT_VERIFY_PROMPT: ${SYMPHONY_AGENT_CREDENTIAL_PREFLIGHT_VERIFY_PROMPT:-Reply with exactly OK.}
+  SYMPHONY_AGENT_CREDENTIAL_ACCOUNT_ID: ${SYMPHONY_AGENT_CREDENTIAL_ACCOUNT_ID:-}
+
+  # Workflow source
+  SYMPHONY_WORKFLOW_PATH: ${SYMPHONY_WORKFLOW_PATH:-}
+
+  # Tracker provider
+  LINEAR_API_KEY: ${LINEAR_API_KEY:-}
+  LINEAR_PROJECT_SLUG: ${LINEAR_PROJECT_SLUG:-}
+  TAPD_API_USER: ${TAPD_API_USER:-}
+  TAPD_API_PASSWORD: ${TAPD_API_PASSWORD:-}
+  TAPD_WORKSPACE_ID: ${TAPD_WORKSPACE_ID:-}
+  TAPD_COMMENT_AUTHOR: ${TAPD_COMMENT_AUTHOR:-}
+  TAPD_WORKITEM_TYPE_ID: ${TAPD_WORKITEM_TYPE_ID:-}
+
+  # Repository
+  SOURCE_REPO_URL: ${SOURCE_REPO_URL:-}
+  SOURCE_REPO_BASE_BRANCH: ${SOURCE_REPO_BASE_BRANCH:-main}
+  SOURCE_REPO_BRANCH_WORK_PREFIX: ${SOURCE_REPO_BRANCH_WORK_PREFIX:-}
+
+  # Repository provider
+  SOURCE_REPO_PROVIDER_REPOSITORY: ${SOURCE_REPO_PROVIDER_REPOSITORY:-}
+  SOURCE_REPO_PROVIDER_REQUIRED_PR_LABEL: ${SOURCE_REPO_PROVIDER_REQUIRED_PR_LABEL:-}
+  CNB_GIT_USER_NAME: ${CNB_GIT_USER_NAME:-}
+  CNB_GIT_USER_EMAIL: ${CNB_GIT_USER_EMAIL:-}
+  CNB_TOKEN: ${CNB_TOKEN:-}
+  GH_TOKEN: ${GH_TOKEN:-}
+  GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+
+  # Agent provider
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  SYMPHONY_CODEX_TOKEN_ENV: ${SYMPHONY_CODEX_TOKEN_ENV:-OPENAI_API_KEY}
+  SYMPHONY_CODEX_VERIFY_COMMAND: ${SYMPHONY_CODEX_VERIFY_COMMAND:-}
+  CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+  SYMPHONY_CLAUDE_CODE_TOKEN_ENV: ${SYMPHONY_CLAUDE_CODE_TOKEN_ENV:-CLAUDE_CODE_OAUTH_TOKEN}
+  SYMPHONY_CLAUDE_CODE_VERIFY_COMMAND: ${SYMPHONY_CLAUDE_CODE_VERIFY_COMMAND:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+
+x-symphony-common-service: &symphony-common-service
+  command:
+    - serve
+  init: true
+  ports:
+    - "${SYMPHONY_PORT:-4000}:4000"
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  stop_grace_period: 30s
+  restart: unless-stopped
+
+services:
+  symphony-opencode:
+    <<: *symphony-common-service
+    profiles:
+      - opencode
+    build:
+      context: ../..
+      dockerfile: docker/app/Dockerfile
+      target: runtime-agent-opencode
+      args:
+        OPENCODE_VERSION: ${OPENCODE_VERSION:-1.14.33}
+    image: symphony:agent-opencode
+    environment:
+      <<: *symphony-common-environment
+      SYMPHONY_TEMPLATE: ${SYMPHONY_OPENCODE_TEMPLATE:-linear/github/opencode}
+      SYMPHONY_OPENCODE_CREDENTIAL_ENV_NAME: ${SYMPHONY_OPENCODE_CREDENTIAL_ENV_NAME:-}
+      SYMPHONY_OPENCODE_TOKEN_ENV: ${SYMPHONY_OPENCODE_TOKEN_ENV:-}
+      SYMPHONY_OPENCODE_VERIFY_COMMAND: ${SYMPHONY_OPENCODE_VERIFY_COMMAND:-}
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+    volumes:
+      - symphony-workspaces:${SYMPHONY_WORKSPACE_ROOT:-/workspaces}
+      - symphony-state:/app/.symphony
+      - symphony-logs:/app/log
+      # Uncomment and adjust these mounts when OpenCode or the selected workflow needs local files.
+      # - ${SYMPHONY_WORKFLOW_FILE:?set SYMPHONY_WORKFLOW_FILE to the selected provider workflow file}:/app/WORKFLOW.local.md:ro
+      # - ${OPENCODE_CONFIG:-../../secrets/opencode.json}:/home/symphony/.config/opencode/opencode.json:ro
+      # - ${SSH_PRIVATE_KEY:-../../secrets/id_rsa}:/home/symphony/.ssh/id_rsa:ro
+
+  symphony-codex:
+    <<: *symphony-common-service
+    profiles:
+      - codex
+    build:
+      context: ../..
+      dockerfile: docker/app/Dockerfile
+      target: runtime-agent-codex
+      args:
+        CODEX_VERSION: ${CODEX_VERSION:-0.135.0}
+    image: symphony:agent-codex
+    environment:
+      <<: *symphony-common-environment
+      SYMPHONY_TEMPLATE: ${SYMPHONY_CODEX_TEMPLATE:-linear/github/codex}
+      CODEX_HOME: ${CODEX_HOME:-/home/symphony/.codex}
+    volumes:
+      - symphony-workspaces:${SYMPHONY_WORKSPACE_ROOT:-/workspaces}
+      - symphony-state:/app/.symphony
+      - symphony-logs:/app/log
+      - symphony-codex-home:${CODEX_HOME:-/home/symphony/.codex}
+      # Uncomment and adjust these mounts when the selected workflow needs local files.
+      # - ${SYMPHONY_WORKFLOW_FILE:?set SYMPHONY_WORKFLOW_FILE to the selected provider workflow file}:/app/WORKFLOW.local.md:ro
+      # - ${SSH_PRIVATE_KEY:-../../secrets/id_rsa}:/home/symphony/.ssh/id_rsa:ro
+
+  symphony-claude-code:
+    <<: *symphony-common-service
+    profiles:
+      - claude-code
+    build:
+      context: ../..
+      dockerfile: docker/app/Dockerfile
+      target: runtime-agent-claude-code
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.158}
+    image: symphony:agent-claude-code
+    environment:
+      <<: *symphony-common-environment
+      SYMPHONY_TEMPLATE: ${SYMPHONY_CLAUDE_CODE_TEMPLATE:-linear/github/claude_code}
+      CLAUDE_CONFIG_DIR: ${CLAUDE_CONFIG_DIR:-/home/symphony/.claude}
+    volumes:
+      - symphony-workspaces:${SYMPHONY_WORKSPACE_ROOT:-/workspaces}
+      - symphony-state:/app/.symphony
+      - symphony-logs:/app/log
+      - symphony-claude-code-config:${CLAUDE_CONFIG_DIR:-/home/symphony/.claude}
+      # Uncomment and adjust these mounts when the selected workflow needs local files.
+      # - ${SYMPHONY_WORKFLOW_FILE:?set SYMPHONY_WORKFLOW_FILE to the selected provider workflow file}:/app/WORKFLOW.local.md:ro
+      # - ${SSH_PRIVATE_KEY:-../../secrets/id_rsa}:/home/symphony/.ssh/id_rsa:ro
+
+  symphony-codebuddy:
+    <<: *symphony-common-service
+    profiles:
+      - codebuddy
+    build:
+      context: ../..
+      dockerfile: docker/app/Dockerfile
+      target: runtime-agent-codebuddy
+      args:
+        CODEBUDDY_VERSION: ${CODEBUDDY_VERSION:-2.99.1}
+    image: symphony:agent-codebuddy
+    environment:
+      <<: *symphony-common-environment
+      SYMPHONY_TEMPLATE: ${SYMPHONY_CODEBUDDY_TEMPLATE:-tapd/cnb/codebuddy_code}
+      CODEBUDDY_CONFIG_DIR: ${CODEBUDDY_CONFIG_DIR:-/home/symphony/.codebuddy}
+      DISABLE_AUTOUPDATER: "1"
+      SYMPHONY_CODEBUDDY_TOKEN_ENV: ${SYMPHONY_CODEBUDDY_TOKEN_ENV:-CODEBUDDY_API_KEY}
+      SYMPHONY_CODEBUDDY_VERIFY_COMMAND: ${SYMPHONY_CODEBUDDY_VERIFY_COMMAND:-}
+      CODEBUDDY_API_KEY: ${CODEBUDDY_API_KEY:-}
+      CODEBUDDY_INTERNET_ENVIRONMENT: ${CODEBUDDY_INTERNET_ENVIRONMENT:-}
+      CODEBUDDY_BASE_URL: ${CODEBUDDY_BASE_URL:-}
+    volumes:
+      - symphony-workspaces:${SYMPHONY_WORKSPACE_ROOT:-/workspaces}
+      - symphony-state:/app/.symphony
+      - symphony-logs:/app/log
+      - symphony-codebuddy-config:${CODEBUDDY_CONFIG_DIR:-/home/symphony/.codebuddy}
+      # Uncomment and adjust these mounts when the selected workflow needs local files.
+      # - ${SYMPHONY_WORKFLOW_FILE:?set SYMPHONY_WORKFLOW_FILE to the selected provider workflow file}:/app/WORKFLOW.local.md:ro
+      # - ${SSH_PRIVATE_KEY:-../../secrets/id_rsa}:/home/symphony/.ssh/id_rsa:ro
+
+volumes:
+  symphony-workspaces:
+  symphony-state:
+  symphony-logs:
+  symphony-codex-home:
+  symphony-claude-code-config:
+  symphony-codebuddy-config:

@@ -17,6 +17,9 @@ defmodule SymphonyElixir.Agent.Runtime do
           optional(:worker_daemon_endpoint_id) => String.t() | nil,
           optional(:worker_daemon_worker_id) => String.t() | nil,
           optional(:worker_daemon_daemon_instance_id) => String.t() | nil,
+          optional(:issue) => SymphonyElixir.Issue.t(),
+          optional(:issue_fact_source) => atom(),
+          optional(:monotonic_ms) => integer(),
           optional(:failure_class) => String.t() | nil,
           optional(:error) => String.t()
         }
@@ -82,15 +85,16 @@ defmodule SymphonyElixir.Agent.Runtime do
     end
   end
 
-  defp settings_runtime_opts(%RuntimeSchema{agent_runtime: agent_runtime}) when is_map(agent_runtime) do
-    worker_daemon = map_value(agent_runtime, :worker_daemon)
+  defp settings_runtime_opts(%RuntimeSchema{runtime: runtime}) when is_map(runtime) do
+    runtime_agent = map_value(runtime, :agent)
+    worker_daemon = map_value(runtime_agent, :worker_daemon)
 
     [
-      agent_runtime_placement: map_value(agent_runtime, :placement),
-      worker_pool: map_value(agent_runtime, :worker_pool),
-      worker_host: map_value(agent_runtime, :worker_host),
-      remote_workspace_path: map_value(agent_runtime, :remote_workspace_path),
-      agent_runtime_env: map_value(agent_runtime, :env),
+      agent_runtime_placement: map_value(runtime_agent, :placement),
+      worker_pool: map_value(runtime_agent, :worker_pool),
+      worker_host: map_value(runtime_agent, :worker_host),
+      remote_workspace_path: map_value(runtime_agent, :remote_workspace_path),
+      agent_runtime_env: map_value(runtime_agent, :env),
       worker_daemon_endpoint: map_value(worker_daemon, :endpoint),
       worker_daemon_endpoints: map_value(worker_daemon, :endpoints),
       worker_daemon_pools: map_value(worker_daemon, :pools),

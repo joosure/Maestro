@@ -118,7 +118,7 @@ defmodule SymphonyElixir.Orchestrator.WorkerHosts do
   end
 
   defp worker_daemon_runtime?(settings) when is_map(settings) do
-    case settings |> Map.get(:agent_runtime, %{}) |> Map.get(:placement) do
+    case settings |> Map.get(:runtime, %{}) |> Map.get(:agent, %{}) |> Map.get(:placement) do
       "worker_daemon" -> true
       :worker_daemon -> true
       _placement -> false

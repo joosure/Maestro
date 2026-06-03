@@ -1,0 +1,126 @@
+name: container-security
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/container-security.yml"
+      - ".dockerignore"
+      - "docker/app/**"
+      - "deploy/compose/**"
+      - "docs/deployment/container.md"
+      - "docs/deployment/container.zh-CN.md"
+      - "elixir/config/**"
+      - "elixir/lib/**"
+      - "elixir/mix.exs"
+      - "elixir/mix.lock"
+      - "scripts/container-security-scan.sh"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/container-security.yml"
+      - ".dockerignore"
+      - "docker/app/**"
+      - "deploy/compose/**"
+      - "docs/deployment/container.md"
+      - "docs/deployment/container.zh-CN.md"
+      - "elixir/config/**"
+      - "elixir/lib/**"
+      - "elixir/mix.exs"
+      - "elixir/mix.lock"
+      - "scripts/container-security-scan.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image-security:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - runtime-base
+          - runtime-agent
+          - runtime-agent-opencode
+          - runtime-agent-codex
+          - runtime-agent-claude-code
+          - runtime-agent-codebuddy
+
+    env:
+      OPENCODE_VERSION: "1.14.33"
+      CODEX_VERSION: "0.135.0"
+      CLAUDE_CODE_VERSION: "2.1.158"
+      CODEBUDDY_VERSION: "2.99.1"
+      IMAGE_NAME: symphony:${{ matrix.target }}-security
+      REPORT_DIR: reports/${{ matrix.target }}
+      SYMPHONY_UID: "10001"
+      SYMPHONY_GID: "10001"
+      TRIVY_DISABLE_VEX_NOTICE: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build ${{ matrix.target }} image
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          DOCKER_BUILDKIT=1 docker build \
+            -f docker/app/Dockerfile \
+            --target "${{ matrix.target }}" \
+            --build-arg "OPENCODE_VERSION=${OPENCODE_VERSION}" \
+            --build-arg "CODEX_VERSION=${CODEX_VERSION}" \
+            --build-arg "CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}" \
+            --build-arg "CODEBUDDY_VERSION=${CODEBUDDY_VERSION}" \
+            --build-arg "SYMPHONY_UID=${SYMPHONY_UID}" \
+            --build-arg "SYMPHONY_GID=${SYMPHONY_GID}" \
+            -t "$IMAGE_NAME" \
+            .
+
+      - name: Trivy vulnerability gate
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Trivy JSON report
+        if: always()
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}
+          format: json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          output: ${{ env.REPORT_DIR }}/trivy-image.json
+          exit-code: "0"
+
+      - name: Generate SPDX SBOM
+        if: always()
+        uses: anchore/sbom-action@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
+        with:
+          image: ${{ env.IMAGE_NAME }}
+          format: spdx-json
+          output-file: ${{ env.REPORT_DIR }}/sbom.spdx.json
+          dependency-snapshot: false
+
+      - name: Generate CycloneDX SBOM
+        if: always()
+        uses: anchore/sbom-action@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
+        with:
+          image: ${{ env.IMAGE_NAME }}
+          format: cyclonedx-json
+          output-file: ${{ env.REPORT_DIR }}/sbom.cyclonedx.json
+          dependency-snapshot: false
+
+      - name: Upload container security reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: container-security-${{ matrix.target }}
+          path: ${{ env.REPORT_DIR }}
+          if-no-files-found: warn

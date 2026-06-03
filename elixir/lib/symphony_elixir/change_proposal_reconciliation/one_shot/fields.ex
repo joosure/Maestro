@@ -10,9 +10,13 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot.Fields do
     "candidate_count",
     "decision",
     "reason",
-    "source_route",
+    "source_workflow_profile",
+    "source_workflow_profile_version",
+    "source_workflow_route_key",
     "source_state",
-    "target_route",
+    "target_workflow_profile",
+    "target_workflow_profile_version",
+    "target_workflow_route_key",
     "target_state",
     "skip_reason",
     "change_proposal_number",
@@ -34,7 +38,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot.Fields do
   def reason, do: "reason"
 
   @spec target_route() :: String.t()
-  def target_route, do: "target_route"
+  def target_route, do: "target_workflow_route_key"
 
   @spec target_state() :: String.t()
   def target_state, do: "target_state"

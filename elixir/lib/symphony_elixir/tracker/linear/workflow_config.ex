@@ -8,16 +8,6 @@ defmodule SymphonyElixir.Tracker.Linear.WorkflowConfig do
   alias SymphonyElixir.Workflow.ProfileRegistry
   alias SymphonyElixir.Workflow.RoutePolicy
 
-  @coding_raw_state_by_route_key %{
-    planning: "Todo",
-    developing: "In Progress",
-    review: "In Review",
-    merging: "Merging",
-    rework: "Rework",
-    resolved: "Done",
-    rejected: "Canceled"
-  }
-
   @spec workflow_profile(map()) :: map()
   def workflow_profile(tracker) when is_map(tracker) do
     tracker
@@ -45,6 +35,14 @@ defmodule SymphonyElixir.Tracker.Linear.WorkflowConfig do
     profile_options = profile_context.options
     lifecycle = lifecycle_map(tracker)
 
+    policy_by_route_key =
+      lifecycle
+      |> map_field(:policy_by_route_key)
+      |> RoutePolicy.resolve_policy_by_route_key(
+        ProfileRegistry.default_policy_by_route_key(profile_module, profile_options),
+        profile_module
+      )
+
     %{
       workitem_type_id: nil,
       active_states: List.wrap(TrackerConfig.active_states(tracker)),
@@ -59,32 +57,27 @@ defmodule SymphonyElixir.Tracker.Linear.WorkflowConfig do
       raw_state_by_route_key:
         lifecycle
         |> map_field(:raw_state_by_route_key)
-        |> resolve_raw_state_by_route_key(default_raw_state_by_route_key(profile_context), profile_module),
-      policy_by_route_key:
-        lifecycle
-        |> map_field(:policy_by_route_key)
-        |> RoutePolicy.resolve_policy_by_route_key(
-          ProfileRegistry.default_policy_by_route_key(profile_module, profile_options),
-          profile_module
-        )
+        |> resolve_raw_state_by_route_key(
+          RoutePolicy.identity_raw_state_by_route_key(profile_module),
+          profile_module,
+          policy_by_route_key
+        ),
+      policy_by_route_key: policy_by_route_key
     }
     |> Map.merge(workflow_facts(profile_context))
     |> Effective.new!()
   end
 
-  @spec default_raw_state_by_route_key(ProfileRegistry.resolved_profile()) :: map()
-  def default_raw_state_by_route_key(%{kind: "coding_pr_delivery"}), do: @coding_raw_state_by_route_key
-  def default_raw_state_by_route_key(%{module: profile_module}), do: profile_module.default_raw_state_by_route_key()
-
   @spec resolve_raw_state_by_route_key(map() | nil, map(), module()) :: map()
   def resolve_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module)
       when is_map(base_raw_state_by_route_key) and is_atom(profile_module) do
-    Enum.reduce(profile_module.route_keys(), base_raw_state_by_route_key, fn route_key, acc ->
-      case raw_state_by_route_key |> map_field(route_key) |> normalize_string() do
-        nil -> acc
-        raw_state -> Map.put(acc, route_key, raw_state)
-      end
-    end)
+    resolve_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module, %{})
+  end
+
+  @spec resolve_raw_state_by_route_key(map() | nil, map(), module(), map()) :: map()
+  def resolve_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module, policy_by_route_key)
+      when is_map(base_raw_state_by_route_key) and is_atom(profile_module) do
+    RoutePolicy.resolve_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module, policy_by_route_key)
   end
 
   defp workflow_facts(%{kind: kind, version: version, options: options, module: profile_module} = profile_context) do
@@ -109,13 +102,4 @@ defmodule SymphonyElixir.Tracker.Linear.WorkflowConfig do
   end
 
   defp map_field(_map, _key), do: nil
-
-  defp normalize_string(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  defp normalize_string(_value), do: nil
 end

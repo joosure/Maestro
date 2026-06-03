@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Orchestrator.Running.Reconciliation do
 
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Orchestrator.Dispatch
-  alias SymphonyElixir.Orchestrator.Running.{Events, InactiveGrace, StateView, Termination}
+  alias SymphonyElixir.Orchestrator.Running.{CompletionGrace, Events, StateView, Termination}
 
   @spec reconcile_issue_states(list(), map(), map(), keyword()) :: map()
   def reconcile_issue_states(issues, state, dispatch_context, opts)
@@ -31,11 +31,11 @@ defmodule SymphonyElixir.Orchestrator.Running.Reconciliation do
   defp reconcile_issue_state(%Issue{} = issue, state, dispatch_context, opts) do
     cond do
       Dispatch.terminal_issue_state?(issue, issue.state, dispatch_context) ->
-        Events.issue_reconcile(opts, :info, :issue_reconcile_stopped, issue, state, %{
-          skip_reason: "terminal"
-        })
-
-        Termination.terminate_running_issue(state, issue.id, true, opts)
+        CompletionGrace.reconcile(issue, state, opts,
+          cleanup_workspace?: true,
+          stopped_skip_reason: "terminal",
+          deferred_skip_reason: "terminal_completion_grace"
+        )
 
       not Dispatch.issue_routable_to_worker?(issue) ->
         Events.issue_reconcile(opts, :info, :issue_reconcile_stopped, issue, state, %{
@@ -48,7 +48,10 @@ defmodule SymphonyElixir.Orchestrator.Running.Reconciliation do
         refresh_running_issue_state(state, issue)
 
       true ->
-        InactiveGrace.reconcile(issue, state, opts)
+        CompletionGrace.reconcile(issue, state, opts,
+          stopped_skip_reason: "not_active",
+          deferred_skip_reason: "not_active_completion_grace"
+        )
     end
   end
 
@@ -101,7 +104,7 @@ defmodule SymphonyElixir.Orchestrator.Running.Reconciliation do
         updated_entry =
           running_entry
           |> Map.put(:issue, issue)
-          |> Map.delete(:non_active_observed_at)
+          |> Map.delete(:completion_grace_observed_at)
 
         StateView.put_running(state, Map.put(StateView.running_entries(state), issue.id, updated_entry))
 

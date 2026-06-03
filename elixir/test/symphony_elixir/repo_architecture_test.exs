@@ -1,8 +1,6 @@
 defmodule SymphonyElixir.RepoArchitectureTest do
   use ExUnit.Case, async: true
 
-  alias SymphonyElixir.Platform.CommandEnv
-
   @provider_source_dirs [
     "lib/symphony_elixir/repo_provider",
     "lib/mix/tasks"
@@ -107,24 +105,12 @@ defmodule SymphonyElixir.RepoArchitectureTest do
   @codex_provider_allowlist [
     "lib/symphony_elixir/agent_provider/defaults.ex",
     "lib/symphony_elixir/agent_provider/kinds.ex",
-    "lib/symphony_elixir/agent_provider/registry.ex"
+    "lib/symphony_elixir/agent_provider/model_credential_env.ex",
+    "lib/symphony_elixir/agent_provider/registry.ex",
+    "lib/symphony_elixir/workflow/template_registry.ex"
   ]
 
   @codex_identifier_pattern ~r/\b(?:Codex|codex|CODEX)\b/
-
-  @source_design_asset_dir "spe" <> "cs"
-  @source_design_asset_entrypoint "SP" <> "EC.md"
-  @source_design_asset_reference_patterns [
-    {Regex.compile!("(?:^|[^[:alnum:]_])(?:\\.\\./)*" <> @source_design_asset_dir <> "/"), "source-only design asset directory reference"},
-    {Regex.compile!("\\b" <> @source_design_asset_entrypoint <> "\\b"), "source-only design asset entrypoint reference"}
-  ]
-  @source_design_asset_reference_exclusions [
-    ".secrets.baseline",
-    "elixir/lib/mix/tasks/specs.check.ex",
-    "elixir/lib/symphony_elixir/specs_check.ex",
-    "elixir/test/mix/tasks/specs_check_task_test.exs",
-    "elixir/test/symphony_elixir/specs_check_test.exs"
-  ]
 
   @forbidden_provider_patterns [
     {~r/TargetRepo\.(current_branch|head_sha|remote_url|base_branch)\(\s*"\."/, "provider code must not hardcode the current directory for repo-core reads"},
@@ -219,6 +205,11 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     {~r/\bChangeProposalReconciliation\.(?:Reconciler|RouteContext|Transition|Counters|Events)\b/, "orchestrator must depend on the ChangeProposalReconciliation facade, not its internal modules"}
   ]
 
+  @forbidden_orchestrator_running_lifecycle_patterns [
+    {~r/\bSymphonyElixir\.AgentProvider\.(?:OpenCode|Codex|ClaudeCode|CodeBuddyCode)\b/, "orchestrator running/exit lifecycle must not depend on concrete agent provider modules"},
+    {~r/\b(?:OpenCode|Codex|ClaudeCode|CodeBuddyCode|Claude Code|CodeBuddy Code)\b/, "orchestrator running/exit lifecycle must stay provider-neutral"}
+  ]
+
   @forbidden_provider_app_server_support_patterns [
     {~r/\bSymphonyElixir\.AgentProvider\.(?:Codex|ClaudeCode|OpenCode)\b/, "provider-neutral app-server support must not depend on concrete provider modules"},
     {~r/\b(?:Launcher|StreamProtocol|SessionProtocol|TurnRequests|HttpRequests|EventStream)\b/, "provider-neutral app-server support must not own provider protocol or startup modules"}
@@ -246,6 +237,11 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     {~r/Supervisor\.(?:terminate_child|restart_child)\(/, "tests that mutate supervised application children must not run async"},
     {~r/Process\.whereis\(SymphonyElixir\.(?:Supervisor|Orchestrator|PubSub|Workflow\.Runtime\.Store)/, "tests that inspect global application process names must not run async"},
     {~r/free_port!\(/, "tests that reserve TCP ports before server startup must not run async"}
+  ]
+
+  @direct_string_mapping_patterns [
+    {~r/"[A-Za-z0-9_.:-]+"\s*->\s*:[a-zA-Z_][a-zA-Z0-9_]*/, "direct string-to-atom normalization must be centralized in a named boundary map or constant"},
+    {~r/"[A-Za-z0-9_.:\/-]+"\s*->\s*"[A-Za-z0-9_.:\/-]+"/, "direct string-to-string normalization must be centralized in a named boundary map or constant"}
   ]
 
   @top_level_source_module_files [
@@ -653,6 +649,20 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     assert violations == []
   end
 
+  test "orchestrator running lifecycle stays provider-neutral and dispatch-driven" do
+    files = orchestrator_running_lifecycle_files()
+
+    provider_violations =
+      files
+      |> Enum.flat_map(&forbidden_matches(&1, @forbidden_orchestrator_running_lifecycle_patterns))
+
+    state_literal_violations =
+      files
+      |> Enum.flat_map(&workflow_state_literal_matches/1)
+
+    assert provider_violations ++ state_literal_violations == []
+  end
+
   test "platform namespace only contains low-level platform modules" do
     files = source_files("lib/symphony_elixir/platform")
 
@@ -698,36 +708,6 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     assert violations == []
   end
 
-  test "runtime files do not depend on source-only design assets" do
-    root = Path.expand("..", File.cwd!())
-    tracked_files = git_tracked_files(root)
-
-    runtime_references =
-      tracked_files
-      |> Enum.reject(fn path ->
-        String.starts_with?(path, @source_design_asset_dir <> "/") or
-          path in @source_design_asset_reference_exclusions
-      end)
-      |> Enum.map(&Path.join(root, &1))
-      |> Enum.filter(&File.regular?/1)
-      |> Enum.flat_map(&forbidden_matches(&1, @source_design_asset_reference_patterns))
-
-    assert runtime_references == []
-  end
-
-  test "source-only design assets only link within their own corpus" do
-    root = Path.expand("..", File.cwd!())
-    specs_root = Path.join(root, @source_design_asset_dir)
-
-    violations =
-      specs_root
-      |> text_files()
-      |> Enum.filter(&String.ends_with?(&1, ".md"))
-      |> Enum.flat_map(&source_design_asset_link_violations(&1, specs_root))
-
-    assert violations == []
-  end
-
   test "local markdown links in operator and architecture docs point to existing paths" do
     files = ["README.md" | text_files("docs")]
 
@@ -743,6 +723,15 @@ defmodule SymphonyElixir.RepoArchitectureTest do
       test_files()
       |> Enum.filter(&async_test_file?/1)
       |> Enum.flat_map(&forbidden_matches(&1, @process_wide_state_test_patterns))
+
+    assert violations == []
+  end
+
+  test "production string normalization mappings stay centralized" do
+    violations =
+      "lib"
+      |> source_files()
+      |> Enum.flat_map(&direct_string_mapping_matches/1)
 
     assert violations == []
   end
@@ -766,6 +755,11 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     "test/**/*_test.exs"
     |> Path.wildcard()
     |> Enum.sort()
+  end
+
+  defp orchestrator_running_lifecycle_files do
+    source_files("lib/symphony_elixir/orchestrator/running") ++
+      ["lib/symphony_elixir/orchestrator/worker_exit.ex"]
   end
 
   defp async_test_file?(path) do
@@ -810,18 +804,6 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     end
   end
 
-  defp git_tracked_files(root) do
-    case CommandEnv.system_cmd("git", ["ls-files"], cd: root, stderr_to_stdout: true) do
-      {output, 0} ->
-        output
-        |> String.split("\n", trim: true)
-        |> Enum.sort()
-
-      {output, status} ->
-        flunk("git ls-files failed with status #{status}: #{output}")
-    end
-  end
-
   defp forbidden_matches(path, patterns) do
     contents = File.read!(path)
 
@@ -835,6 +817,26 @@ defmodule SymphonyElixir.RepoArchitectureTest do
     end)
   end
 
+  defp direct_string_mapping_matches(path) do
+    path
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {line, line_number} ->
+      if line |> String.trim_leading() |> String.starts_with?("#") do
+        []
+      else
+        Enum.flat_map(@direct_string_mapping_patterns, fn {pattern, message} ->
+          if Regex.match?(pattern, line) do
+            ["#{path}:#{line_number}: #{message}"]
+          else
+            []
+          end
+        end)
+      end
+    end)
+  end
+
   defp forbidden_filename_matches(path, patterns) do
     patterns
     |> Enum.flat_map(fn {pattern, message} ->
@@ -844,6 +846,24 @@ defmodule SymphonyElixir.RepoArchitectureTest do
         []
       end
     end)
+  end
+
+  defp workflow_state_literal_matches(path) do
+    ~r/"([^"\n]+)"/
+    |> Regex.scan(File.read!(path))
+    |> Enum.flat_map(fn [_match, literal] ->
+      if workflow_state_literal?(literal) do
+        ["#{path}: orchestrator running/exit lifecycle must use Dispatch state semantics instead of hardcoded workflow state literal #{inspect(literal)}"]
+      else
+        []
+      end
+    end)
+  end
+
+  defp workflow_state_literal?(literal) when is_binary(literal) do
+    String.length(literal) <= 40 and
+      not String.contains?(literal, ["\#{", "_", "-", ".", "/", ":"]) and
+      Regex.match?(~r/^[A-Z][A-Za-z]*(?: [A-Z][A-Za-z]*)*$/, literal)
   end
 
   defp platform_module_violations(path) do
@@ -924,54 +944,6 @@ defmodule SymphonyElixir.RepoArchitectureTest do
           end
       end
     end)
-  end
-
-  defp source_design_asset_link_violations(path, specs_root) do
-    contents = File.read!(path)
-    base_dir = Path.dirname(path)
-    specs_root = Path.expand(specs_root)
-
-    contents
-    |> markdown_link_targets()
-    |> Enum.flat_map(fn raw_target ->
-      target = normalize_markdown_link_target(raw_target)
-
-      cond do
-        target == "" or String.starts_with?(target, "#") ->
-          []
-
-        String.starts_with?(target, ["http://", "https://", "mailto:"]) ->
-          ["#{path}: source-only design asset link must not use external target: #{raw_target}"]
-
-        true ->
-          resolved = Path.expand(target, base_dir)
-
-          cond do
-            not String.starts_with?(resolved, specs_root <> "/") and resolved != specs_root ->
-              ["#{path}: source-only design asset link leaves #{@source_design_asset_dir}/: #{raw_target}"]
-
-            not File.exists?(resolved) ->
-              ["#{path}: source-only design asset link target does not exist: #{raw_target}"]
-
-            true ->
-              []
-          end
-      end
-    end)
-  end
-
-  defp markdown_link_targets(contents) do
-    inline_targets =
-      ~r/\[[^\]]+\]\(([^)]+)\)/
-      |> Regex.scan(contents)
-      |> Enum.map(fn [_match, target] -> target end)
-
-    reference_targets =
-      ~r/^\[[^\]]+\]:\s+(\S+)/m
-      |> Regex.scan(contents)
-      |> Enum.map(fn [_match, target] -> target end)
-
-    inline_targets ++ reference_targets
   end
 
   defp normalize_markdown_link_target(raw_target) when is_binary(raw_target) do

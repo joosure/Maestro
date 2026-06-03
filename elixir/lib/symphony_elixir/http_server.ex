@@ -19,7 +19,7 @@ defmodule SymphonyElixir.HttpServer do
 
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(opts \\ []) do
-    host = Keyword.get(opts, :host, Config.settings!().server.host)
+    host = Keyword.get(opts, :host, Config.server_host())
     snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
     case Keyword.get(opts, :port, Config.server_port()) do
@@ -140,7 +140,15 @@ defmodule SymphonyElixir.HttpServer do
     fields =
       %{
         component: "http_server",
-        message: http_server_message(event, normalized_host, port, bound_port, snapshot_timeout_ms, extra_fields),
+        message:
+          http_server_message(
+            event,
+            normalized_host,
+            port,
+            bound_port,
+            snapshot_timeout_ms,
+            extra_fields
+          ),
         result_summary: "host=#{normalized_host} requested_port=#{inspect(port)} bound_port=#{inspect(bound_port)} snapshot_timeout_ms=#{snapshot_timeout_ms}"
       }
       |> Map.merge(extra_fields)
@@ -167,6 +175,7 @@ defmodule SymphonyElixir.HttpServer do
 
   defp start_summary(host, port, snapshot_timeout_ms) do
     normalized_host = normalize_host(host)
+
     "host=#{normalized_host} requested_port=#{inspect(port)} bound_port=#{inspect(bound_port() || port)} snapshot_timeout_ms=#{snapshot_timeout_ms}"
   end
 

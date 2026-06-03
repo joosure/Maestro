@@ -31,6 +31,7 @@ defmodule SymphonyElixirWeb.Router do
   end
 
   scope "/", SymphonyElixirWeb do
+    get("/healthz", HealthController, :health)
     get(@dashboard_css_path, StaticAssetController, :dashboard_css)
     get(@phoenix_html_js_path, StaticAssetController, :phoenix_html_js)
     get(@phoenix_js_path, StaticAssetController, :phoenix_js)

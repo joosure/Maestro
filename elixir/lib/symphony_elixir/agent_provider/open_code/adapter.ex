@@ -5,13 +5,25 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Adapter do
 
   @behaviour SymphonyElixir.AgentProvider.Adapter
 
-  alias SymphonyElixir.Agent.Credential.{Lease, Material}
+  alias SymphonyElixir.Agent.Credential.Accounts.Command
+  alias SymphonyElixir.Agent.Credential.{Lease, Material, Store}
   alias SymphonyElixir.AgentProvider.{Config, Kinds, Session, TurnResult}
-  alias SymphonyElixir.AgentProvider.OpenCode.{AppServer, CredentialEnv, Error, EventSummaryMapper, Settings, Tooling}
+
+  alias SymphonyElixir.AgentProvider.OpenCode.{
+    AppServer,
+    CredentialEnv,
+    Error,
+    EventSummaryMapper,
+    ReleaseCredentialPreflight,
+    Settings,
+    Tooling
+  }
+
   alias SymphonyElixir.Workflow.CapabilityNames
 
   @provider_kind Kinds.opencode()
   @env_token_credential_kind CredentialEnv.env_token_credential_kind()
+  @default_auth_probe_prompt "Reply with exactly OK."
 
   @impl true
   def kind, do: @provider_kind
@@ -39,6 +51,29 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Adapter do
   @impl true
   def validate_config(%Config{options: options}), do: validate_options(options)
   def validate_config(_config), do: {:error, :invalid_open_code_agent_provider_config}
+
+  @impl true
+  def release_credential_preflight_plan, do: ReleaseCredentialPreflight
+
+  @impl true
+  @spec account_verify(map(), keyword(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}
+  def account_verify(%{credential_kind: @env_token_credential_kind} = account, opts, _store_opts) when is_list(opts) do
+    command = Keyword.get(opts, :command) || @provider_kind
+
+    with {:ok, env_name} <- opencode_env_name(account),
+         {:ok, token} <- read_token(account) do
+      command
+      |> Command.run(verify_args(opts), CredentialEnv.env_token_env(env_name, token), opts)
+      |> case do
+        {:ok, output} -> {:ok, %{account: Store.account_summary(account), output: String.trim(output)}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  def account_verify(%{credential_kind: credential_kind}, _opts, _store_opts) do
+    {:error, {:unsupported_opencode_credential_kind, credential_kind}}
+  end
 
   @impl true
   @spec materialize_credential(Config.t(), Lease.t(), keyword()) :: {:ok, Material.t()} | {:error, term()}
@@ -122,6 +157,26 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Adapter do
       true ->
         {:error, {:invalid_opencode_env_name, env_name}}
     end
+  end
+
+  defp verify_args(opts) do
+    if Keyword.get(opts, :auth_probe, false) do
+      auth_probe_args(opts)
+    else
+      ["--version"]
+    end
+  end
+
+  defp auth_probe_args(opts) do
+    args = ["run", "--format", "json"]
+
+    args =
+      case Keyword.get(opts, :model) do
+        model when is_binary(model) and model != "" -> args ++ ["--model", model]
+        _model -> args
+      end
+
+    args ++ [Keyword.get(opts, :prompt, @default_auth_probe_prompt)]
   end
 
   defp read_token(%{secret_file: path}) when is_binary(path) do

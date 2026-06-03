@@ -97,18 +97,19 @@ defmodule SymphonyElixir.Workflow.Capabilities do
   defp current_execution_profile_capabilities(_settings, _profile_context, _issue), do: []
 
   defp current_route_policy(settings, %{module: profile_module, options: profile_options}, issue) when is_map(issue) do
-    case current_route_key(settings, profile_module, issue) do
+    policy_by_route_key = effective_policy_by_route_key(settings, profile_module, profile_options, issue)
+
+    case current_route_key(settings, profile_module, issue, policy_by_route_key) do
       nil ->
         nil
 
       route_key ->
-        policy_by_route_key = effective_policy_by_route_key(settings, profile_module, profile_options, issue)
-        Map.get(policy_by_route_key, route_key) || Map.get(policy_by_route_key, Atom.to_string(route_key))
+        RoutePolicy.policy_for_route_key(policy_by_route_key, route_key)
     end
   end
 
-  defp current_route_key(settings, profile_module, issue) when is_map(issue) do
-    raw_state_by_route_key = effective_raw_state_by_route_key(settings, profile_module, issue)
+  defp current_route_key(settings, profile_module, issue, policy_by_route_key) when is_map(issue) do
+    raw_state_by_route_key = effective_raw_state_by_route_key(settings, profile_module, issue, policy_by_route_key)
     raw_route_key = RoutePolicy.route_key_for_raw_state(Map.get(issue, :state), raw_state_by_route_key, profile_module)
 
     raw_route_key || route_key_for_lifecycle_phase(settings, profile_module, issue)
@@ -141,50 +142,25 @@ defmodule SymphonyElixir.Workflow.Capabilities do
       issue
       |> IssueContext.workflow_map(%{})
       |> map_field(:policy_by_route_key)
-      |> RoutePolicy.resolve_policy_by_route_key(policy_by_route_key, profile_module)
+      |> RoutePolicy.merge_effective_policy_by_route_key(policy_by_route_key, profile_module)
     end)
   end
 
-  defp effective_raw_state_by_route_key(settings, profile_module, issue) do
+  defp effective_raw_state_by_route_key(settings, profile_module, issue, policy_by_route_key) do
     lifecycle = settings |> map_field(:tracker) |> map_field(:lifecycle)
-    default_raw_state_by_route_key = profile_module.default_raw_state_by_route_key()
+    identity_raw_state_map = RoutePolicy.identity_raw_state_by_route_key(profile_module)
 
     lifecycle
     |> map_field(:raw_state_by_route_key)
-    |> merge_raw_state_by_route_key(default_raw_state_by_route_key, profile_module)
+    |> RoutePolicy.resolve_raw_state_by_route_key(identity_raw_state_map, profile_module, policy_by_route_key)
     |> then(fn raw_state_by_route_key ->
       issue
       |> IssueContext.workflow_map(%{})
       |> map_field(:raw_state_by_route_key)
-      |> merge_raw_state_by_route_key(raw_state_by_route_key, profile_module)
+      |> RoutePolicy.merge_effective_raw_state_by_route_key(raw_state_by_route_key, profile_module, policy_by_route_key)
     end)
+    |> RoutePolicy.remove_disabled_raw_states(policy_by_route_key, profile_module)
   end
-
-  defp merge_raw_state_by_route_key(raw_state_by_route_key, base_raw_state_by_route_key, profile_module) do
-    Enum.reduce(profile_module.route_keys(), base_raw_state_by_route_key, fn route_key, acc ->
-      case raw_state_value(raw_state_by_route_key, route_key) do
-        raw_state when is_binary(raw_state) and raw_state != "" -> Map.put(acc, route_key, raw_state)
-        _raw_state -> acc
-      end
-    end)
-  end
-
-  defp raw_state_value(raw_state_by_route_key, route_key) when is_map(raw_state_by_route_key) and is_atom(route_key) do
-    raw_state_by_route_key
-    |> map_field(route_key)
-    |> normalize_raw_state()
-  end
-
-  defp raw_state_value(_raw_state_by_route_key, _route_key), do: nil
-
-  defp normalize_raw_state(raw_state) when is_binary(raw_state) do
-    case String.trim(raw_state) do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  defp normalize_raw_state(_raw_state), do: nil
 
   defp effective_state_phase_map(settings, issue) do
     lifecycle = settings |> map_field(:tracker) |> map_field(:lifecycle)

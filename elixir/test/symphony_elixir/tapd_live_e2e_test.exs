@@ -1644,7 +1644,7 @@ defmodule SymphonyElixir.TapdLiveE2ETest do
 
     Generated tool inventory for this session:
 
-    {{ tool_inventory }}
+    {{ runtime.tool_inventory }}
 
     For every routine tracker, repo-core, or repo-provider action listed in the
     inventory, call the exact provider-facing callable tool name shown in the
@@ -1770,7 +1770,7 @@ defmodule SymphonyElixir.TapdLiveE2ETest do
 
     Generated tool inventory for this session:
 
-    {{ tool_inventory }}
+    {{ runtime.tool_inventory }}
 
     Use the exact typed tool names from the inventory for TAPD reads and writes.
     Do not guess raw TAPD REST operations or retired TAPD passthrough tools.

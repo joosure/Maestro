@@ -26,18 +26,21 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
         {"GET", "/global/event"} ->
           conn = put_resp_header(conn, "content-type", "text/event-stream")
           conn = send_chunked(conn, 200)
-          {:ok, conn} = chunk(conn, Keyword.get(opts, :event_body, ""))
+          {:ok, conn} = chunk(conn, event_body(opts))
           conn
 
         {"POST", "/session/opencode-session-1/permissions/" <> _permission_id} ->
+          :persistent_term.put({:opencode_test_permission_replied, opts[:owner]}, true)
           json(conn, 200, %{"ok" => true})
 
         {"POST", "/session"} ->
           json(conn, 200, %{"id" => "opencode-session-1"})
 
         {"POST", "/session/opencode-session-1/message"} ->
-          Process.sleep(Keyword.get(opts, :message_delay_ms, 0))
-          json(conn, 200, %{"info" => %{"id" => "opencode-turn-1", "tokens" => %{"input" => 4, "output" => 5, "reasoning" => 6}}})
+          message_id = Jason.decode!(body) |> Map.fetch!("messageID")
+          :persistent_term.put({:opencode_test_message_id, opts[:owner]}, message_id)
+          maybe_await_opencode_test_permission_reply(opts)
+          json(conn, 200, message_response(opts, message_id))
 
         {"POST", "/session/opencode-session-1/abort"} ->
           json(conn, 200, %{"ok" => true})
@@ -51,6 +54,81 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
       conn
       |> put_resp_header("content-type", "application/json")
       |> send_resp(status, Jason.encode!(payload))
+    end
+
+    defp event_body(opts) do
+      case Keyword.get(opts, :event_body, "") do
+        :completed_after_prompt ->
+          owner = Keyword.fetch!(opts, :owner)
+          message_id = await_opencode_test_message_id(owner, 50)
+
+          """
+          event: permission.asked
+          data: {"payload":{"type":"permission.asked","properties":{"sessionID":"opencode-session-1","id":"perm-1","permission":"edit","patterns":["."]}}}
+
+          event: message.updated
+          data: {"payload":{"type":"message.updated","properties":{"sessionID":"opencode-session-1","info":{"id":"opencode-turn-1","sessionID":"opencode-session-1","role":"assistant","parentID":"#{message_id}","time":{"created":1,"completed":2},"tokens":{"input":4,"output":5,"reasoning":6}}}}}
+
+          """
+
+        body ->
+          body
+      end
+    end
+
+    defp await_opencode_test_message_id(_owner, 0), do: "missing-message-id"
+
+    defp await_opencode_test_message_id(owner, attempts_left) do
+      case :persistent_term.get({:opencode_test_message_id, owner}, nil) do
+        message_id when is_binary(message_id) ->
+          message_id
+
+        _missing ->
+          Process.sleep(100)
+          await_opencode_test_message_id(owner, attempts_left - 1)
+      end
+    end
+
+    defp maybe_await_opencode_test_permission_reply(opts) do
+      if Keyword.get(opts, :event_body) == :completed_after_prompt do
+        await_opencode_test_permission_reply(Keyword.fetch!(opts, :owner), 50)
+      else
+        :ok
+      end
+    end
+
+    defp await_opencode_test_permission_reply(_owner, 0), do: :ok
+
+    defp await_opencode_test_permission_reply(owner, attempts_left) do
+      case :persistent_term.get({:opencode_test_permission_replied, owner}, false) do
+        true ->
+          :ok
+
+        false ->
+          Process.sleep(100)
+          await_opencode_test_permission_reply(owner, attempts_left - 1)
+      end
+    end
+
+    defp message_response(opts, message_id) do
+      case Keyword.get(opts, :message_response, :exact_parent) do
+        _response ->
+          assistant_message("opencode-turn-1", message_id, 1, 2)
+      end
+    end
+
+    defp assistant_message(id, parent_id, created, completed) do
+      %{
+        "info" => %{
+          "id" => id,
+          "sessionID" => "opencode-session-1",
+          "role" => "assistant",
+          "parentID" => parent_id,
+          "time" => %{"created" => created, "completed" => completed},
+          "tokens" => %{"input" => 4, "output" => 5, "reasoning" => 6}
+        },
+        "parts" => []
+      }
     end
   end
 
@@ -267,7 +345,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     refute "agent.credentials.managed" in Mock.Adapter.capabilities()
 
     assert ClaudeCode.Adapter.defaults()["prompt_transport"] == "stream_json"
-    assert OpenCode.Adapter.defaults()["prompt_transport"] == "http_sse"
+    refute Map.has_key?(OpenCode.Adapter.defaults(), "prompt_transport")
   end
 
   test "provider capability claims have matching optional callbacks" do
@@ -481,9 +559,9 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
           {{:session_create_timeout, %{message: "session timeout"}}, :agent_provider_response_timeout, true},
           {{:session_create_http_error, %{message: "session http failed"}}, :agent_provider_start_failed, false},
           {{:session_create_transport_error, %{message: "session transport failed"}}, :agent_provider_start_failed, true},
-          {{:message_post_timeout, %{message: "message timeout"}}, :agent_provider_response_timeout, true},
-          {{:message_post_http_error, %{message: "message http failed"}}, :agent_provider_turn_failed, false},
-          {{:message_post_transport_error, %{message: "message transport failed"}}, :agent_provider_turn_failed, true},
+          {{:turn_message_http_error, %{message: "turn message http failed"}}, :agent_provider_turn_failed, false},
+          {{:turn_message_response_error, %{message: "turn message response failed"}}, :agent_provider_turn_failed, false},
+          {{:turn_message_transport_error, %{message: "turn message transport failed"}}, :agent_provider_turn_failed, true},
           {{:event_stream_timeout, %{message: "stream timeout"}}, :agent_provider_response_timeout, true},
           {{:event_stream_failed, %{message: "stream failed"}}, :agent_provider_turn_failed, true},
           {{:turn_input_required, %{"secret" => "sk-test", "message" => "input required"}}, :agent_provider_input_required, false},
@@ -586,7 +664,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_provider_kind: "remote_fake",
-      agent_runtime: %{
+      runtime_agent: %{
         placement: "worker_daemon",
         worker_pool: "coding-linux",
         worker_daemon: %{
@@ -833,7 +911,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_provider_kind: "opencode",
-      agent_provider_options: %{command_argv: ["opencode", "serve", "--hostname", "127.0.0.1", "--port", "0"], prompt_transport: "http_sse"}
+      agent_provider_options: %{command_argv: ["opencode", "serve", "--hostname", "127.0.0.1", "--port", "0"]}
     )
 
     assert :ok = Config.validate!()
@@ -861,7 +939,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     assert {:error, %Ecto.Changeset{valid?: false}} =
              ClaudeCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], prompt_transport: "stdin"})
 
-    assert {:error, %Ecto.Changeset{valid?: false}} =
+    assert {:error, {:unsupported_agent_provider_options, "opencode", ["prompt_transport"]}} =
              OpenCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], prompt_transport: "native"})
 
     assert {:error, %Ecto.Changeset{valid?: false}} =
@@ -881,6 +959,9 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
     assert {:error, %Ecto.Changeset{valid?: false}} =
              CodeBuddyCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], acp: %{client_file_proxy: true}})
+
+    assert :ok =
+             CodeBuddyCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], model: "custom-model"})
 
     assert {:error, %Ecto.Changeset{valid?: false}} =
              OpenCode.Adapter.validate_options(%{command_argv: ["/bin/echo"], telemetry: %{unsupported: true}})
@@ -919,7 +1000,6 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     assert :ok =
              OpenCode.Adapter.validate_options(%{
                command_argv: ["/bin/echo"],
-               prompt_transport: "http_sse",
                variant: "max",
                telemetry: %{enabled: true, include_metrics: true}
              })
@@ -1486,19 +1566,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
     File.write!(account.secret_file, "opencode-openrouter-token\n")
 
-    event_body = """
-    event: message.part.updated
-    data: {"payload":{"type":"message.part.updated","properties":{"part":{"sessionID":"opencode-session-1","type":"step-finish","tokens":{"input":1,"output":2,"reasoning":3}}}}}
-
-    event: message.updated
-    data: {"payload":{"type":"message.updated","properties":{"info":{"sessionID":"opencode-session-1","tokens":{"input":4,"output":5,"reasoning":6}}}}}
-
-    event: permission.asked
-    data: {"payload":{"type":"permission.asked","properties":{"sessionID":"opencode-session-1","id":"perm-1","permission":"edit","patterns":["."]}}}
-
-    """
-
-    server_url = start_opencode_test_server!(event_body: event_body, message_delay_ms: 250)
+    server_url = start_opencode_test_server!(event_body: :completed_after_prompt)
     script = Path.join(workspace, "fake-opencode")
 
     File.write!(script, """
@@ -1524,7 +1592,6 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
           command_argv: [script],
           env: %{"FAKE_OPENCODE_URL" => server_url},
           credential_ref: "credential://opencode/openrouter",
-          prompt_transport: "http_sse",
           variant: "max",
           telemetry: %{
             enabled: true,
@@ -1533,7 +1600,7 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
             include_logs: false,
             resource_attributes: %{team: "agent-platform"}
           },
-          read_timeout_ms: 5_000,
+          read_timeout_ms: 2_000,
           turn_timeout_ms: 5_000
         }
       })
@@ -1572,6 +1639,8 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(workspace)
     assert_received {:opencode_request, %{method: "POST", path: "/session/opencode-session-1/message", body: body}}
     message_payload = Jason.decode!(body)
+    assert is_binary(message_payload["messageID"])
+    assert String.starts_with?(message_payload["messageID"], "msg_")
     assert message_payload["parts"] |> hd() |> Map.get("text") == "rendered opencode prompt"
     assert message_payload["variant"] == "max"
     assert File.read!(Path.join(workspace, "opencode_openrouter_api_key.txt")) == "opencode-openrouter-token\n"
@@ -1587,6 +1656,9 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
     assert runtime_opencode_tool =~
              "\"mode\": z.enum([\"create_or_switch\",\"create\",\"switch\"]).nullable().optional()"
+
+    runtime_repo_diff_tool = File.read!(Path.join([workspace, ".opencode", "tools", "repo_diff.ts"]))
+    assert runtime_repo_diff_tool =~ "\"args\": z.array(z.string()).optional()"
 
     refute File.exists?(Path.join([workspace, ".opencode", "tools", "linear_graphql.ts"]))
     assert File.read!(Path.join(workspace, "opencode_otel_metrics_exporter.txt")) == "otlp\n"
@@ -1652,6 +1724,13 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
   end
 
   defp start_opencode_test_server!(opts) do
+    owner = self()
+
+    on_exit(fn ->
+      :persistent_term.erase({:opencode_test_message_id, owner})
+      :persistent_term.erase({:opencode_test_permission_replied, owner})
+    end)
+
     pid =
       start_supervised!({Bandit, plug: {OpenCodeTestPlug, Keyword.put(opts, :owner, self())}, scheme: :http, port: 0, ip: {127, 0, 0, 1}})
 

@@ -18,7 +18,10 @@ description:
 - Prefer the bundled repo-provider helper when it exists. It currently supports
   both GitHub and CNB, and is the fallback or diagnostics surface for
   provider-backed operations not covered by the typed-tool inventory.
-- When `repo.provider.kind` is omitted, treat the active provider as `github`.
+- Do not guess the active repo provider. Use the workflow/runtime provider
+  configuration or the repo-provider helper's reported current kind; if neither
+  is available for a provider-specific action, stop and surface the missing
+  provider context.
 - For GitHub mode, `gh` CLI is installed and available in `PATH`.
 - For GitHub mode, `gh auth status` succeeds for GitHub operations in the
   target repo.
@@ -127,8 +130,8 @@ if [ "$published_sha" != "$local_sha" ]; then
   exit 1
 fi
 
-# Ensure a PR exists (create only if missing). In GitHub mode the provider
-# helper delegates to gh; in CNB mode it calls CNB OpenAPI directly.
+# Ensure a PR or equivalent change proposal exists. The provider helper owns
+# provider-native behavior for the configured repo provider.
 pr_state=$("$provider_cmd" pr-view --json state -q .state 2>/dev/null || true)
 if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
   echo "Current branch is tied to a closed PR; create a new branch with the repo helper, then create a replacement PR." >&2

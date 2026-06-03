@@ -29,7 +29,10 @@ description:
 - Prefer the bundled repo-provider helper when it exists. It currently supports
   both GitHub and CNB, and is the fallback or diagnostics surface for
   provider-backed operations not covered by the typed-tool inventory.
-- When `repo.provider.kind` is omitted, treat the active provider as `github`.
+- Do not guess the active repo provider. Use the workflow/runtime provider
+  configuration or the repo-provider helper's reported current kind; if neither
+  is available for a provider-specific action, stop and surface the missing
+  provider context.
 - For GitHub mode, `gh` CLI is authenticated.
 - For CNB mode, `CNB_TOKEN` is available for provider-backed PR, review, and
   merge operations.

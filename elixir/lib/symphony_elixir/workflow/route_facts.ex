@@ -42,7 +42,7 @@ defmodule SymphonyElixir.Workflow.RouteFacts do
       policy =
         attrs
         |> Map.get(:policy_by_route_key)
-        |> policy_for_route_key(route_key)
+        |> route_policy_for(route_key)
         |> Policy.new!()
 
       new!(%{
@@ -65,14 +65,12 @@ defmodule SymphonyElixir.Workflow.RouteFacts do
   @spec policy_map(t()) :: map()
   def policy_map(%__MODULE__{policy: %Policy{} = policy}), do: Policy.to_map(policy)
 
-  defp policy_for_route_key(policy_by_route_key, route_key)
-       when is_map(policy_by_route_key) and is_atom(route_key) do
-    Map.get(policy_by_route_key, route_key) ||
-      Map.get(policy_by_route_key, Atom.to_string(route_key)) ||
-      %{action: :dispatch}
+  defp route_policy_for(policy_by_route_key, route_key) do
+    case RoutePolicy.policy_for_route_key(policy_by_route_key, route_key) do
+      policy when is_map(policy) and map_size(policy) > 0 -> policy
+      _policy -> %{action: :dispatch}
+    end
   end
-
-  defp policy_for_route_key(_policy_by_route_key, _route_key), do: %{action: :dispatch}
 
   defp resolved_lifecycle_phase(attrs, raw_state) when is_map(attrs) do
     raw_state

@@ -1,7 +1,12 @@
 defmodule SymphonyElixir.Workflow.Templates do
   @moduledoc false
 
+  alias SymphonyElixir.Workflow.TemplateRegistry
+
   @template_dir "workflow_templates"
+
+  @spec local_quickstart_alias() :: String.t()
+  def local_quickstart_alias, do: TemplateRegistry.local_quickstart_alias()
 
   @spec root() :: Path.t()
   def root do
@@ -19,7 +24,7 @@ defmodule SymphonyElixir.Workflow.Templates do
     root()
     |> Path.join("**/*.md")
     |> Path.wildcard()
-    |> Enum.reject(&documentation_path?/1)
+    |> Enum.reject(&(documentation_path?(&1) or partial_path?(&1)))
     |> Enum.sort()
   end
 
@@ -99,6 +104,14 @@ defmodule SymphonyElixir.Workflow.Templates do
 
   defp documentation_basename?(basename) do
     Regex.match?(~r/^README(?:\.[A-Za-z0-9_-]+)*\.md$/, basename)
+  end
+
+  defp partial_path?(path) do
+    path
+    |> Path.relative_to(root())
+    |> Path.split()
+    |> List.first()
+    |> Kernel.==("_partials")
   end
 
   defp source_root do

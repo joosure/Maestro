@@ -7,6 +7,7 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
   alias SymphonyElixir.Orchestrator.Runtime, as: OrchestratorRuntime
   alias SymphonyElixir.Tracker.Linear.WorkflowConfig, as: LinearWorkflowConfig
   alias SymphonyElixir.Workflow.RoutePolicy, as: WorkflowRoutePolicy
+  alias SymphonyElixir.Workflow.RouteRef
 
   test "wait routes skip dispatch without refreshing or writing state" do
     write_workflow_file!(Workflow.workflow_file_path(), tapd_route_policy_workflow_config())
@@ -52,7 +53,7 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
     refute_received :stop_update_called
   end
 
-  test "merge routes fail closed before dispatch when merge evidence is missing" do
+  test "merge routes dispatch to land flow when only merge evidence is missing" do
     write_workflow_file!(Workflow.workflow_file_path(), tapd_route_policy_workflow_config())
 
     issue = tapd_issue("merging")
@@ -67,7 +68,7 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
       :ok
     end
 
-    assert {:skip, %Issue{state: "merging"}} =
+    assert {:ok, %Issue{state: "merging"}} =
              prepare_issue_for_dispatch(issue, fetcher, state_updater, readiness_evidence: %{})
 
     refute_received :merge_fetch_called
@@ -115,8 +116,8 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
       )
     )
 
-    issue = tapd_issue("status_4", planning: %{action: :transition, transition_target: :review})
-    refreshed_issue = tapd_issue("status_5", planning: %{action: :transition, transition_target: :review})
+    issue = tapd_issue("status_4", %{"planning" => %{"action" => "transition", "transition_target" => "review"}})
+    refreshed_issue = tapd_issue("status_5", %{"planning" => %{"action" => "transition", "transition_target" => "review"}})
 
     fetcher = fn ["tapd-route-1"] -> {:ok, [refreshed_issue]} end
 
@@ -138,8 +139,15 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
              "route_preparation_started"
            ]
 
-    assert hd(recent_issue_events(issue))["target_route"] == "review"
-    assert hd(recent_issue_events(issue))["target_state"] == "status_5"
+    succeeded_event = hd(recent_issue_events(issue))
+
+    assert succeeded_event["target_state"] == "status_5"
+    assert succeeded_event["workflow_profile"] == "coding_pr_delivery"
+    assert succeeded_event["workflow_profile_version"] == 1
+    assert succeeded_event["workflow_route_key"] == "planning"
+    assert succeeded_event["workflow_transition_target_route_key"] == "review"
+    refute Map.has_key?(succeeded_event, "route_key")
+    refute Map.has_key?(succeeded_event, "target_route")
   end
 
   test "transition mismatches emit route_transition_unconfirmed" do
@@ -156,7 +164,13 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
     end
 
     capture_log(fn ->
-      assert {:error, {:route_transition_unconfirmed, "status_5", :developing}} =
+      assert {:error,
+              {:route_transition_unconfirmed, "status_5",
+               %RouteRef{
+                 profile_kind: "coding_pr_delivery",
+                 profile_version: 1,
+                 route_key: :developing
+               }}} =
                prepare_issue_for_dispatch(issue, fetcher, state_updater)
     end)
 
@@ -185,7 +199,18 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
     end
 
     capture_log(fn ->
-      assert {:error, {:route_transition_failed, :planning, :developing, "developing", :tapd_denied}} =
+      assert {:error,
+              {:route_transition_failed,
+               %RouteRef{
+                 profile_kind: "coding_pr_delivery",
+                 profile_version: 1,
+                 route_key: :planning
+               },
+               %RouteRef{
+                 profile_kind: "coding_pr_delivery",
+                 profile_version: 1,
+                 route_key: :developing
+               }, "developing", :tapd_denied}} =
                prepare_issue_for_dispatch(issue, fetcher, state_updater)
     end)
 
@@ -203,7 +228,16 @@ defmodule SymphonyElixir.OrchestratorRoutePolicyTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "linear",
       tracker_api_token: "linear-token",
-      tracker_project_slug: "PROJ"
+      tracker_project_slug: "PROJ",
+      tracker_raw_state_by_route_key: %{
+        "planning" => "Todo",
+        "developing" => "In Progress",
+        "review" => "In Review",
+        "merging" => "Merging",
+        "rework" => "Rework",
+        "resolved" => "Done",
+        "rejected" => "Canceled"
+      }
     )
 
     workflow = Config.settings!().tracker |> LinearWorkflowConfig.global_workflow()

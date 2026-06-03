@@ -11,16 +11,14 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Settings do
 
   @primary_key false
   @provider Kinds.opencode()
-  @supported_options ~w(command command_argv env prompt_transport agent model variant telemetry credential_ref turn_timeout_ms read_timeout_ms stall_timeout_ms)
+  @supported_options ~w(command command_argv env agent model variant telemetry credential_ref turn_timeout_ms read_timeout_ms stall_timeout_ms)
   @supported_variants ~w(low medium high max)
   @default_command_argv ["opencode", "serve", "--hostname", "127.0.0.1", "--port", "0"]
-  @default_prompt_transport "http_sse"
 
   @type t :: %__MODULE__{
           command: String.t() | nil,
           command_argv: [String.t()] | nil,
           env: map(),
-          prompt_transport: String.t(),
           agent: String.t(),
           model: String.t() | nil,
           variant: String.t() | nil,
@@ -35,7 +33,6 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Settings do
     field(:command, :string)
     field(:command_argv, {:array, :string})
     field(:env, :map, default: %{})
-    field(:prompt_transport, :string, default: @default_prompt_transport)
     field(:agent, :string, default: "build")
     field(:model, :string)
     field(:variant, :string)
@@ -55,7 +52,6 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Settings do
         :command,
         :command_argv,
         :env,
-        :prompt_transport,
         :agent,
         :model,
         :variant,
@@ -77,7 +73,6 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Settings do
     |> update_change(:variant, &SettingsNormalizer.normalize_optional_string/1)
     |> update_change(:credential_ref, &SettingsNormalizer.normalize_optional_string/1)
     |> validate_required([:agent])
-    |> validate_inclusion(:prompt_transport, [@default_prompt_transport])
     |> validate_model()
     |> validate_variant()
     |> validate_number(:turn_timeout_ms, greater_than: 0)
@@ -110,7 +105,6 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Settings do
         options
         |> SettingsNormalizer.option_value("env", defaults.env)
         |> SettingsNormalizer.normalize_env(),
-      "prompt_transport" => SettingsNormalizer.option_value(options, "prompt_transport", defaults.prompt_transport),
       "agent" =>
         options
         |> SettingsNormalizer.option_value("agent", defaults.agent)
@@ -148,7 +142,6 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Settings do
       command: Map.get(options, "command"),
       command_argv: Map.get(options, "command_argv"),
       env: Map.get(options, "env", %{}),
-      prompt_transport: Map.get(options, "prompt_transport"),
       agent: Map.get(options, "agent"),
       model: Map.get(options, "model"),
       variant: Map.get(options, "variant"),

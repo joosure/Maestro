@@ -3,9 +3,11 @@ defmodule SymphonyElixir.AgentProvider.Codex.CredentialEnv do
   Codex managed-credential environment contract.
   """
 
+  alias SymphonyElixir.AgentProvider.ModelCredentialEnv
+
   @api_key_credential_kind "codex_api_key"
   @home_env "CODEX_HOME"
-  @api_key_env "OPENAI_API_KEY"
+  @api_key_env ModelCredentialEnv.openai_api_key_env()
   @auth_mode_key "auth_mode"
   @auth_mode_api_key "apikey"
 

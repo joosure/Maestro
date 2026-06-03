@@ -3,6 +3,9 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   Normalizes successful typed-tool results into coding PR delivery review-handoff evidence.
   """
 
+  alias SymphonyElixir.Agent.DynamicTool.EvidencePayload
+  alias SymphonyElixir.RepoProvider.CheckRun
+  alias SymphonyElixir.Workflow.Profiles.CodingPrDelivery
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Contract, as: StateTransitionReadinessContract
   alias SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorder.Behaviour, as: EvidenceRecorderBehaviour
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDelivery.ReviewHandoffToolContract
@@ -30,7 +33,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   @linked_to_tracker_key StateTransitionReadinessContract.linked_to_tracker_key()
   @observed_at_key StateTransitionReadinessContract.observed_at_key()
   @commands_key StateTransitionReadinessContract.commands_key()
-  @comment_id_key StateTransitionReadinessContract.comment_id_key()
+  @workpad_id_key StateTransitionReadinessContract.workpad_id_key()
   @updated_at_key StateTransitionReadinessContract.updated_at_key()
   @provider_kind_key StateTransitionReadinessContract.provider_kind_key()
   @repository_key StateTransitionReadinessContract.repository_key()
@@ -46,6 +49,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   @passed_status StateTransitionReadinessContract.passed_status()
   @failed_status StateTransitionReadinessContract.failed_status()
   @unknown_status StateTransitionReadinessContract.unknown_status()
+  @unavailable_status StateTransitionReadinessContract.unavailable_status()
   @not_required_status StateTransitionReadinessContract.not_required_status()
   @pending_status StateTransitionReadinessContract.pending_status()
   @linked_status StateTransitionReadinessContract.linked_status()
@@ -83,49 +87,74 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
 
   def record_typed_tool_result(_source_kind, _source_context, _tool, _arguments, _result, _opts), do: :ok
 
-  defp observations(_source_kind, _source_context, tool, arguments, payload, _opts) do
+  defp observations(_source_kind, _source_context, tool, arguments, payload, opts) do
+    case EvidencePayload.fetch(payload) do
+      evidence when is_map(evidence) -> evidence_observation(evidence)
+      _no_canonical_evidence -> inferred_observations(tool, arguments, payload, opts)
+    end
+  end
+
+  defp inferred_observations(tool, arguments, payload, opts) do
     case ReviewHandoffToolContract.evidence_kind(tool) do
-      :workpad -> workpad_observation(arguments, payload)
+      :workpad -> %{}
       :tracker_change_proposal -> tracker_change_proposal_observation(arguments, payload)
       :repo_commit -> repo_commit_observation(payload)
       :repo_push -> repo_push_observation(payload)
       :repo_diff_validation -> repo_diff_validation_observation(arguments, payload)
       :repo_provider_change_proposal -> repo_provider_change_proposal_observation(payload)
-      :repo_provider_checks -> repo_provider_checks_observation(payload)
+      :repo_change_proposal_checks -> repo_change_proposal_checks_observation(payload, opts)
       :repo_provider_feedback -> repo_provider_feedback_observation(payload)
-      :repo_provider_snapshot -> repo_provider_snapshot_observation(payload)
+      :repo_provider_snapshot -> repo_provider_snapshot_observation(payload, opts)
       nil -> %{}
     end
   end
 
-  defp workpad_observation(_arguments, payload) do
-    comment = get_in(payload, ["data", "comment"]) || %{}
+  defp evidence_observation(%{"kind" => "workpad", "workpad" => workpad}) when is_map(workpad) do
+    workpad_evidence_observation(workpad)
+  end
 
+  defp evidence_observation(%{"kind" => "tracker_change_proposal", "change_proposal" => change_proposal}) when is_map(change_proposal) do
+    tracker_change_proposal_evidence_observation(change_proposal)
+  end
+
+  defp evidence_observation(_evidence), do: %{}
+
+  defp workpad_evidence_observation(workpad) when is_map(workpad) do
     %{
       @workpad_key =>
         compact(%{
-          @status_key => workpad_write_status(comment),
+          @status_key => string_value(workpad, "status") || @updated_status,
           @source_key => @typed_tool_observed_source,
-          @comment_id_key => string_value(comment, "id"),
+          @workpad_id_key => string_value(workpad, "id"),
+          @url_key => string_value(workpad, "url"),
           @updated_at_key => generated_at()
         })
     }
   end
 
   defp tracker_change_proposal_observation(arguments, payload) do
-    attachment = get_in(payload, ["data", "attachment"]) || %{}
-    url = string_value(attachment, "url") || string_value(arguments, "url")
+    attachment = payload_value(payload, "attachment") || %{}
 
+    tracker_change_proposal_evidence_observation(%{
+      "id" => string_value(arguments, "change_proposal_id") || string_value(attachment, "id"),
+      "url" => string_value(attachment, "url") || string_value(arguments, "url"),
+      "provider_kind" => string_value(arguments, "repo_provider_kind"),
+      "repository" => string_value(arguments, "repository"),
+      "linked_to_tracker" => true
+    })
+  end
+
+  defp tracker_change_proposal_evidence_observation(change_proposal) when is_map(change_proposal) do
     %{
       @change_proposal_key =>
         compact(%{
           @status_key => @linked_status,
           @source_key => @tracker_observed_source,
-          @url_key => url,
-          @id_key => string_value(arguments, "change_proposal_id") || string_value(attachment, "id"),
-          @provider_kind_key => string_value(arguments, "repo_provider_kind"),
-          @repository_key => string_value(arguments, "repository"),
-          @linked_to_tracker_key => true,
+          @url_key => string_value(change_proposal, "url"),
+          @id_key => string_value(change_proposal, "id"),
+          @provider_kind_key => string_value(change_proposal, "provider_kind"),
+          @repository_key => string_value(change_proposal, "repository"),
+          @linked_to_tracker_key => value(change_proposal, "linked_to_tracker") == true,
           @observed_at_key => generated_at()
         })
     }
@@ -246,32 +275,32 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     end
   end
 
-  defp repo_provider_checks_observation(payload) do
+  defp repo_change_proposal_checks_observation(payload, opts) do
     payload
-    |> get_in(["data", "checks"])
-    |> checks_observation()
+    |> payload_value("checks")
+    |> checks_observation(opts)
   end
 
   defp repo_provider_feedback_observation(payload) do
     payload
-    |> get_in(["data", "discussion"])
+    |> payload_value("discussion")
     |> feedback_observation()
   end
 
-  defp repo_provider_snapshot_observation(payload) do
-    data = Map.get(payload, "data", %{})
+  defp repo_provider_snapshot_observation(payload, opts) do
+    data = payload_data(payload)
 
     %{}
     |> deep_merge(repo_provider_change_proposal_observation(%{"data" => data}))
-    |> deep_merge(checks_observation(Map.get(data, "checks")))
+    |> deep_merge(checks_observation(Map.get(data, "checks"), opts))
     |> deep_merge(feedback_observation(Map.get(data, "discussion")))
   end
 
-  defp checks_observation(checks) when is_map(checks) do
-    status = checks_status(checks)
+  defp checks_observation(checks, opts) when is_map(checks) do
+    status = checks_status(checks, opts)
 
     head_sha =
-      if status == @not_required_status do
+      if status in [@not_required_status, @unavailable_status] do
         nil
       else
         string_value(checks, "headSha") || string_value(checks, "head_sha")
@@ -289,7 +318,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     }
   end
 
-  defp checks_observation(_checks), do: %{}
+  defp checks_observation(_checks, _opts), do: %{}
 
   defp feedback_observation(discussion) when is_map(discussion) do
     summary = Map.get(discussion, "summary", %{}) || %{}
@@ -308,26 +337,24 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
 
   defp feedback_observation(_discussion), do: %{}
 
-  defp workpad_write_status(%{"created" => true}), do: @created_status
-  defp workpad_write_status(%{"updated" => true}), do: @updated_status
-  defp workpad_write_status(_comment), do: @updated_status
+  defp checks_status(%{"runs" => runs}, opts) when is_list(runs) do
+    run_buckets = Enum.map(runs, &check_bucket/1)
 
-  defp checks_status(%{"runs" => runs}) when is_list(runs) do
     cond do
-      runs == [] -> @not_required_status
-      Enum.any?(runs, &(check_bucket(&1) in @failed_check_buckets)) -> @failed_status
-      Enum.any?(runs, &(check_bucket(&1) in @pending_check_buckets)) -> @pending_status
-      Enum.all?(runs, &(check_bucket(&1) in @passed_check_buckets)) -> @passed_status
+      runs == [] -> empty_checks_status(opts)
+      Enum.any?(run_buckets, &(&1 in @failed_check_buckets)) -> @failed_status
+      Enum.any?(run_buckets, &(&1 in @pending_check_buckets)) -> @pending_status
+      Enum.all?(run_buckets, &(&1 in @passed_check_buckets)) -> @passed_status
       true -> @unknown_status
     end
   end
 
-  defp checks_status(%{"summary" => summary}) when is_map(summary), do: checks_summary_status(summary)
-  defp checks_status(_checks), do: @unknown_status
+  defp checks_status(%{"summary" => summary}, opts) when is_map(summary), do: checks_summary_status(summary, opts)
+  defp checks_status(_checks, _opts), do: @unknown_status
 
-  defp checks_summary_status(summary) when is_map(summary) do
+  defp checks_summary_status(summary, opts) when is_map(summary) do
     cond do
-      summary == %{} -> @not_required_status
+      summary == %{} -> empty_checks_status(opts)
       Enum.any?(@failed_check_buckets, fn bucket -> (integer_value(summary, bucket) || 0) > 0 end) -> @failed_status
       Enum.any?(@pending_check_buckets, fn bucket -> (integer_value(summary, bucket) || 0) > 0 end) -> @pending_status
       Enum.any?(@passed_check_buckets, fn bucket -> (integer_value(summary, bucket) || 0) > 0 end) -> @passed_status
@@ -335,9 +362,34 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     end
   end
 
+  defp empty_checks_status(opts) do
+    if change_proposal_checks_not_required?(opts), do: @not_required_status, else: @unavailable_status
+  end
+
   defp check_bucket(check) when is_map(check) do
-    (string_value(check, "bucket") || string_value(check, "state") || @unknown_status)
-    |> String.downcase()
+    explicit_bucket = string_value(check, "bucket") || string_value(check, "state")
+    status = CheckRun.normalized_status(check)
+    conclusion = CheckRun.normalized_conclusion(check)
+
+    cond do
+      present?(explicit_bucket) ->
+        String.downcase(explicit_bucket)
+
+      CheckRun.successful_completed?(check) ->
+        @passed_status
+
+      CheckRun.completed?(check) and conclusion in @failed_check_buckets ->
+        conclusion
+
+      present?(status) and status in @pending_check_buckets ->
+        status
+
+      present?(conclusion) ->
+        conclusion
+
+      true ->
+        @unknown_status
+    end
   end
 
   defp check_bucket(_check), do: @unknown_status
@@ -360,12 +412,55 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
       |> Enum.flat_map(&present_values/1)
       |> Enum.uniq()
 
-    Store.scope_issue_keys(run_id, issue_keys)
+    (issue_keys ++ Store.scope_issue_keys(run_id, issue_keys))
+    |> Enum.uniq()
   end
 
   defp runtime_metadata(%{runtime_metadata: metadata}) when is_map(metadata), do: metadata
   defp runtime_metadata(%{"runtime_metadata" => metadata}) when is_map(metadata), do: metadata
   defp runtime_metadata(_context), do: %{}
+
+  defp change_proposal_checks_not_required?(opts) when is_list(opts) do
+    opts
+    |> workflow_settings()
+    |> coding_pr_delivery_profile_options()
+    |> CodingPrDelivery.review_handoff_change_proposal_checks_not_required?()
+  end
+
+  defp workflow_settings(opts) when is_list(opts) do
+    cond do
+      is_map(Keyword.get(opts, :workflow_settings)) ->
+        Keyword.fetch!(opts, :workflow_settings)
+
+      is_map(tool_context_workflow_settings(Keyword.get(opts, :tool_context))) ->
+        tool_context_workflow_settings(Keyword.get(opts, :tool_context))
+
+      true ->
+        %{}
+    end
+  end
+
+  defp tool_context_workflow_settings(%{workflow_settings: settings}) when is_map(settings), do: settings
+  defp tool_context_workflow_settings(%{"workflow_settings" => settings}) when is_map(settings), do: settings
+  defp tool_context_workflow_settings(_context), do: nil
+
+  defp coding_pr_delivery_profile_options(settings) when is_map(settings) do
+    profile =
+      settings
+      |> value("workflow")
+      |> value("profile")
+
+    if string_value(profile || %{}, "kind") == CodingPrDelivery.kind() do
+      case value(profile, "options") do
+        options when is_map(options) -> options
+        _options -> %{}
+      end
+    else
+      %{}
+    end
+  end
+
+  defp coding_pr_delivery_profile_options(_settings), do: %{}
 
   defp present_values(value) when is_binary(value) do
     case String.trim(value) do
@@ -403,7 +498,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
       value when is_integer(value) ->
         Integer.to_string(value)
 
-      value when is_atom(value) ->
+      value when is_atom(value) and not is_nil(value) ->
         value |> Atom.to_string() |> string_value_from_string()
 
       _value ->
@@ -439,6 +534,24 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     Map.get(map, String.to_existing_atom(key))
   rescue
     ArgumentError -> nil
+  end
+
+  defp payload_value(payload, key) when is_map(payload) and is_binary(key) do
+    data_value =
+      payload
+      |> payload_data()
+      |> value(key)
+
+    data_value || value(payload, key)
+  end
+
+  defp payload_value(_payload, _key), do: nil
+
+  defp payload_data(payload) when is_map(payload) do
+    case value(payload, "data") do
+      data when is_map(data) -> data
+      _other -> %{}
+    end
   end
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""

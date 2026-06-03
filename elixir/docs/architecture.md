@@ -56,6 +56,9 @@ It complements:
 - Orchestrator retry status payload labels are owned by
   `SymphonyElixir.Orchestrator.Retry.Status`; retry result-summary labels are
   owned by `SymphonyElixir.Orchestrator.Retry.ResultSummary`.
+- Observability operation labels are owned by
+  `SymphonyElixir.Observability.OperationName`; lifecycle status labels are
+  owned by `SymphonyElixir.Observability.OperationStatus`.
 - Workflow readiness and completion-validation payload labels are owned by
   `SymphonyElixir.Workflow.ReadinessContract`. Orchestrator dispatch code
   should read readiness facts through that contract instead of duplicating
@@ -163,7 +166,7 @@ Responsibility-specific logic lives under matching namespaces:
 - `orchestrator/`: poll-cycle coordination, server callback options, issue dispatch execution, polling timers, runtime state construction, agent update integration, worker exit message handling, ignored-message logging, snapshots, launch flow, and cleanup
 - `orchestrator/dispatch/`: dispatch context, issue ordering, eligibility, skip reasons, runtime slot view, revalidation, and route preparation
 - `orchestrator/retry/`: retry scheduling, retry timer message handling, attempt metadata, retry events, retry issue lookup, and deferred redispatch flow
-- `orchestrator/running/`: running issue reconciliation, inactive completion grace, stall detection, termination cleanup, and running-state views
+- `orchestrator/running/`: running issue reconciliation, bounded completion grace, stall detection, termination cleanup, and running-state views
 - `tracker/`: provider-neutral tracker config, registry, errors, serialization, and shared adapter support
 - `tracker/<kind>/`: tracker-specific adapters, clients, query definitions, transport helpers, pagination, normalizers, codecs and codec internals, dynamic-tool executor internals, workspace preparation, and workflow helpers
 - `repo/`: provider-neutral repository model, Git facade, branch/path/status helpers, preflight checks, and repo errors
@@ -175,7 +178,7 @@ Responsibility-specific logic lives under matching namespaces:
 - `agent/`: provider-neutral Agent run lifecycle, continuation, runtime context, and failure classification
 - `agent/dynamic_tool/`: provider-neutral Dynamic Tool context capture, workflow-required tool planning, inventory rendering, bridge execution, policy, usage classification, source aggregation, and spec normalization
 - `agent/credential/accounts/`: managed account login, import, verification, lifecycle, environment, and provider callback internals
-- `agent/runner/`: Agent runner internals for run execution, worker workspace attempts, provider session loops, turn loops, run context shaping, prompt construction, worker update forwarding, event fields, turn event mapping, run terminal events, provider session cleanup, and provider-option projection
+- `agent/runner/`: Agent runner internals for run execution, worker workspace attempts, provider session loops, turn loops, run context shaping, prompt construction, worker update forwarding, event fields, turn event mapping, run terminal events, provider session cleanup, cleanup arbitration, and provider-option projection
 - `agent/runtime.ex`: provider-neutral runtime target resolution and runtime context facade
 - `agent/runtime/`: runtime target data, command contracts, dynamic-tool runtime bridges, and execution-environment helpers
 - `agent/runtime/executor/`: executor behaviour implementations for local, SSH, and worker-daemon placements
@@ -204,7 +207,7 @@ The table below is the quickest way to decide where code belongs.
 | `cli/` | CLI subcommand implementation | subcommand facades, command parsing, option resolution, command routing, token source handling, output rendering | domain execution internals, tracker transport, provider protocol handling | `CLI.Accounts`, `CLI.Accounts.Parser`, `CLI.Accounts.TokenSource`, `CLI.Accounts.Renderer`, `CLI.Repo.Runner` |
 | `config.ex` | public config facade | stable config API, high-level validation entrypoints | schema helpers, normalization internals, formatting helpers | `SymphonyElixir.Config` |
 | `config/` | config implementation | schema aggregation, defaults, finalization, normalization, error shaping | workflow loading, tracker HTTP, runtime orchestration | `Schema`, `InputNormalizer`, `SettingsFinalizer`, `SandboxPolicy` |
-| `config/schema/` | embedded config schema internals | domain-specific schema casting and validation for tracker, repo, agent, runtime, provider, observability, hooks, server settings, and state limits | workflow profile resolution, provider runtime clients, tracker HTTP | `Tracker`, `AgentRuntime`, `Repo`, `AgentProvider`, `Observability`, `StateLimits` |
+| `config/schema/` | embedded config schema internals | domain-specific schema casting and validation for tracker, repo, agent, runtime, provider, observability, hooks, server settings, and state limits | workflow profile resolution, provider runtime clients, tracker HTTP | `Tracker`, `Runtime`, `Repo`, `AgentProvider`, `Observability`, `StateLimits` |
 | `workflow.ex` | public workflow facade | workflow access entrypoints | prompt rendering internals, route policy internals, store lifecycle details | `SymphonyElixir.Workflow` |
 | `workflow/` | workflow implementation | prompt builder, route policy, workflow store, workflow-profile resolution, execution-profile registry loading, entry matching, selection, and validation | config schema logic, tracker vendor code | `PromptBuilder`, `RoutePolicy`, `Store`, `ExecutionProfileRegistry.Selection` |
 | `issue.ex` | core issue model | normalized issue struct and issue-level accessors | tracker API code, lifecycle coordination | `SymphonyElixir.Issue` |
@@ -227,7 +230,7 @@ The table below is the quickest way to decide where code belongs.
 | `agent/dynamic_tool/` | provider-neutral Dynamic Tool implementation | source context capture, workflow-required tool allowlist planning, provider-facing inventory rendering, side-effect policy, bridge execution, usage classification, source aggregation, spec normalization | tracker/repo-provider business semantics, provider-native tool registration details | `Context`, `WorkflowPlan`, `Inventory`, `Bridge`, `Policy`, `Usage`, `CompositeSource`, `Spec` |
 | `agent/credential/accounts.ex` | managed account facade | public account login/import/list/verify/lifecycle API and provider-kind normalization entrypoint | provider command execution, file import mechanics, adapter callback dispatch | `SymphonyElixir.Agent.Credential.Accounts` |
 | `agent/credential/accounts/` | managed account implementation | provider-kind normalization, account login/import, verification command execution, lifecycle Store calls, credential environment shaping, secret file operations, provider callback dispatch | CLI parsing, provider session protocol clients, orchestrator policy | `Login`, `Import`, `Verification`, `Lifecycle`, `Environment`, `Command`, `Secret`, `ProviderKind`, `ProviderCallbacks`, `Options` |
-| `agent/runner/` | Agent runner implementation internals | run execution, worker workspace attempts, provider session loops, turn loops, run context shaping, prompt construction, worker update forwarding, event field projection, turn event/error mapping, run terminal event emission, provider session cleanup, provider-option projection | provider protocol clients, orchestrator GenServer state, tracker adapters | `Execution`, `WorkerAttempt`, `SessionLoop`, `TurnLoop`, `RunContext`, `Prompts`, `WorkerUpdates`, `EventFields`, `TurnEvents`, `RunEvents`, `SessionCleanup`, `ProviderOptions` |
+| `agent/runner/` | Agent runner implementation internals | run execution, worker workspace attempts, provider session loops, turn loops, run context shaping, prompt construction, worker update forwarding, event field projection, turn event/error mapping, run terminal event emission, provider session cleanup, cleanup arbitration, provider-option projection | provider protocol clients, orchestrator GenServer state, tracker adapters | `Execution`, `WorkerAttempt`, `SessionLoop`, `TurnLoop`, `RunContext`, `Prompts`, `WorkerUpdates`, `EventFields`, `TurnEvents`, `RunEvents`, `ActiveSessions`, `SessionCleanup`, `ProviderOptions` |
 | `agent/runtime.ex` | runtime target facade | target resolution, runtime context shaping, worker-daemon endpoint selection handoff | executor implementation details, daemon HTTP calls, provider protocol logic | `SymphonyElixir.Agent.Runtime` |
 | `agent/runtime/` | provider-neutral runtime implementation | target structs, command specs, runtime environment, dynamic-tool bridge entrypoint | concrete provider protocol parsing, tracker/repo-provider adapters, daemon server code | `Target`, `CommandSpec`, `Environment`, `DynamicToolBridge` |
 | `agent/runtime/dynamic_tool_bridge/` | Dynamic Tool bridge runtime implementation | captured source env extraction, bridge transport selection, SSH tunnel lifecycle, worker-daemon bridge spec construction | Dynamic Tool core execution, provider-specific tool registration, daemon server proxy implementation | `Environment`, `Transport` |
@@ -248,7 +251,7 @@ The table below is the quickest way to decide where code belongs.
 | `orchestrator/` | orchestration internals | poll-cycle coordination, server callback option assembly, polling timers, issue dispatch execution, launch, snapshots, worker-host policy, runtime context, agent update integration, worker exit message handling, ignored-message logging, runtime state construction, usage accounting, cleanup | tracker-specific transport code, dashboard rendering, large dispatch-policy, retry, or running-state helper clusters | `PollCycle`, `Polling`, `ServerOptions`, `AgentUpdates`, `IgnoredMessage`, `Dispatch`, `IssueDispatch`, `Retry`, `Running`, `Runtime`, `WorkerExit`, `State`, `AgentUsage`, `TerminalCleanup` |
 | `orchestrator/dispatch/` | dispatch policy implementation | dispatch context construction, candidate ordering, eligibility and skip-reason checks, runtime slot projection, pre-dispatch issue revalidation, route preparation | GenServer state mutation, tracker transport, agent execution, dashboard rendering | `Dispatch.Context`, `Dispatch.Ordering`, `Dispatch.Eligibility`, `Dispatch.RuntimeView`, `Dispatch.Revalidation`, `Dispatch.RoutePreparation` |
 | `orchestrator/retry/` | retry implementation | retry timer scheduling, retry timer message handling, retry attempt metadata shaping, retry event emission, retry candidate lookup, retry release/defer decisions, and redispatch handoff | dispatch eligibility policy, worker-exit classification, running-entry lifecycle state, tracker transport | `Retry.Scheduler`, `Retry.MessageHandler`, `Retry.Metadata`, `Retry.Events`, `Retry.IssueHandler` |
-| `orchestrator/running/` | running issue lifecycle implementation | issue-state reconciliation, inactive completion grace decisions, stalled-run detection, task termination and claim cleanup, running/claimed/retry state access, and reconcile event emission | dispatch eligibility policy, retry scheduling policy, worker-exit classification, tracker transport | `Running.Reconciliation`, `Running.InactiveGrace`, `Running.StallDetection`, `Running.Termination`, `Running.StateView`, `Running.Events` |
+| `orchestrator/running/` | running issue lifecycle implementation | issue-state reconciliation, bounded completion grace decisions, stalled-run detection, task termination and claim cleanup, running/claimed/retry state access, and reconcile event emission | dispatch eligibility policy, retry scheduling policy, worker-exit classification, tracker transport | `Running.Reconciliation`, `Running.CompletionGrace`, `Running.StallDetection`, `Running.Termination`, `Running.StateView`, `Running.Events` |
 | `observability/` | shared observability infrastructure | event envelope, shared field registry, event store, formatter, redaction, generic logging | dashboard-specific rendering rules, tracker business logic | `Fields`, `Logger`, `EventStore`, `Formatter`, `Redaction` |
 | `observability/event_store.ex` | structured event-store facade | public event recording/query API and GenServer boundary | state struct details, index mutation, input normalization, query projection, mailbox pressure accounting | `SymphonyElixir.Observability.EventStore` |
 | `observability/event_store/` | bounded event-store implementation | event-store config normalization, state construction/resizing, bounded indexes, query projection, input normalization, mailbox pressure accounting | generic logger emission, dashboard rendering, provider protocol semantics | `Config`, `State`, `Index`, `Query`, `InputNormalizer`, `PendingQueue` |
@@ -310,6 +313,10 @@ The table below is the quickest way to decide where code belongs.
 - Do not move `agent/runtime/worker_daemon/` under `agent/runtime/executor/`.
   The executor module is a thin adapter; the worker-daemon subsystem owns
   shared runtime concerns used before and after executor start.
+- Provider session cleanup arbitration belongs under `agent/runner/`.
+  Normal/exception completion and worker-owner exit handling must claim the
+  active session before invoking provider stop; a path that loses the claim
+  must no-op rather than emitting a duplicate cleanup failure.
 - Dispatch context, issue ordering, eligibility checks, skip reasons, runtime
   slot projection, revalidation, and route-preparation policy belong under
   `orchestrator/dispatch/`; keep `orchestrator/dispatch.ex` as the facade used
@@ -318,10 +325,22 @@ The table below is the quickest way to decide where code belongs.
   shaping, retry events, retry issue lookup, retry release/defer decisions, and
   redispatch handoff belong under `orchestrator/retry/`; keep
   `orchestrator/retry.ex` as the facade used by orchestration callers.
-- Running issue reconciliation, inactive completion grace, stalled-run
+- Running issue reconciliation, bounded completion grace, stalled-run
   detection, task termination, claim cleanup, running/retry state access, and
   reconcile events belong under `orchestrator/running/`; keep
   `orchestrator/running.ex` as the facade used by orchestration callers.
+- Running reconciliation and worker-exit lifecycle code must get workflow state
+  meaning through `Orchestrator.Dispatch` predicates. Do not hardcode concrete
+  business state names or branch on concrete agent-provider implementations in
+  `orchestrator/running/` or `orchestrator/worker_exit.ex`.
+- Worker-exit lifecycle code may refresh the just-finished issue's tracker
+  facts before deciding retry or continuation, but that refresh must be
+  a fallback rather than the primary success path. Agent runner code should
+  propagate refreshed `%Issue{}` facts through worker runtime info as soon as
+  turn-level state refresh succeeds. Worker-exit refresh remains
+  provider-neutral, single-issue, bounded by a short timeout, and safe to skip;
+  timeout or tracker failure falls back to the cached running entry and must not
+  block the orchestrator indefinitely or become a provider failure.
 - Complete poll-cycle coordination belongs in `orchestrator/poll_cycle.ex`.
   Polling timer mechanics and refresh requests stay in
   `orchestrator/polling.ex`.

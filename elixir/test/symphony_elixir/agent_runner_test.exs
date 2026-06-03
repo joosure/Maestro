@@ -25,6 +25,7 @@ defmodule SymphonyElixir.AgentRunnerTest do
          agent_provider_kind: "fake",
          agent_process_pid: "fake-provider-1",
          provider_state: %{workspace: workspace},
+         run_id: Keyword.get(opts, :run_id),
          workspace: workspace
        })}
     end
@@ -42,6 +43,20 @@ defmodule SymphonyElixir.AgentRunnerTest do
           provider_process_pid: "fake-provider-1"
         })
       end)
+
+      if Map.get(config.options, "emit_typed_tool_blocker") == true do
+        SymphonyElixir.Observability.Logger.emit(:warning, :typed_tool_failure_policy_blocked, %{
+          component: "agent.dynamic_tool_failure_policy",
+          issue_id: issue.id,
+          run_id: session.run_id,
+          resource_kind: "tracker_issue",
+          resource_id: issue.id,
+          tool_name: "linear_move_issue",
+          error_code: "review_handoff_blocked_after_retries",
+          original_error_code: "review_handoff_not_ready",
+          retryable: false
+        })
+      end
 
       {:ok, TurnResult.new(session_id: "fake-session", thread_id: "fake-thread", turn_id: "fake-turn")}
     end
@@ -212,6 +227,12 @@ defmodule SymphonyElixir.AgentRunnerTest do
                        provider_process_pid: "fake-provider-1"
                      }}
 
+    assert_received {:worker_runtime_info, "issue-provider-contract",
+                     %{
+                       issue: %Issue{id: "issue-provider-contract", state: "Done"},
+                       issue_fact_source: :agent_turn_refresh
+                     }}
+
     assert_received {:fake_provider_stop_session, %ProviderConfig{kind: "fake"}, ^session, stop_opts}
     assert Keyword.fetch!(stop_opts, :fake) == true
     assert Keyword.fetch!(stop_opts, :issue_id) == "issue-provider-contract"
@@ -317,6 +338,84 @@ defmodule SymphonyElixir.AgentRunnerTest do
     assert second_prompt =~ "Stateless provider context:"
     assert second_prompt =~ "Rendered workflow prompt:"
     assert second_prompt =~ "Stateless workflow prompt for MT-STATELESS."
+  end
+
+  test "runner classifies typed tool non-retryable blocker as blocked turn without continuation" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-provider-blocked-#{System.unique_integer([:positive])}"
+      )
+
+    workspace_root = Path.join(test_root, "workspaces")
+    Application.put_env(:symphony_elixir, :agent_provider_adapters, %{"fake" => FakeProviderAdapter})
+
+    on_exit(fn ->
+      Application.delete_env(:symphony_elixir, :agent_provider_adapters)
+      File.rm_rf(test_root)
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: workspace_root,
+      agent_provider_kind: "fake",
+      agent_provider_options: %{"emit_typed_tool_blocker" => true},
+      max_turns: 2,
+      prompt: "Blocked provider contract prompt."
+    )
+
+    issue = %Issue{
+      id: "issue-provider-blocked",
+      identifier: "MT-BLOCKED",
+      title: "Stop after typed tool blocker",
+      description: "Verify blocked typed-tool failures stop continuation.",
+      state: "In Progress",
+      labels: []
+    }
+
+    assert_raise RuntimeError, ~r/Agent run failed/, fn ->
+      AgentRunner.run(issue, self(),
+        run_id: "run-provider-blocked",
+        issue_state_fetcher: fn ["issue-provider-blocked"] ->
+          {:ok, [issue]}
+        end
+      )
+    end
+
+    assert_received {:fake_provider_run_turn, %ProviderConfig{kind: "fake"}, _session, _prompt, ^issue, _run_opts}
+    refute_received {:fake_provider_run_turn, %ProviderConfig{kind: "fake"}, _session, _prompt, ^issue, _run_opts}
+
+    agent_events =
+      wait_for_agent_session_events(
+        %{
+          issue_id: "issue-provider-blocked",
+          issue_identifier: "MT-BLOCKED",
+          run_id: "run-provider-blocked"
+        },
+        "agent_run_failed"
+      )
+
+    event_names = Enum.map(agent_events, & &1["event"])
+
+    assert "agent_turn_blocked" in event_names
+    refute "agent_continuation_started" in event_names
+
+    assert Enum.any?(
+             EventStore.recent_issue_events(%{issue_id: "issue-provider-blocked", run_id: "run-provider-blocked"}, limit: 20),
+             &(&1["event"] == "typed_tool_failure_policy_blocked")
+           )
+
+    turn_blocked = Enum.find(agent_events, &(&1["event"] == "agent_turn_blocked"))
+    assert turn_blocked["status"] == "blocked"
+    assert turn_blocked["failure_class"] == "blocked"
+    assert turn_blocked["error_code"] == "typed_tool_non_retryable_blocker"
+    assert turn_blocked["retryable"] == false
+    assert turn_blocked["blocker_error_code"] == "review_handoff_blocked_after_retries"
+    assert turn_blocked["blocker_resource_kind"] == "tracker_issue"
+    assert turn_blocked["blocker_resource_id"] == "issue-provider-blocked"
+
+    run_failed = List.last(agent_events)
+    assert run_failed["status"] == "failed"
+    assert run_failed["failure_class"] == "blocked"
   end
 
   test "runner emits provider-neutral timeout, cleanup, and failed run events" do

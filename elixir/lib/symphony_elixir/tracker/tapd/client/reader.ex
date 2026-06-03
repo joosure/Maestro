@@ -88,7 +88,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Reader do
 
     result =
       issue_ids
-      |> Enum.map(&Fields.normalize_string/1)
+      |> Enum.map(&normalize_issue_id/1)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
       |> do_fetch_stories_by_ids(tracker, request_fun)
@@ -193,6 +193,9 @@ defmodule SymphonyElixir.Tracker.Tapd.Client.Reader do
       value -> Map.put(params, "workitem_type_id", value)
     end
   end
+
+  defp normalize_issue_id("TAPD-" <> id), do: normalize_issue_id(id)
+  defp normalize_issue_id(issue_id), do: Fields.normalize_string(issue_id)
 
   defp candidate_issue_ids(tracker) do
     tracker

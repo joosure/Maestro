@@ -5,7 +5,9 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
   alias SymphonyElixir.Agent.Runner.{EventFields, Prompts, RunContext, TurnEvents, WorkerUpdates}
   alias SymphonyElixir.AgentProvider
   alias SymphonyElixir.Issue
+  alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
+  alias SymphonyElixir.Observability.OperationName
   alias SymphonyElixir.Observability.OperationStatus
 
   @type worker_host :: String.t() | nil
@@ -42,7 +44,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
       :agent_turn_started,
       EventFields.turn(app_session, issue, worker_host, workspace, run_id, turn_number, max_turns, %{
         status: OperationStatus.started(),
-        operation: "run_turn"
+        operation: OperationName.run_turn()
       })
       |> Map.merge(EventFields.prompt_observability_fields(prompt))
     )
@@ -54,23 +56,57 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
            on_message: WorkerUpdates.message_handler(update_recipient, issue)
          ) do
       {:ok, turn_session} ->
-        handle_turn_result(
-          turn_session,
-          app_session,
-          workspace,
-          issue,
-          update_recipient,
-          opts,
-          issue_state_fetcher,
-          worker_host,
-          run_id,
-          turn_number,
-          max_turns,
-          turn_started_at_ms
-        )
+        case non_retryable_typed_tool_blocker(issue, run_id) do
+          %{} = blocker ->
+            handle_turn_error(
+              {:error, {:turn_blocked, blocker}},
+              {:turn_blocked, blocker},
+              app_session,
+              workspace,
+              issue,
+              worker_host,
+              run_id,
+              turn_number,
+              max_turns,
+              turn_started_at_ms
+            )
+
+          nil ->
+            handle_turn_result(
+              turn_session,
+              app_session,
+              workspace,
+              issue,
+              update_recipient,
+              opts,
+              issue_state_fetcher,
+              worker_host,
+              run_id,
+              turn_number,
+              max_turns,
+              turn_started_at_ms
+            )
+        end
 
       {:error, reason} = error ->
-        handle_turn_error(error, reason, app_session, workspace, issue, worker_host, run_id, turn_number, max_turns, turn_started_at_ms)
+        case non_retryable_typed_tool_blocker(issue, run_id) do
+          %{} = blocker ->
+            handle_turn_error(
+              {:error, {:turn_blocked, blocker}},
+              {:turn_blocked, blocker},
+              app_session,
+              workspace,
+              issue,
+              worker_host,
+              run_id,
+              turn_number,
+              max_turns,
+              turn_started_at_ms
+            )
+
+          nil ->
+            handle_turn_error(error, reason, app_session, workspace, issue, worker_host, run_id, turn_number, max_turns, turn_started_at_ms)
+        end
     end
   end
 
@@ -112,7 +148,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
         max_turns,
         %{
           status: TurnEvents.status_string(turn_result_value(turn_session, :status)),
-          operation: "run_turn",
+          operation: OperationName.run_turn(),
           duration_ms: RunContext.elapsed_ms(turn_started_at_ms),
           session_id: turn_result_value(turn_session, :session_id),
           thread_id: turn_result_value(turn_session, :thread_id),
@@ -162,11 +198,16 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
       issue_identifier: Map.get(issue, :identifier)
     )
 
-    case continue_with_issue?(
-           issue,
-           issue_state_fetcher,
-           Keyword.merge(opts, run_id: run_id, worker_host: worker_host, workspace: workspace)
-         ) do
+    issue_decision =
+      continue_with_issue?(
+        issue,
+        issue_state_fetcher,
+        Keyword.merge(opts, run_id: run_id, worker_host: worker_host, workspace: workspace)
+      )
+
+    sync_refreshed_issue_fact(issue_decision, update_recipient, worker_host, workspace, run_id)
+
+    case issue_decision do
       {:continue, refreshed_issue} when turn_number < max_turns ->
         emit_continuation_started(
           refreshed_issue,
@@ -202,6 +243,16 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
         {:error, reason}
     end
   end
+
+  defp sync_refreshed_issue_fact({:continue, %Issue{} = issue}, update_recipient, worker_host, workspace, run_id) do
+    WorkerUpdates.issue_fact(update_recipient, issue, worker_host, workspace, run_id, :agent_turn_refresh)
+  end
+
+  defp sync_refreshed_issue_fact({:done, %Issue{} = issue}, update_recipient, worker_host, workspace, run_id) do
+    WorkerUpdates.issue_fact(update_recipient, issue, worker_host, workspace, run_id, :agent_turn_refresh)
+  end
+
+  defp sync_refreshed_issue_fact(_decision, _update_recipient, _worker_host, _workspace, _run_id), do: :ok
 
   defp handle_turn_error(
          error,
@@ -240,7 +291,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
         max_turns,
         %{
           status: TurnEvents.status_for_event(turn_terminal_event),
-          operation: "run_turn",
+          operation: OperationName.run_turn(),
           duration_ms: RunContext.elapsed_ms(turn_started_at_ms)
         }
         |> Map.merge(TurnEvents.error_fields(reason))
@@ -288,6 +339,20 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
   end
 
   defp continue_with_issue?(issue, _issue_state_fetcher, _opts), do: {:done, issue}
+
+  defp non_retryable_typed_tool_blocker(%Issue{id: issue_id}, run_id) when is_binary(issue_id) do
+    %{issue_id: issue_id, run_id: run_id}
+    |> EventStore.recent_issue_events(limit: 100)
+    |> Enum.find(fn event ->
+      event["event"] == "typed_tool_failure_policy_blocked" and
+        event["retryable"] == false and
+        event["resource_kind"] == "tracker_issue" and
+        event["resource_id"] == issue_id and
+        event["run_id"] == run_id
+    end)
+  end
+
+  defp non_retryable_typed_tool_blocker(_issue, _run_id), do: nil
 
   defp turn_result_value(result, key) when is_map(result), do: Map.get(result, key)
 end

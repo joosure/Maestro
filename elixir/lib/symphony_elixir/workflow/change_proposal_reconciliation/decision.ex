@@ -2,8 +2,9 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Decision do
   @moduledoc false
 
   alias SymphonyElixir.Workflow.ChangeProposalReconciliation.{Config, Facts}
+  alias SymphonyElixir.Workflow.RouteRef
 
-  defstruct [:action, :reason, :target_route]
+  defstruct [:action, :reason, :target_route_ref]
 
   @type action ::
           :noop
@@ -15,7 +16,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Decision do
   @type t :: %__MODULE__{
           action: action(),
           reason: atom(),
-          target_route: atom() | nil
+          target_route_ref: RouteRef.t() | nil
         }
 
   @spec decide(Config.t(), term(), map(), Facts.t(), map()) :: t()
@@ -33,9 +34,9 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Decision do
   @spec noop(atom()) :: t()
   def noop(reason) when is_atom(reason), do: %__MODULE__{action: :noop, reason: reason}
 
-  @spec move(atom(), atom()) :: t()
-  def move(target_route, reason) when is_atom(target_route) and is_atom(reason) do
-    %__MODULE__{action: :move_to_route, reason: reason, target_route: target_route}
+  @spec move(RouteRef.t(), atom()) :: t()
+  def move(%RouteRef{} = target_route_ref, reason) when is_atom(reason) do
+    %__MODULE__{action: :move_to_route, reason: reason, target_route_ref: target_route_ref}
   end
 
   @spec blocked(atom()) :: t()
@@ -81,8 +82,8 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Decision do
   defp provider_state_rule(config, facts, _counters) do
     case facts.provider_state do
       :unknown -> provider_retry_later(:provider_state_unknown)
-      :merged -> move_or_noop(config.already_merged_target_route, :already_merged)
-      :closed -> move_or_blocked(config.changes_requested_target_route, :closed_unmerged)
+      :merged -> move_or_noop(Config.outcome_route(config, :already_merged), :already_merged)
+      :closed -> move_or_blocked(Config.outcome_route(config, :changes_requested), :closed_unmerged)
       _state -> nil
     end
   end
@@ -93,7 +94,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Decision do
 
   defp review_rule(config, facts, _counters) do
     if facts.review_summary == :changes_requested do
-      move_or_noop(config.changes_requested_target_route, :changes_requested)
+      move_or_noop(Config.outcome_route(config, :changes_requested), :changes_requested)
     end
   end
 
@@ -109,7 +110,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Decision do
         noop(:checks_failing_unconfirmed)
 
       facts.check_summary == :failing ->
-        move_or_noop(config.failed_checks_target_route, :checks_failing)
+        move_or_noop(Config.outcome_route(config, :failed_checks), :checks_failing)
 
       true ->
         nil
@@ -118,7 +119,7 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Decision do
 
   defp mergeability_rule(config, facts, _counters) do
     if facts.mergeability_summary == :conflicting do
-      move_or_noop(config.failed_checks_target_route, :merge_conflict)
+      move_or_noop(Config.outcome_route(config, :failed_checks), :merge_conflict)
     end
   end
 
@@ -136,8 +137,12 @@ defmodule SymphonyElixir.Workflow.ChangeProposalReconciliation.Decision do
     end
   end
 
-  defp ready_decision(%Config{ready_target_route: nil}), do: invalid_configuration(:missing_ready_target_route)
-  defp ready_decision(%Config{ready_target_route: target_route}), do: move(target_route, :ready_to_land)
+  defp ready_decision(%Config{} = config) do
+    case Config.outcome_route(config, :ready) do
+      nil -> invalid_configuration(:missing_ready_target_route)
+      %RouteRef{} = target_route -> move(target_route, :ready_to_land)
+    end
+  end
 
   defp missing_change_proposal?(%Facts{} = facts) do
     is_nil(facts.number) and is_nil(facts.url) and is_nil(facts.head_sha) and is_nil(facts.error)

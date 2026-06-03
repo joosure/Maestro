@@ -2,6 +2,7 @@ defmodule SymphonyElixir.AgentProviderSmokeTest do
   use ExUnit.Case, async: false
 
   alias SymphonyElixir.AgentProvider.{Config, Session, Smoke, TurnResult}
+  alias SymphonyElixir.Workflow.TemplateRegistry
 
   setup do
     previous_workflow_path = Application.fetch_env(:symphony_elixir, :workflow_file_path)
@@ -44,7 +45,7 @@ defmodule SymphonyElixir.AgentProviderSmokeTest do
         end
       })
 
-    report = Smoke.run([template: "memory/no_repo/mock"], deps)
+    report = Smoke.run([template: TemplateRegistry.local_quickstart_alias()], deps)
 
     assert report.ok
     assert report.agent_provider_kind == "mock"
@@ -94,7 +95,7 @@ defmodule SymphonyElixir.AgentProviderSmokeTest do
         end
       })
 
-    report = Smoke.run([template: "memory/no_repo/mock", run_turn: false], deps)
+    report = Smoke.run([template: TemplateRegistry.local_quickstart_alias(), run_turn: false], deps)
 
     assert report.ok
     assert report.smoke_mode == "start_only"
@@ -114,7 +115,7 @@ defmodule SymphonyElixir.AgentProviderSmokeTest do
         end
       })
 
-    report = Smoke.run([template: "memory/no_repo/mock"], deps)
+    report = Smoke.run([template: TemplateRegistry.local_quickstart_alias()], deps)
 
     refute report.ok
     assert Enum.map(report.probes, & &1.id) == ["config-validation"]
@@ -123,6 +124,8 @@ defmodule SymphonyElixir.AgentProviderSmokeTest do
   end
 
   defp base_deps(overrides) do
+    local_quickstart_alias = TemplateRegistry.local_quickstart_alias()
+
     provider = %Config{
       kind: "mock",
       options: %{
@@ -139,7 +142,7 @@ defmodule SymphonyElixir.AgentProviderSmokeTest do
       set_workflow_file_path: fn _path -> :ok end,
       workflow_file_env: fn -> :error end,
       restore_workflow_file_env: fn _previous -> :ok end,
-      resolve_template: fn "memory/no_repo/mock" -> {:ok, "/tmp/template.md"} end,
+      resolve_template: fn ^local_quickstart_alias -> {:ok, "/tmp/template.md"} end,
       file_regular?: fn _path -> true end,
       validate_config: fn -> :ok end,
       settings: fn -> {:ok, %{agent_provider: provider}} end,

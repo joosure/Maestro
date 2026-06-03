@@ -51,7 +51,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.HttpProtocol do
       }
     }
 
-    post_rpc_result(connection, payload, @initialize_id, settings.read_timeout_ms)
+    post_rpc_result(connection, payload, @initialize_id, handshake_timeout_ms(settings))
   end
 
   @spec new_session(connection(), Path.t(), Settings.t()) :: {:ok, map()} | {:error, term()}
@@ -66,7 +66,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.HttpProtocol do
       }
     }
 
-    case post_rpc_result(connection, payload, @session_new_id, settings.read_timeout_ms) do
+    case post_rpc_result(connection, payload, @session_new_id, handshake_timeout_ms(settings)) do
       {:ok, %{"sessionId" => session_id} = response} when is_binary(session_id) -> {:ok, response}
       {:ok, response} -> {:error, {:invalid_session_new_response, response}}
       {:error, _reason} = error -> error
@@ -396,21 +396,24 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.HttpProtocol do
   end
 
   defp handle_client_request(state, %{"method" => "session/request_permission"} = payload) do
-    _ =
-      post_json_rpc_notification(state.connection, %{
-        "jsonrpc" => "2.0",
-        "id" => Map.get(payload, "id"),
-        "result" => %{"outcome" => %{"outcome" => "cancelled"}}
-      })
+    case permission_response(state.session.settings, payload) do
+      {:ok, response} ->
+        _ = post_json_rpc_notification(state.connection, response)
+        send_activity(state)
+        {:cont, state}
 
-    Messages.emit(
-      state.on_message,
-      :turn_input_required,
-      %{payload: payload, raw: Jason.encode!(payload)},
-      PortMetadata.message(@provider_kind, state.session.port, payload, state.turn_context)
-    )
+      :error ->
+        _ = post_json_rpc_notification(state.connection, permission_cancel_response(payload))
 
-    {:halt, {:error, {:turn_input_required, payload}}}
+        Messages.emit(
+          state.on_message,
+          :turn_input_required,
+          %{payload: payload, raw: Jason.encode!(payload)},
+          PortMetadata.message(@provider_kind, state.session.port, payload, state.turn_context)
+        )
+
+        {:halt, {:error, {:turn_input_required, payload}}}
+    end
   end
 
   defp handle_client_request(state, payload) do
@@ -422,6 +425,51 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.HttpProtocol do
       })
 
     {:halt, {:error, {:client_request_unsupported, payload}}}
+  end
+
+  defp permission_response(%{permission_mode: "bypass_permissions"}, payload) do
+    case preferred_allow_option_id(payload) do
+      nil ->
+        :error
+
+      option_id ->
+        {:ok,
+         %{
+           "jsonrpc" => "2.0",
+           "id" => Map.get(payload, "id"),
+           "result" => %{"outcome" => %{"outcome" => "selected", "optionId" => option_id}}
+         }}
+    end
+  end
+
+  defp permission_response(_settings, _payload), do: :error
+
+  defp permission_cancel_response(payload) do
+    %{"jsonrpc" => "2.0", "id" => Map.get(payload, "id"), "result" => %{"outcome" => %{"outcome" => "cancelled"}}}
+  end
+
+  defp preferred_allow_option_id(payload) do
+    options = get_in(payload, ["params", "options"])
+
+    case options do
+      [_ | _] ->
+        options
+        |> Enum.filter(&(Map.get(&1, "optionId") && Map.get(&1, "kind") in ["allow_always", "allow_once"]))
+        |> Enum.sort_by(fn option ->
+          case Map.get(option, "kind") do
+            "allow_always" -> 0
+            "allow_once" -> 1
+          end
+        end)
+        |> List.first()
+        |> case do
+          %{"optionId" => option_id} when is_binary(option_id) -> option_id
+          _option -> nil
+        end
+
+      _options ->
+        nil
+    end
   end
 
   defp cancel_session(%{acp_http: connection, session_id: session_id}) when is_binary(session_id) do
@@ -597,6 +645,15 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.AppServer.HttpProtocol do
   end
 
   defp timeout_expired?(_now_ms, _base_ms, _timeout_ms), do: false
+
+  defp handshake_timeout_ms(settings), do: nested_timeout(settings, "handshake_timeout_ms", settings.read_timeout_ms)
+
+  defp nested_timeout(settings, key, default_value) do
+    case get_in(settings.acp, [key]) do
+      value when is_integer(value) and value > 0 -> value
+      _value -> default_value
+    end
+  end
 
   defp sleep_or_timeout(deadline_ms, timeout_reason, next_fun) do
     if EventFields.monotonic_ms() >= deadline_ms do

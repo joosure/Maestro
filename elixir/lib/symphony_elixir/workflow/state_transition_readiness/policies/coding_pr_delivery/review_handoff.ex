@@ -12,8 +12,10 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   alias SymphonyElixir.Workflow.Profiles.CodingPrDelivery
   alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
   alias SymphonyElixir.Workflow.RoutePolicy
+  alias SymphonyElixir.Workflow.RouteRef
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Contract, as: StateTransitionReadinessContract
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDelivery.ReviewHandoffContract
+  alias SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDelivery.StructuredPlanReviewHandoff
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Policy, as: StateTransitionReadinessPolicy
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store
 
@@ -44,6 +46,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   @updated_at_key StateTransitionReadinessContract.updated_at_key()
   @commands_key StateTransitionReadinessContract.commands_key()
   @actionable_count_key StateTransitionReadinessContract.actionable_count_key()
+  @remediation_actions_key "remediation_actions"
   @target_state_key StateTransitionReadinessContract.target_state_key()
   @capability_gaps_key StateTransitionReadinessContract.capability_gaps_key()
   @downgrades_key StateTransitionReadinessContract.downgrades_key()
@@ -57,6 +60,8 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   @missing_status StateTransitionReadinessContract.missing_status()
   @failed_status StateTransitionReadinessContract.failed_status()
   @stale_status StateTransitionReadinessContract.stale_status()
+  @unknown_status StateTransitionReadinessContract.unknown_status()
+  @unavailable_status StateTransitionReadinessContract.unavailable_status()
   @not_required_status StateTransitionReadinessContract.not_required_status()
   @linked_status StateTransitionReadinessContract.linked_status()
   @created_status StateTransitionReadinessContract.created_status()
@@ -90,7 +95,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   def review_target?(workflow, target_state_name) do
     profile_kind(workflow) == CodingPrDelivery.kind() and
       (route_key_for_state(workflow, target_state_name) == CodingPrDelivery.review_route_key() or
-         lifecycle_phase_for_state(workflow, target_state_name) == WorkflowLifecycle.human_review() or
+         WorkflowLifecycle.human_review_phase?(lifecycle_phase_for_state(workflow, target_state_name)) or
          logical_review_target?(target_state_name))
   end
 
@@ -133,7 +138,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   def validate_evidence(workflow, issue, evidence, opts \\ []) when is_map(issue) and is_map(evidence) do
     target_state_name = Keyword.get(opts, :target_state_name)
     observations = normalized_observations(evidence, issue)
-    checks = checks(workflow, observations)
+    checks = checks(workflow, issue, observations, opts)
 
     if Enum.all?(checks, &passed_check?/1) do
       passed_result(workflow, target_state_name, checks)
@@ -145,33 +150,35 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   defp evidence_for_issue(issue, opts) do
     explicit_evidence = opts |> Keyword.get(:evidence, %{}) |> normalize_evidence()
     run_id = Keyword.get(opts, :run_id)
+    issue_keys = issue_keys(issue, Keyword.get(opts, :issue_key))
 
     scoped_issue_keys =
       run_id
-      |> Store.scope_issue_keys(issue_keys(issue, Keyword.get(opts, :issue_key)))
+      |> Store.scope_issue_keys(issue_keys)
 
-    scoped_issue_keys
+    issue_keys
     |> Store.snapshot()
+    |> deep_merge(Store.snapshot(scoped_issue_keys))
     |> normalize_evidence()
     |> deep_merge(explicit_evidence)
   end
 
-  defp checks(workflow, observations) do
+  defp checks(workflow, issue, observations, opts) do
     repo = observation(observations, @repo_key)
     change_proposal = observation(observations, @change_proposal_key)
     validation = observation(observations, @validation_key)
-    provider_checks = observation(observations, @checks_key)
+    change_proposal_checks = observation(observations, @checks_key)
     feedback = observation(observations, @feedback_key)
-    readiness_observations = [repo, change_proposal, validation, provider_checks, feedback]
+    readiness_observations = [repo, change_proposal, validation, change_proposal_checks, feedback]
 
     [
       workpad_check(observation(observations, @workpad_key), readiness_observations),
       repo_check(repo),
       validation_check(validation, repo, change_proposal),
       change_proposal_check(workflow, change_proposal),
-      checks_check(provider_checks, repo, change_proposal),
+      checks_check(workflow, change_proposal_checks, repo, change_proposal),
       feedback_check(feedback)
-    ]
+    ] ++ StructuredPlanReviewHandoff.checks(workflow, issue, observations, opts)
   end
 
   defp workpad_check(workpad, readiness_observations) do
@@ -294,36 +301,60 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     end
   end
 
-  defp checks_check(checks, repo, change_proposal) do
+  defp checks_check(workflow, checks, repo, change_proposal) do
     current_head = current_head(repo, change_proposal)
     checks_head = Map.get(checks || %{}, @head_sha_key)
     checks_status = Map.get(checks || %{}, @status_key)
 
     cond do
       not is_map(checks) or map_size(checks) == 0 ->
-        missing_check(check_key(:provider_checks), reason_code(:provider_checks_evidence_missing), "Provider check evidence must be read before review handoff.", [])
+        missing_check(check_key(:change_proposal_checks), reason_code(:change_proposal_checks_evidence_missing), "Change proposal check evidence must be read before review handoff.", [])
+
+      checks_status == @unavailable_status ->
+        failed_check(
+          check_key(:change_proposal_checks),
+          reason_code(:change_proposal_checks_unavailable),
+          "Change proposal checks are unavailable and are not configured as not_required.",
+          observed(checks, @checks_key)
+        )
+
+      checks_status == @unknown_status ->
+        failed_check(
+          check_key(:change_proposal_checks),
+          reason_code(:change_proposal_checks_unknown),
+          "Change proposal check status is unknown.",
+          observed(checks, @checks_key)
+        )
 
       checks_status not in @passing_check_statuses ->
-        failed_check(check_key(:provider_checks), reason_code(:provider_checks_not_passing), "Provider checks must be passed or not_required.", observed(checks, @checks_key))
+        failed_check(check_key(:change_proposal_checks), reason_code(:change_proposal_checks_not_passing), "Change proposal checks must be passed or not_required.", observed(checks, @checks_key))
+
+      checks_status == @not_required_status and not change_proposal_checks_not_required?(workflow) ->
+        failed_check(
+          check_key(:change_proposal_checks),
+          reason_code(:change_proposal_checks_absent_without_config),
+          "Change proposal checks can be not_required only when trusted workflow profile policy declares them not required.",
+          observed(checks, @checks_key)
+        )
 
       checks_status == @not_required_status and stale_observation?(checks, repo, change_proposal) ->
         stale_check(
-          check_key(:provider_checks),
-          reason_code(:provider_checks_observation_stale),
-          "Provider check evidence must be observed after the latest repository or change-proposal head evidence.",
+          check_key(:change_proposal_checks),
+          reason_code(:change_proposal_checks_observation_stale),
+          "Change proposal check evidence must be observed after the latest repository or change-proposal head evidence.",
           observed(checks, @checks_key)
         )
 
       checks_status != @not_required_status and stale_head?(checks_head, current_head) ->
         stale_check(
-          check_key(:provider_checks),
-          reason_code(:provider_checks_head_stale),
-          "Provider check evidence must match the latest observed repository or change-proposal head.",
+          check_key(:change_proposal_checks),
+          reason_code(:change_proposal_checks_head_stale),
+          "Change proposal check evidence must match the latest observed repository or change-proposal head.",
           observed(checks, @checks_key)
         )
 
       true ->
-        passed_check(check_key(:provider_checks), observed_evidence_code(:checks_ready), observed(checks, @checks_key))
+        passed_check(check_key(:change_proposal_checks), observed_evidence_code(:checks_ready), observed(checks, @checks_key))
     end
   end
 
@@ -357,6 +388,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     |> Map.put(@error_code_key, @review_handoff_not_ready_error)
     |> Map.put(@reason_codes_key, Enum.map(failed_checks, &Map.fetch!(&1, @reason_code_key)))
     |> Map.put(ReadinessContract.missing_evidence_key(), Enum.map(failed_checks, &missing_entry/1))
+    |> Map.put(@remediation_actions_key, remediation_actions(failed_checks))
   end
 
   defp base_result(workflow, target_state_name, checks) do
@@ -364,15 +396,20 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
       @policy_id_key => @policy_id,
       @schema_key => @schema,
       ReadinessContract.gate_key() => ReadinessContract.human_review_gate(),
-      ReadinessContract.profile_key() => profile_kind(workflow),
-      ReadinessContract.route_key() => Atom.to_string(CodingPrDelivery.review_route_key()),
       @target_state_key => target_state_name,
       ReadinessContract.checks_key() => checks,
       ReadinessContract.missing_evidence_key() => [],
       ReadinessContract.observed_evidence_key() => observed_evidence(checks),
       @capability_gaps_key => [],
-      @downgrades_key => []
+      @downgrades_key => [],
+      @remediation_actions_key => []
     }
+    |> Map.merge(
+      workflow
+      |> workflow_profile_ref()
+      |> RouteRef.new!(CodingPrDelivery.review_route_key())
+      |> RouteRef.string_fields()
+    )
     |> drop_nil_values()
   end
 
@@ -416,6 +453,55 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     %{
       @code_key => Map.fetch!(check, @reason_code_key),
       @detail_key => Map.fetch!(check, ReadinessContract.required_evidence_key())
+    }
+  end
+
+  defp remediation_actions(checks) do
+    checks
+    |> Enum.map(&remediation_action/1)
+    |> Enum.uniq()
+  end
+
+  defp remediation_action(check) do
+    reason_code = Map.fetch!(check, @reason_code_key)
+    check_key = Map.fetch!(check, ReadinessContract.key_key())
+
+    {action, capabilities} =
+      case check_key do
+        "issue_snapshot" ->
+          {"Refresh the structured tracker issue snapshot before retrying the review handoff.", ["tracker.issue_snapshot"]}
+
+        "workpad_recorded" ->
+          {"Write the final handoff record after the latest repository, PR, checks, and feedback evidence.", ["tracker.upsert_workpad"]}
+
+        "implementation_evidence" ->
+          {"Record repository implementation evidence from the repo typed tools before review handoff.", ["repo.commit", "repo.push"]}
+
+        "validation_passed" ->
+          {"Record passing validation evidence for the latest pushed head before review handoff.", ["repo.diff"]}
+
+        "change_proposal_linked" ->
+          {"Create or refresh the change proposal and attach/link it to the tracker issue.",
+           [
+             "repo.create_or_update_change_proposal",
+             "tracker.attach_change_proposal"
+           ]}
+
+        "change_proposal_checks" ->
+          {"Read change-proposal checks for the latest change proposal head and wait until they pass or are not required.", ["repo.read_change_proposal_checks"]}
+
+        "feedback_clear" ->
+          {"Read provider discussion/review feedback and resolve or explicitly clear all actionable feedback.", ["repo.read_change_proposal_discussion"]}
+
+        _check_key ->
+          {"Refresh the missing structured evidence and retry the review handoff.", []}
+      end
+
+    %{
+      @reason_code_key => reason_code,
+      "check" => check_key,
+      "action" => action,
+      "capabilities" => capabilities
     }
   end
 
@@ -489,8 +575,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     Map.get(workpad, @source_key) in [@typed_tool_observed_source, @tracker_observed_source] and
       Map.get(workpad, @status_key) in @passing_workpad_statuses and
       not is_nil(workpad_recorded_at(workpad)) and
-      (present?(Map.get(workpad, StateTransitionReadinessContract.comment_id_key())) or
-         present?(Map.get(workpad, @id_key)) or
+      (present?(Map.get(workpad, StateTransitionReadinessContract.workpad_id_key())) or
          present?(Map.get(workpad, @url_key)))
   end
 
@@ -578,11 +663,13 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   defp change_proposal_required?(workflow) do
     workflow
     |> profile_options()
-    |> get_in(["requirements", "change_proposal"])
-    |> case do
-      false -> false
-      _value -> true
-    end
+    |> CodingPrDelivery.change_proposal_required?()
+  end
+
+  defp change_proposal_checks_not_required?(workflow) do
+    workflow
+    |> profile_options()
+    |> CodingPrDelivery.review_handoff_change_proposal_checks_not_required?()
   end
 
   defp observed(value, prefix) when is_map(value) and map_size(value) > 0 do
@@ -631,7 +718,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
 
   defp logical_review_target?(target_state_name) when is_binary(target_state_name) do
     RoutePolicy.normalize_route_key(target_state_name, CodingPrDelivery) == CodingPrDelivery.review_route_key() or
-      WorkflowLifecycle.normalize_phase(target_state_name) == WorkflowLifecycle.human_review()
+      WorkflowLifecycle.human_review_phase?(target_state_name)
   end
 
   defp logical_review_target?(_target_state_name), do: false
@@ -642,6 +729,20 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   defp profile_kind(%{profile: %{kind: kind}}) when is_binary(kind), do: kind
   defp profile_kind(%{"profile" => %{"kind" => kind}}) when is_binary(kind), do: kind
   defp profile_kind(_workflow), do: nil
+
+  defp profile_version(%Effective{profile_version: version}) when is_integer(version), do: version
+  defp profile_version(%{profile_version: version}) when is_integer(version), do: version
+  defp profile_version(%{"profile_version" => version}) when is_integer(version), do: version
+  defp profile_version(%{profile: %{version: version}}) when is_integer(version), do: version
+  defp profile_version(%{"profile" => %{"version" => version}}) when is_integer(version), do: version
+  defp profile_version(workflow), do: if(profile_kind(workflow) == CodingPrDelivery.kind(), do: CodingPrDelivery.version())
+
+  defp workflow_profile_ref(workflow) do
+    %{
+      kind: profile_kind(workflow),
+      version: profile_version(workflow)
+    }
+  end
 
   defp profile_options(%Effective{profile_options: options}) when is_map(options), do: options
   defp profile_options(%{profile_options: options}) when is_map(options), do: options

@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Values do
   @complete_status "complete"
   @incomplete_status "incomplete"
   @unknown_status "unknown"
+  @unavailable_status "unavailable"
   @not_required_status "not_required"
   @pending_status "pending"
   @linked_status "linked"
@@ -50,6 +51,9 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Values do
 
   @spec unknown_status() :: String.t()
   def unknown_status, do: @unknown_status
+
+  @spec unavailable_status() :: String.t()
+  def unavailable_status, do: @unavailable_status
 
   @spec not_required_status() :: String.t()
   def not_required_status, do: @not_required_status

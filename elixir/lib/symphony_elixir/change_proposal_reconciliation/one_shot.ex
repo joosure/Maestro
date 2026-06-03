@@ -8,6 +8,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
   """
 
   alias SymphonyElixir.ChangeProposalReconciliation
+  alias SymphonyElixir.ChangeProposalReconciliation.KnownTarget
   alias SymphonyElixir.ChangeProposalReconciliation.OneShot.Probe
   alias SymphonyElixir.ChangeProposalReconciliation.OneShot.Report
   alias SymphonyElixir.ChangeProposalReconciliation.TrackerCallOptions
@@ -28,6 +29,8 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
           required(:set_workflow_file_path) => (Path.t() -> :ok),
           required(:workflow_file_env) => (-> {:ok, Path.t()} | :error),
           required(:restore_workflow_file_env) => ({:ok, Path.t()} | :error -> :ok),
+          required(:start_known_target_registry) => (-> GenServer.on_start()),
+          required(:stop_known_target_registry) => (pid() -> :ok),
           required(:resolve_template) => (String.t() -> {:ok, Path.t()} | {:error, String.t()}),
           required(:file_regular?) => (Path.t() -> boolean()),
           required(:validate_config) => (-> :ok | {:error, term()}),
@@ -35,7 +38,6 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
           required(:initial_state) => (map() -> map()),
           required(:reconcile) => (map(), map(), keyword() -> map()),
           required(:fetch_issue_states_by_ids) => (map(), [String.t()], keyword() -> {:ok, [term()]} | {:error, term()}),
-          required(:fetch_change_proposal_reference) => (map(), Issue.t(), keyword() -> {:ok, term()} | {:error, term()}),
           required(:update_issue_state) => (map(), String.t(), String.t(), keyword() -> :ok | {:error, term()}),
           required(:issue_events) => (String.t() -> [map()]),
           required(:recent_events) => (-> [map()])
@@ -53,24 +55,26 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
         {:ok, workflow_path, workflow_label} ->
           :ok = deps.set_workflow_file_path.(workflow_path)
 
-          {probes, settings, reconciliation_config} = run_config_probe(deps)
-          {probes, before_issue} = append_issue_probe(probes, settings, issue_id, deps, "fetch-before")
-          probes = append_reconcile_probe(probes, settings, before_issue, issue_id, mode, opts, deps)
-          {probes, after_issue} = append_issue_probe(probes, settings, issue_id, deps, "fetch-after")
+          with_known_target_registry(deps, workflow_label, issue_id, mode, started_at_ms, fn known_target_registry ->
+            {probes, settings, reconciliation_config} = run_config_probe(deps)
+            {probes, before_issue} = append_issue_probe(probes, settings, issue_id, deps, "fetch-before")
+            probes = append_reconcile_probe(probes, settings, before_issue, issue_id, mode, opts, deps, known_target_registry)
+            {probes, after_issue} = append_issue_probe(probes, settings, issue_id, deps, "fetch-after")
 
-          Report.build(
-            workflow_label,
-            issue_id,
-            settings,
-            reconciliation_config,
-            mode,
-            before_issue,
-            after_issue,
-            deps.issue_events.(issue_id || ""),
-            deps.recent_events.(),
-            probes,
-            deps.monotonic_time_ms.() - started_at_ms
-          )
+            Report.build(
+              workflow_label,
+              issue_id,
+              settings,
+              reconciliation_config,
+              mode,
+              before_issue,
+              after_issue,
+              deps.issue_events.(issue_id || ""),
+              deps.recent_events.(),
+              probes,
+              deps.monotonic_time_ms.() - started_at_ms
+            )
+          end)
 
         {:error, reason} ->
           Report.build(
@@ -106,6 +110,11 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
       set_workflow_file_path: &Workflow.set_workflow_file_path/1,
       workflow_file_env: fn -> Application.fetch_env(:symphony_elixir, :workflow_file_path) end,
       restore_workflow_file_env: &restore_workflow_file_env/1,
+      start_known_target_registry: fn -> KnownTarget.Registry.start_link(name: nil) end,
+      stop_known_target_registry: fn pid ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        :ok
+      end,
       resolve_template: &Templates.resolve/1,
       file_regular?: &File.regular?/1,
       validate_config: &SymphonyElixir.Config.validate!/0,
@@ -114,9 +123,6 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
       reconcile: &ChangeProposalReconciliation.reconcile/3,
       fetch_issue_states_by_ids: fn tracker, issue_ids, fetch_opts ->
         Tracker.fetch_issue_states_by_ids(tracker, issue_ids, fetch_opts)
-      end,
-      fetch_change_proposal_reference: fn tracker, issue, fetch_opts ->
-        Tracker.fetch_change_proposal_reference(tracker, issue, fetch_opts)
       end,
       update_issue_state: fn tracker, issue_id, state_name, update_opts ->
         Tracker.update_issue_state(tracker, issue_id, state_name, update_opts)
@@ -194,17 +200,17 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
     {probes ++ [probe], Probe.ok_value(result)}
   end
 
-  defp append_reconcile_probe(probes, nil, _before_issue, _issue_id, _mode, _opts, _deps),
+  defp append_reconcile_probe(probes, nil, _before_issue, _issue_id, _mode, _opts, _deps, _known_target_registry),
     do: probes ++ [Probe.failed("targeted-reconcile", "workflow config unavailable")]
 
-  defp append_reconcile_probe(probes, _settings, nil, _issue_id, _mode, _opts, _deps),
+  defp append_reconcile_probe(probes, _settings, nil, _issue_id, _mode, _opts, _deps, _known_target_registry),
     do: probes ++ [Probe.failed("targeted-reconcile", "issue fetch must pass before reconciliation")]
 
-  defp append_reconcile_probe(probes, settings, %Issue{}, issue_id, mode, opts, deps) do
+  defp append_reconcile_probe(probes, settings, %Issue{}, issue_id, mode, opts, deps, known_target_registry) do
     {probe, _result} =
       Probe.run("targeted-reconcile", deps.monotonic_time_ms, fn ->
         state = deps.initial_state.(settings)
-        reconcile_opts = reconcile_opts(settings, issue_id, mode, opts, deps)
+        reconcile_opts = reconcile_opts(settings, issue_id, mode, opts, deps, known_target_registry)
         _state = deps.reconcile.(settings, state, reconcile_opts)
         {:ok, "targeted reconciliation completed mode=#{mode}", :ok}
       end)
@@ -212,13 +218,13 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
     probes ++ [probe]
   end
 
-  defp append_reconcile_probe(probes, settings, issue, issue_id, mode, opts, deps) when is_map(issue) do
-    append_reconcile_probe(probes, settings, struct(Issue, issue), issue_id, mode, opts, deps)
+  defp append_reconcile_probe(probes, settings, issue, issue_id, mode, opts, deps, known_target_registry) when is_map(issue) do
+    append_reconcile_probe(probes, settings, struct(Issue, issue), issue_id, mode, opts, deps, known_target_registry)
   rescue
     _error -> probes ++ [Probe.failed("targeted-reconcile", "issue fetch returned an invalid issue payload")]
   end
 
-  defp reconcile_opts(settings, issue_id, mode, opts, deps) do
+  defp reconcile_opts(settings, issue_id, mode, opts, deps, known_target_registry) do
     dry_run? = mode == "dry_run"
     update_issue_state = update_issue_state_fun(settings, dry_run?, deps)
 
@@ -226,15 +232,13 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
     |> TrackerCallOptions.fetch()
     |> Keyword.merge(
       targeted_issue_ids: [issue_id],
+      known_target_registry: known_target_registry,
       dry_run?: dry_run?,
       fetch_issues_by_states_fn: fn _states, _fetch_opts ->
         {:error, :operator_one_shot_source_route_scan_forbidden}
       end,
       fetch_issue_states_by_ids_fn: fn issue_ids, fetch_opts ->
         deps.fetch_issue_states_by_ids.(settings.tracker, issue_ids, fetch_opts)
-      end,
-      change_proposal_reference_fn: fn issue, fetch_opts ->
-        deps.fetch_change_proposal_reference.(settings.tracker, issue, fetch_opts)
       end,
       update_issue_state_fn: update_issue_state
     )
@@ -258,6 +262,36 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShot do
 
   defp run_mode(opts) do
     if Keyword.get(opts, :confirm_state_write, false), do: "state_write", else: "dry_run"
+  end
+
+  defp with_known_target_registry(deps, workflow_label, issue_id, mode, started_at_ms, fun)
+       when is_map(deps) and is_function(fun, 1) do
+    case deps.start_known_target_registry.() do
+      {:ok, pid} when is_pid(pid) ->
+        try do
+          fun.(pid)
+        after
+          deps.stop_known_target_registry.(pid)
+        end
+
+      {:error, {:already_started, pid}} when is_pid(pid) ->
+        fun.(pid)
+
+      {:error, reason} ->
+        Report.build(
+          workflow_label,
+          issue_id,
+          nil,
+          nil,
+          mode,
+          nil,
+          nil,
+          [],
+          [],
+          [Probe.failed("known-target-registry", reason)],
+          deps.monotonic_time_ms.() - started_at_ms
+        )
+    end
   end
 
   defp issue_state(%Issue{state: state}), do: normalize_optional_string(state)

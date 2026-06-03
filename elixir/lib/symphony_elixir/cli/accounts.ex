@@ -15,7 +15,9 @@ defmodule SymphonyElixir.CLI.Accounts do
           optional(:accounts_resume) => (String.t(), String.t() -> {:ok, map()} | {:error, term()}),
           optional(:accounts_remove) => (String.t(), String.t() -> :ok | {:error, term()}),
           optional(:accounts_enable) => (String.t(), String.t() -> {:ok, map()} | {:error, term()}),
-          optional(:accounts_disable) => (String.t(), String.t() -> {:ok, map()} | {:error, term()})
+          optional(:accounts_disable) => (String.t(), String.t() -> {:ok, map()} | {:error, term()}),
+          optional(:accounts_list_leases) => (String.t() | nil, String.t() | nil -> {:ok, [map()]} | {:error, term()}),
+          optional(:accounts_release_lease) => (String.t(), String.t(), String.t() -> {:ok, map()} | {:error, term()})
         }
 
   @doc false
@@ -30,7 +32,9 @@ defmodule SymphonyElixir.CLI.Accounts do
       accounts_resume: &AgentAccounts.resume/2,
       accounts_remove: &AgentAccounts.remove/2,
       accounts_enable: &AgentAccounts.enable/2,
-      accounts_disable: &AgentAccounts.disable/2
+      accounts_disable: &AgentAccounts.disable/2,
+      accounts_list_leases: &AgentAccounts.list_leases/2,
+      accounts_release_lease: &AgentAccounts.release_lease/3
     }
   end
 
@@ -163,6 +167,30 @@ defmodule SymphonyElixir.CLI.Accounts do
     else
       {:error, %OptionParser.ParseError{} = error} -> {:error, error.message}
       {:error, reason} -> {:error, "Failed to disable account: #{Renderer.format_error(reason)}"}
+    end
+  end
+
+  def evaluate(["leases", "list" | rest], deps, usage) do
+    with {:ok, provider_kind, id, workflow_path} <- Parser.parse_lease_list_options(rest, usage),
+         :ok <- maybe_set_workflow_path(workflow_path, deps),
+         {:ok, leases} <- account_dep(deps, :accounts_list_leases).(provider_kind, id) do
+      Renderer.leases_listed(leases)
+      :ok
+    else
+      {:error, %OptionParser.ParseError{} = error} -> {:error, error.message}
+      {:error, reason} -> {:error, "Failed to list credential leases: #{Renderer.format_error(reason)}"}
+    end
+  end
+
+  def evaluate(["leases", "release" | rest], deps, usage) do
+    with {:ok, provider_kind, id, lease_id, workflow_path} <- Parser.parse_lease_release_options(rest, usage),
+         :ok <- maybe_set_workflow_path(workflow_path, deps),
+         {:ok, lease} <- account_dep(deps, :accounts_release_lease).(provider_kind, id, lease_id) do
+      Renderer.lease_released(lease)
+      :ok
+    else
+      {:error, %OptionParser.ParseError{} = error} -> {:error, error.message}
+      {:error, reason} -> {:error, "Failed to release credential lease: #{Renderer.format_error(reason)}"}
     end
   end
 

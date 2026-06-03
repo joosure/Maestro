@@ -18,6 +18,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
     Error,
     EventSummaryMapper,
     FailureClassifier,
+    ReleaseCredentialPreflight,
     Settings,
     Tooling
   }
@@ -62,6 +63,9 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
 
   @impl true
   def dynamic_tool_inventory_opts, do: Tooling.dynamic_tool_inventory_opts()
+
+  @impl true
+  def release_credential_preflight_plan, do: ReleaseCredentialPreflight
 
   @impl true
   @spec account_login(String.t(), keyword(), keyword() | map() | nil) :: {:ok, map()} | {:error, term()}

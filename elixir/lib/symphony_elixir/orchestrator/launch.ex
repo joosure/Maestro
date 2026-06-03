@@ -19,7 +19,13 @@ defmodule SymphonyElixir.Orchestrator.Launch do
       when is_map(state) and is_pid(recipient) do
     emit_issue_dispatch = Keyword.fetch!(opts, :emit_issue_dispatch)
     schedule_retry = Keyword.fetch!(opts, :schedule_retry)
-    start_child = Keyword.get(opts, :start_child, &default_start_child/5)
+    agent_opts = Keyword.get(opts, :agent_opts, [])
+
+    start_child =
+      Keyword.get(opts, :start_child, fn issue, recipient, attempt, worker_host, run_id ->
+        default_start_child(issue, recipient, attempt, worker_host, run_id, agent_opts)
+      end)
+
     now = Keyword.get(opts, :now, &DateTime.utc_now/0)
     run_id = issue_run_id(issue.id)
 
@@ -73,13 +79,16 @@ defmodule SymphonyElixir.Orchestrator.Launch do
     end
   end
 
-  defp default_start_child(issue, recipient, attempt, worker_host, run_id) do
+  defp default_start_child(issue, recipient, attempt, worker_host, run_id, agent_opts) when is_list(agent_opts) do
     case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient,
-             attempt: attempt,
-             worker_host: worker_host,
-             run_id: run_id
-           )
+           agent_opts =
+             Keyword.merge(agent_opts,
+               attempt: attempt,
+               worker_host: worker_host,
+               run_id: run_id
+             )
+
+           AgentRunner.run(issue, recipient, agent_opts)
          end) do
       {:ok, pid} ->
         {:ok, pid, Process.monitor(pid)}

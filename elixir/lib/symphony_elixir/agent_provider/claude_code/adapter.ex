@@ -14,6 +14,7 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Adapter do
     Error,
     EventSummaryMapper,
     RateLimitProbe,
+    ReleaseCredentialPreflight,
     Settings,
     Tooling
   }
@@ -46,6 +47,9 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Adapter do
 
   @impl true
   def dynamic_tool_inventory_opts, do: Tooling.dynamic_tool_inventory_opts()
+
+  @impl true
+  def release_credential_preflight_plan, do: ReleaseCredentialPreflight
 
   @impl true
   def validate_options(options), do: Settings.validate_options(options)

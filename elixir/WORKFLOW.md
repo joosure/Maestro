@@ -93,14 +93,14 @@ agent_provider:
 
 You are working on a Linear ticket `{{ issue.identifier }}`
 
-{% if attempt %}
+{% if runtime.retry.attempt %}
 Continuation context:
 
-- This is retry attempt #{{ attempt }} because the ticket is still in an active state.
+- This is retry attempt #{{ runtime.retry.attempt }} because the issue is still in an active state.
 - Resume from the current workspace state instead of restarting from scratch.
 - Do not repeat already-completed investigation or validation unless needed for new code changes.
 - Do not end the turn while the issue remains in an active state unless you are blocked by missing required typed tools, permissions, or secrets.
-  {% endif %}
+{% endif %}
 
 Issue context:
 Identifier: {{ issue.identifier }}
@@ -142,7 +142,7 @@ stop as blocked, record the blocker in the workpad when workpad tooling is
 available, and follow workflow-defined blocker handling. Do not ask a human for
 interactive setup during the session.
 
-{{ tool_inventory }}
+{{ runtime.tool_inventory }}
 
 For Linear tracker actions, open and follow the bundled workspace skill:
 `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/tracker/linear/SKILL.md`.

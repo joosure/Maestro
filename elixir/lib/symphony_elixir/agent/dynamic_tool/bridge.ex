@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
   alias SymphonyElixir.Agent.DynamicTool
   alias SymphonyElixir.Agent.DynamicTool.BridgeContract
   alias SymphonyElixir.Agent.DynamicTool.BridgeRegistry
-  alias SymphonyElixir.Agent.DynamicTool.{Context, EventContract, Policy, Serializer, Usage}
+  alias SymphonyElixir.Agent.DynamicTool.{Context, EventContract, Policy, Serializer, TypedToolFailurePolicy, Usage}
   alias SymphonyElixir.Observability.Logger, as: ObservabilityLogger
   alias SymphonyElixir.Observability.Redaction
   alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
@@ -82,6 +82,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Bridge do
         result =
           tool_context
           |> DynamicTool.execute(tool, arguments, opts)
+          |> TypedToolFailurePolicy.apply(tool_context, tool, arguments, opts)
           |> normalize_dynamic_tool_result()
 
         {level, event} =

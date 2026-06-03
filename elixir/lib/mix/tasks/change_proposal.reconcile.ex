@@ -17,6 +17,11 @@ defmodule Mix.Tasks.ChangeProposal.Reconcile do
   source-route validation and tracker state precondition checks as the poll
   cycle.
 
+  The command loads workflow-local structured KnownTarget records from
+  `.symphony/change_proposal_known_targets.json` beside the selected workflow
+  file. This lets operator one-shot reconciliation use the same persisted PR/MR
+  reference source as the main service, without scraping tracker comments.
+
   Usage:
 
       mix change_proposal.reconcile [--workflow <path>|--template <alias>] --issue <id> [--json]

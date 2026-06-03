@@ -154,7 +154,7 @@ defmodule SymphonyElixir.RepoProvider.Memory do
 
   @impl true
   def pr_checks(_repo, _opts \\ []) do
-    checks = Application.get_env(:symphony_elixir, :memory_repo_provider_checks, [])
+    checks = Application.get_env(:symphony_elixir, :memory_repo_change_proposal_checks, [])
     {:ok, checks}
   end
 

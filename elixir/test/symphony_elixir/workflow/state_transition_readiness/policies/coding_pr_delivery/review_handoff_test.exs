@@ -5,7 +5,8 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store
 
   setup do
-    if Process.whereis(Store), do: Store.reset()
+    unless Process.whereis(Store), do: start_supervised!({Store, name: Store})
+    Store.reset()
     :ok
   end
 
@@ -45,9 +46,20 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     assert details["gate"] == "human_review"
     assert details["status"] == "blocked"
     assert details["target_state"] == "In Review"
+    assert details["workflow_profile"] == "coding_pr_delivery"
+    assert details["workflow_profile_version"] == 1
+    assert details["workflow_route_key"] == "review"
+    refute Map.has_key?(details, "profile")
+    refute Map.has_key?(details, "route")
     assert "workpad_record_missing" in details["reason_codes"]
 
     assert Enum.any?(details["missing_evidence"], &(Map.get(&1, "code") == "workpad_record_missing"))
+
+    assert Enum.any?(
+             details["remediation_actions"],
+             &(Map.get(&1, "reason_code") == "workpad_record_missing" and
+                 Map.get(&1, "capabilities") == ["tracker.upsert_workpad"])
+           )
   end
 
   test "validate blocks agent-declared workpad section completion without backend write evidence" do
@@ -151,14 +163,14 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
 
     assert :ok =
              ReviewHandoff.validate(
-               @workflow,
+               no_change_proposal_checks_workflow(),
                issue([change_proposal_attachment()]),
                target_state_name: "In Review",
                evidence: evidence
              )
   end
 
-  test "validate blocks provider checks observed for an older head than the pushed repo head" do
+  test "validate blocks change-proposal checks observed for an older head than the pushed repo head" do
     evidence =
       ready_evidence()
       |> put_in(["observations", "repo", "head_sha"], "new-head")
@@ -178,10 +190,50 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
                evidence: evidence
              )
 
-    assert "provider_checks_head_stale" in details["reason_codes"]
+    assert "change_proposal_checks_head_stale" in details["reason_codes"]
   end
 
-  test "validate accepts not-required provider checks observed after the latest pushed repo head" do
+  test "validate blocks unavailable change-proposal checks unless policy normalized them as not required" do
+    evidence =
+      ready_evidence()
+      |> put_in(["observations", "checks"], %{
+        "status" => "unavailable",
+        "source" => "repo_provider_observed",
+        "observed_at" => "2026-05-19T08:02:00Z"
+      })
+
+    assert {:error, {:review_handoff_not_ready, details}} =
+             ReviewHandoff.validate(
+               @workflow,
+               issue([change_proposal_attachment()]),
+               target_state_name: "In Review",
+               evidence: evidence
+             )
+
+    assert "change_proposal_checks_unavailable" in details["reason_codes"]
+  end
+
+  test "validate blocks not-required change-proposal checks without trusted profile policy" do
+    evidence =
+      ready_evidence()
+      |> put_in(["observations", "checks"], %{
+        "status" => "not_required",
+        "source" => "repo_provider_observed",
+        "observed_at" => "2026-05-19T08:02:00Z"
+      })
+
+    assert {:error, {:review_handoff_not_ready, details}} =
+             ReviewHandoff.validate(
+               @workflow,
+               issue([change_proposal_attachment()]),
+               target_state_name: "In Review",
+               evidence: evidence
+             )
+
+    assert "change_proposal_checks_absent_without_config" in details["reason_codes"]
+  end
+
+  test "validate accepts not-required change-proposal checks observed after the latest pushed repo head" do
     evidence =
       ready_evidence()
       |> put_in(["observations", "repo", "head_sha"], "new-head")
@@ -202,14 +254,14 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
 
     assert :ok =
              ReviewHandoff.validate(
-               @workflow,
+               no_change_proposal_checks_workflow(),
                issue([change_proposal_attachment()]),
                target_state_name: "In Review",
                evidence: evidence
              )
   end
 
-  test "validate blocks not-required provider checks observed before the latest pushed repo head" do
+  test "validate blocks not-required change-proposal checks observed before the latest pushed repo head" do
     evidence =
       ready_evidence()
       |> put_in(["observations", "repo", "head_sha"], "new-head")
@@ -230,19 +282,19 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
 
     assert {:error, {:review_handoff_not_ready, details}} =
              ReviewHandoff.validate(
-               @workflow,
+               no_change_proposal_checks_workflow(),
                issue([change_proposal_attachment()]),
                target_state_name: "In Review",
                evidence: evidence
              )
 
-    assert "provider_checks_observation_stale" in details["reason_codes"]
+    assert "change_proposal_checks_observation_stale" in details["reason_codes"]
   end
 
-  test "validate scopes stored evidence to the current run when run_id is present" do
+  test "validate reads issue-level evidence across continuation runs and current run evidence" do
     Store.record("DEMO-18", ready_evidence())
 
-    assert {:error, {:review_handoff_not_ready, details}} =
+    assert :ok =
              ReviewHandoff.validate(
                @workflow,
                issue([change_proposal_attachment()]),
@@ -250,8 +302,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
                run_id: "run-new"
              )
 
-    assert "workpad_record_missing" in details["reason_codes"]
-
+    Store.reset()
     Store.record(Store.scope_issue_keys("run-new", "DEMO-18"), ready_evidence())
 
     assert :ok =
@@ -296,6 +347,16 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     }
   end
 
+  defp no_change_proposal_checks_workflow do
+    put_in(@workflow, [:profile_options, "readiness"], %{
+      "review_handoff" => %{
+        "change_proposal_checks" => %{
+          "mode" => "not_required"
+        }
+      }
+    })
+  end
+
   defp ready_evidence_without(key) do
     update_in(ready_evidence(), ["observations"], &Map.delete(&1, key))
   end
@@ -306,7 +367,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
         "workpad" => %{
           "status" => "updated",
           "source" => "typed_tool_observed",
-          "comment_id" => "comment-workpad",
+          "workpad_id" => "linear:issue:issue-1:workpad",
           "updated_at" => "2026-05-19T08:06:00Z"
         },
         "repo" => %{
@@ -351,7 +412,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
 
   defp complete_markdown_workpad do
     """
-    ## CodeBuddy Code Workpad
+    ## Workpad
 
     ### Plan
 

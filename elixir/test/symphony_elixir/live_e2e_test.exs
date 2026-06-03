@@ -391,7 +391,7 @@ defmodule SymphonyElixir.LiveE2ETest do
 
     Generated tool inventory for this session:
 
-    {{ tool_inventory }}
+    {{ runtime.tool_inventory }}
 
     For every routine Linear action listed in the inventory, call the exact
     provider-facing callable tool name shown in the inventory. Runtime tool
@@ -411,7 +411,6 @@ defmodule SymphonyElixir.LiveE2ETest do
     `mcp__symphony-planned-tools__linear_issue_snapshot` with:
     - `issue_id`: `{{ issue.id }}`
     - `include_comments`: true
-    - `workpad_heading`: `Symphony Live E2E Workpad`
 
     Read the existing comments and team workflow states.
 
@@ -478,7 +477,7 @@ defmodule SymphonyElixir.LiveE2ETest do
 
     Generated tool inventory for this session:
 
-    {{ tool_inventory }}
+    {{ runtime.tool_inventory }}
 
     Call exactly one tool, then stop:
     `mcp__symphony-planned-tools__linear_issue_snapshot`
@@ -486,7 +485,6 @@ defmodule SymphonyElixir.LiveE2ETest do
     Use these arguments:
     - `issue_id`: `{{ issue.id }}`
     - `include_comments`: true
-    - `workpad_heading`: `Symphony Live E2E Workpad`
 
     Do not write files, run shell commands, inspect the repository, move the
     issue, update comments, call raw Linear GraphQL, or ask for approval.
@@ -504,7 +502,7 @@ defmodule SymphonyElixir.LiveE2ETest do
 
     Generated tool inventory for this session:
 
-    {{ tool_inventory }}
+    {{ runtime.tool_inventory }}
 
     For every routine Linear, repo-core, and repo-provider action listed in the
     inventory, call the exact provider-facing callable tool name shown in the
@@ -535,7 +533,6 @@ defmodule SymphonyElixir.LiveE2ETest do
     - `issue_id`: `{{ issue.id }}`
     - `include_comments`: true
     - `include_attachments`: true
-    - `workpad_heading`: `Symphony Live E2E Workpad`
 
     Step 2:
     Call `mcp__symphony-planned-tools__linear_upsert_workpad` with:
@@ -624,7 +621,6 @@ defmodule SymphonyElixir.LiveE2ETest do
     `{{ issue.id }}` using:
     - `include_comments`: true
     - `include_attachments`: true
-    - `workpad_heading`: `Symphony Live E2E Workpad`
 
     Step 14:
     Create a file named #{@result_file} in the workspace root by running exactly:

@@ -3,7 +3,7 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
 
   require Logger
 
-  alias SymphonyElixir.AgentProvider.OpenCode.AppServer.{Context, Diagnostics, Paths}
+  alias SymphonyElixir.AgentProvider.OpenCode.AppServer.{Diagnostics, Paths}
 
   @poll_interval_ms 250
 
@@ -38,37 +38,6 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
     end
   end
 
-  @spec post_turn_message(map(), String.t()) :: {:ok, map()} | {:error, term()}
-  def post_turn_message(session, prompt) when is_map(session) and is_binary(prompt) do
-    path = Paths.session_message(session.session_id)
-
-    payload =
-      %{
-        "agent" => session.settings.agent,
-        "parts" => [
-          %{
-            "type" => "text",
-            "text" => prompt
-          }
-        ]
-      }
-      |> maybe_put_model(session.settings.model)
-      |> maybe_put_variant(session.settings.variant)
-
-    context = Map.put(Context.session(session), :prompt_bytes, byte_size(prompt))
-
-    case Req.post(session.request, url: path, json: payload) do
-      {:ok, %{status: status, body: body}} when status in 200..299 and is_map(body) ->
-        {:ok, body}
-
-      {:ok, %{status: status, body: body}} ->
-        {:error, request_http_error(:message_post_http_error, "POST", path, status, body, context)}
-
-      {:error, reason} ->
-        {:error, request_transport_error(:message_post_transport_error, "POST", path, reason, context)}
-    end
-  end
-
   @spec abort_session(map()) :: :ok
   def abort_session(session) when is_map(session) do
     case Req.post(session.request, url: Paths.session_abort(session.session_id), json: %{}) do
@@ -95,21 +64,6 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
         end)
     end
   end
-
-  defp maybe_put_model(payload, model) when is_binary(model) do
-    case String.split(model, "/", parts: 2) do
-      [provider_id, model_id] when provider_id != "" and model_id != "" ->
-        Map.put(payload, "model", %{"providerID" => provider_id, "modelID" => model_id})
-
-      _parts ->
-        payload
-    end
-  end
-
-  defp maybe_put_model(payload, _model), do: payload
-
-  defp maybe_put_variant(payload, variant) when is_binary(variant), do: Map.put(payload, "variant", variant)
-  defp maybe_put_variant(payload, _variant), do: payload
 
   defp healthcheck_response_error(context, %{status: status, body: body}) do
     {:healthcheck_timeout,
@@ -159,9 +113,11 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.AppServer.HttpRequests do
   defp request_transport_error(kind, method, path, reason, context) do
     transport_reason = req_transport_reason(reason)
 
+    timeout_label = "read_timeout_ms"
+
     message =
       if transport_reason == :timeout,
-        do: "OpenCode did not respond to #{method} #{path} before read_timeout_ms elapsed",
+        do: "OpenCode did not respond to #{method} #{path} before #{timeout_label} elapsed",
         else: "OpenCode request failed for #{method} #{path}"
 
     {kind,

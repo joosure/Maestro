@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   alias SymphonyElixir.Agent.DynamicTool
   alias SymphonyElixir.Agent.DynamicTool.Bridge
+  alias SymphonyElixir.Agent.DynamicTool.TypedToolFailurePolicy
   alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store, as: ReadinessStore
 
@@ -27,6 +28,13 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert "linear_upsert_comment" in names
     assert "linear_prepare_file_upload" in names
     assert "linear_provider_diagnostics" in names
+
+    workpad_spec = Enum.find(specs, &(&1["name"] == "linear_upsert_workpad"))
+
+    assert get_in(workpad_spec, ["inputSchema", "required"]) == ["issue_id", "body"]
+
+    assert get_in(workpad_spec, ["inputSchema", "properties", "workpad_id", "description"]) =~
+             "stable tracker-level workpad identity"
   end
 
   test "linear_graphql execution is rejected after physical retirement" do
@@ -93,6 +101,32 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert context.tool_metadata["repo_reply_change_proposal_review_comment"][
              "workflowCapability"
            ] == "repo.reply_change_proposal_review_comment"
+  end
+
+  test "captured tool context carries trusted workflow settings" do
+    workflow_settings = %{
+      workflow: %{
+        profile: %{
+          "kind" => "coding_pr_delivery",
+          "version" => 1,
+          "options" => %{
+            "readiness" => %{
+              "review_handoff" => %{
+                "change_proposal_checks" => %{
+                  "mode" => "not_required"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    captured_context = DynamicTool.capture_context(workflow_settings: workflow_settings)
+    normalized_context = DynamicTool.capture_context(tool_context: %{tool_specs: []}, workflow_settings: workflow_settings)
+
+    assert captured_context.workflow_settings == workflow_settings
+    assert normalized_context.workflow_settings == workflow_settings
   end
 
   test "captured TAPD tool context preserves the session snapshot across workflow changes" do
@@ -535,11 +569,12 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   test "typed linear issue snapshot uses a fixed query and returns the typed envelope" do
     test_pid = self()
+    register_linear_workpad!("DEMO-16", "comment-1")
 
     response =
       Bridge.execute(
         "linear_issue_snapshot",
-        %{"issue_id" => "DEMO-16", "workpad_heading" => "## Claude Code Workpad"},
+        %{"issue_id" => "DEMO-16"},
         dynamic_tool_policy: %{allowed_side_effects: ["read_only"]},
         linear_client: fn query, variables, opts ->
           send(test_pid, {:linear_client_called, query, variables, opts})
@@ -561,13 +596,19 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
                  "branchName" => "symphony/demo-16",
                  "comments" => [%{"id" => "comment-1"}]
                },
-               "workpad" => %{"id" => "comment-1"}
+               "workpad" => %{
+                 "id" => "linear:issue:DEMO-16:workpad",
+                 "provider" => "linear",
+                 "provider_ref" => %{"type" => "comment", "id" => "comment-1"}
+               }
              },
              "warnings" => []
            } = response["payload"]
   end
 
   test "typed linear issue snapshot preserves explicit false include flags" do
+    register_linear_workpad!("DEMO-16", "comment-1")
+
     response =
       Bridge.execute(
         "linear_issue_snapshot",
@@ -585,7 +626,11 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
                  "comments" => [],
                  "attachments" => []
                },
-               "workpad" => %{"id" => "comment-1"}
+               "workpad" => %{
+                 "id" => "linear:issue:DEMO-16:workpad",
+                 "provider" => "linear",
+                 "provider_ref" => %{"type" => "comment", "id" => "comment-1"}
+               }
              }
            } = response["payload"]
   end
@@ -665,6 +710,126 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert Enum.any?(missing, &(Map.get(&1, "code") == "workpad_record_missing"))
   end
 
+  test "typed gate failures become non-retryable blocker payload after repeated attempts in the same run" do
+    test_pid = self()
+
+    execute = fn issue_id ->
+      Bridge.execute(
+        "linear_move_issue",
+        %{
+          "issue_id" => issue_id,
+          "state_name" => "In Review",
+          "expected_current_state" => "In Progress"
+        },
+        run_id: "run-review-handoff-retry",
+        linear_client: fn query, variables, opts ->
+          send(test_pid, {:linear_client_called, query, variables, opts})
+
+          if query =~ "issueUpdate" do
+            flunk("review handoff gate must fail before calling issueUpdate")
+          else
+            {:ok, linear_issue_review_incomplete_response()}
+          end
+        end
+      )
+    end
+
+    first = execute.("DEMO-16")
+    second = execute.("DEMO-16")
+    third = execute.("DEMO-16")
+    different_issue = execute.("DEMO-17")
+
+    assert get_in(first, ["payload", "error", "code"]) == "review_handoff_not_ready"
+    assert get_in(second, ["payload", "error", "code"]) == "review_handoff_not_ready"
+    assert get_in(third, ["payload", "error", "code"]) == "review_handoff_blocked_after_retries"
+    assert get_in(third, ["payload", "error", "retryable"]) == false
+
+    details = get_in(third, ["payload", "error", "details"])
+
+    assert details["original_code"] == "review_handoff_not_ready"
+    assert details["failure_count"] == 3
+    assert details["failure_threshold"] == 3
+    assert details["run_id"] == "run-review-handoff-retry"
+    assert details["resource"] == %{"kind" => "tracker_issue", "id" => "DEMO-16"}
+    assert details["tool"] == "linear_move_issue"
+    assert Enum.any?(details["missing_evidence"], &(Map.get(&1, "code") == "workpad_record_missing"))
+    assert is_list(details["remediation_actions"])
+
+    assert Enum.any?(EventStore.recent_events(limit: 20), fn event ->
+             event["event"] == "typed_tool_failure_policy_blocked" and
+               event["issue_id"] == "DEMO-16" and
+               event["run_id"] == "run-review-handoff-retry" and
+               event["resource_kind"] == "tracker_issue" and
+               event["resource_id"] == "DEMO-16" and
+               event["tool_name"] == "linear_move_issue" and
+               event["error_code"] == "review_handoff_blocked_after_retries" and
+               event["retryable"] == false
+           end)
+
+    assert get_in(different_issue, ["payload", "error", "code"]) == "review_handoff_not_ready"
+  end
+
+  test "typed failure policy can scope repeated failures by non-issue resources" do
+    payload = %{
+      "error" => %{
+        "code" => "review_handoff_not_ready",
+        "details" => %{
+          "missing_evidence" => [%{"code" => "repo_branch_missing"}],
+          "remediation_actions" => ["create the working branch"]
+        }
+      }
+    }
+
+    context = %{runtime_metadata: %{"run_id" => "run-non-issue-resource"}}
+
+    first = TypedToolFailurePolicy.apply({:failure, payload}, context, "repo_probe", %{"branch" => "feature/a"}, [])
+    second = TypedToolFailurePolicy.apply({:failure, payload}, context, "repo_probe", %{"branch" => "feature/a"}, [])
+    third = TypedToolFailurePolicy.apply({:failure, payload}, context, "repo_probe", %{"branch" => "feature/a"}, [])
+    other_branch = TypedToolFailurePolicy.apply({:failure, payload}, context, "repo_probe", %{"branch" => "feature/b"}, [])
+
+    assert {:failure, first_payload} = first
+    assert {:failure, second_payload} = second
+    assert {:failure, third_payload} = third
+    assert {:failure, other_payload} = other_branch
+
+    assert get_in(first_payload, ["error", "code"]) == "review_handoff_not_ready"
+    assert get_in(second_payload, ["error", "code"]) == "review_handoff_not_ready"
+    assert get_in(third_payload, ["error", "code"]) == "review_handoff_blocked_after_retries"
+    assert get_in(third_payload, ["error", "details", "resource"]) == %{"kind" => "repo_branch", "id" => "feature/a"}
+    assert get_in(other_payload, ["error", "code"]) == "review_handoff_not_ready"
+  end
+
+  test "typed failure policy skips retry classification when resource identity is missing" do
+    payload = %{
+      "error" => %{
+        "code" => "review_handoff_not_ready",
+        "details" => %{
+          "missing_evidence" => [%{"code" => "resource_missing"}],
+          "remediation_actions" => ["provide a resource identity"]
+        }
+      }
+    }
+
+    context = %{runtime_metadata: %{"run_id" => "run-unscoped-resource"}}
+
+    results =
+      for _index <- 1..4 do
+        TypedToolFailurePolicy.apply({:failure, payload}, context, "unscoped_probe", %{}, [])
+      end
+
+    assert Enum.all?(results, fn
+             {:failure, result_payload} -> get_in(result_payload, ["error", "code"]) == "review_handoff_not_ready"
+             _result -> false
+           end)
+
+    assert Enum.any?(EventStore.recent_events(limit: 10), fn event ->
+             event["event"] == "typed_tool_failure_policy_skipped_unscoped" and
+               event["reason"] == "missing_resource_identity" and
+               event["tool_name"] == "unscoped_probe" and
+               event["error_code"] == "review_handoff_not_ready"
+           end)
+  end
+
   test "typed linear issue move does not run review handoff checks for non-review states" do
     test_pid = self()
 
@@ -704,14 +869,14 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   test "typed linear workpad upsert updates the existing active workpad comment" do
     test_pid = self()
+    register_linear_workpad!("DEMO-16", "comment-1")
 
     response =
       Bridge.execute(
         "linear_upsert_workpad",
         %{
           "issue_id" => "DEMO-16",
-          "heading" => "## Claude Code Workpad",
-          "body" => "## Claude Code Workpad\n\nupdated"
+          "body" => "updated"
         },
         linear_client: fn query, variables, opts ->
           send(test_pid, {:linear_client_called, query, variables, opts})
@@ -720,7 +885,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
             query =~ "commentUpdate" ->
               assert variables == %{
                        commentId: "comment-1",
-                       body: "## Claude Code Workpad\n\nupdated"
+                       body: "updated"
                      }
 
               {:ok, linear_comment_update_response()}
@@ -729,15 +894,12 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
               flunk("typed workpad upsert should not create a duplicate active workpad")
 
             true ->
-              {:ok, linear_issue_snapshot_response()}
+              flunk("typed workpad upsert should not scan comments to discover workpads")
           end
         end
       )
 
-    assert_received {:linear_client_called, comments_query, %{issueId: "DEMO-16", first: 50}, []}
-    assert comments_query =~ "comments"
-
-    assert_received {:linear_client_called, update_query, %{commentId: "comment-1", body: "## Claude Code Workpad\n\nupdated"}, []}
+    assert_received {:linear_client_called, update_query, %{commentId: "comment-1", body: "updated"}, []}
 
     assert update_query =~ "commentUpdate"
 
@@ -745,7 +907,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert get_in(response["payload"], ["data", "comment", "updated"]) == true
   end
 
-  test "typed linear workpad upsert prefixes the canonical heading before creating a comment" do
+  test "typed linear workpad upsert writes the provided body without parsing sections" do
     test_pid = self()
 
     body = """
@@ -758,20 +920,14 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     - [ ] Validate workflow
     """
 
-    expected_body = "## Claude Code Workpad\n\n" <> String.trim(body)
+    expected_body = String.trim(body)
 
     response =
       Bridge.execute(
         "linear_upsert_workpad",
         %{
           "issue_id" => "DEMO-16",
-          "heading" => "Claude Code Workpad",
-          "body" => body,
-          "sections" => [
-            %{"key" => "plan", "status" => "complete"},
-            %{"key" => "acceptance_criteria", "status" => "complete"},
-            %{"key" => "validation", "status" => "complete"}
-          ]
+          "body" => body
         },
         linear_client: fn query, variables, opts ->
           send(test_pid, {:linear_client_called, query, variables, opts})
@@ -785,13 +941,10 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
               flunk("typed workpad upsert should create only when no active workpad exists")
 
             true ->
-              {:ok, linear_issue_snapshot_response_with_comments([])}
+              flunk("typed workpad upsert should not scan comments before creating a registry-missing workpad")
           end
         end
       )
-
-    assert_received {:linear_client_called, comments_query, %{issueId: "DEMO-16", first: 50}, []}
-    assert comments_query =~ "comments"
 
     assert_received {:linear_client_called, create_query, %{issueId: "DEMO-16", body: ^expected_body}, []}
 
@@ -800,29 +953,10 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert response["success"] == true
     assert get_in(response["payload"], ["data", "comment", "created"]) == true
     assert get_in(ReadinessStore.snapshot("DEMO-16"), ["observations", "workpad", "status"]) == "created"
-    refute get_in(ReadinessStore.snapshot("DEMO-16"), ["observations", "workpad", "sections"])
   end
 
-  test "typed linear workpad upsert reuses legacy workpad comments that are missing the heading" do
+  test "typed linear workpad upsert does not reuse workpad-shaped comments without registry identity" do
     test_pid = self()
-
-    legacy_body = """
-    ```text
-    host:/workspace/repo@abc123
-    ```
-
-    ### Plan
-
-    - [ ] Existing plan
-
-    ### Acceptance Criteria
-
-    - [ ] Existing criteria
-
-    ### Validation
-
-    - [ ] Existing validation
-    """
 
     new_body = """
     ```text
@@ -842,14 +976,13 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     - [x] Existing validation
     """
 
-    expected_body = "## Claude Code Workpad\n\n" <> String.trim(new_body)
+    expected_body = String.trim(new_body)
 
     response =
       Bridge.execute(
         "linear_upsert_workpad",
         %{
           "issue_id" => "DEMO-16",
-          "heading" => "Claude Code Workpad",
           "body" => new_body
         },
         linear_client: fn query, variables, opts ->
@@ -857,44 +990,24 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
           cond do
             query =~ "commentUpdate" ->
-              assert variables == %{commentId: "comment-legacy", body: expected_body}
-              {:ok, linear_comment_update_response()}
+              flunk("typed workpad upsert must not infer workpad identity from comment body")
 
             query =~ "commentCreate" ->
-              flunk("typed workpad upsert should reuse legacy workpad-shaped comments")
+              assert variables == %{issueId: "DEMO-16", body: expected_body}
+              {:ok, linear_comment_create_response(expected_body)}
 
             true ->
-              {:ok,
-               linear_issue_snapshot_response_with_comments([
-                 %{
-                   "id" => "comment-other",
-                   "body" => "normal discussion comment",
-                   "resolvedAt" => nil,
-                   "createdAt" => "2026-05-08T00:00:00Z",
-                   "updatedAt" => "2026-05-08T00:00:00Z",
-                   "user" => %{"name" => "Agent"}
-                 },
-                 %{
-                   "id" => "comment-legacy",
-                   "body" => legacy_body,
-                   "resolvedAt" => nil,
-                   "createdAt" => "2026-05-08T00:00:01Z",
-                   "updatedAt" => "2026-05-08T00:00:01Z",
-                   "user" => %{"name" => "Agent"}
-                 }
-               ])}
+              flunk("typed workpad upsert should not scan comments before creating a registry-missing workpad")
           end
         end
       )
 
-    assert_received {:linear_client_called, _comments_query, %{issueId: "DEMO-16", first: 50}, []}
+    assert_received {:linear_client_called, create_query, %{issueId: "DEMO-16", body: ^expected_body}, []}
 
-    assert_received {:linear_client_called, update_query, %{commentId: "comment-legacy", body: ^expected_body}, []}
-
-    assert update_query =~ "commentUpdate"
+    assert create_query =~ "commentCreate"
 
     assert response["success"] == true
-    assert get_in(response["payload"], ["data", "comment", "updated"]) == true
+    assert get_in(response["payload"], ["data", "comment", "created"]) == true
   end
 
   test "typed linear change proposal attachment uses GitHub PR attachment mutation" do
@@ -1050,7 +1163,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
             "nodes" => [
               %{
                 "id" => "comment-1",
-                "body" => "## Claude Code Workpad\n\ncurrent",
+                "body" => "## Workpad\n\ncurrent",
                 "resolvedAt" => nil,
                 "createdAt" => "2026-05-08T00:00:00Z",
                 "updatedAt" => "2026-05-08T00:00:00Z",
@@ -1061,10 +1174,6 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
         }
       }
     }
-  end
-
-  defp linear_issue_snapshot_response_with_comments(comments) do
-    put_in(linear_issue_snapshot_response(), ["data", "issue", "comments", "nodes"], comments)
   end
 
   defp linear_issue_review_ready_response do
@@ -1085,7 +1194,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
         "workpad" => %{
           "status" => "updated",
           "source" => "typed_tool_observed",
-          "comment_id" => "comment-16",
+          "workpad_id" => "linear:issue:DEMO-16:workpad",
           "updated_at" => "2026-05-19T08:06:00Z"
         },
         "repo" => %{
@@ -1132,6 +1241,17 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     }
   end
 
+  defp register_linear_workpad!(issue_id, comment_id) do
+    assert {:ok, _record} =
+             SymphonyElixir.Tracker.WorkpadRegistry.register(%{
+               "tracker_kind" => "linear",
+               "issue_id" => issue_id,
+               "id" => "linear:issue:" <> issue_id <> ":workpad",
+               "provider_ref" => %{"type" => "comment", "id" => comment_id},
+               "provider" => "linear"
+             })
+  end
+
   defp linear_change_proposal_attachment do
     %{
       "id" => "attachment-pr",
@@ -1143,7 +1263,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   defp linear_review_ready_workpad_body do
     """
-    ## CodeBuddy Code Workpad
+    ## Workpad
 
     ### Plan
 
@@ -1161,7 +1281,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   defp linear_review_incomplete_workpad_body do
     """
-    ## CodeBuddy Code Workpad
+    ## Workpad
 
     ### Plan
 
@@ -1221,7 +1341,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
           "success" => true,
           "comment" => %{
             "id" => "comment-1",
-            "body" => "## Claude Code Workpad\n\nupdated",
+            "body" => "## Workpad\n\nupdated",
             "url" => "https://linear.app/test/comment/comment-1"
           }
         }

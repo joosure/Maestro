@@ -95,6 +95,8 @@ defmodule SymphonyElixir.CLI.ChangeProposalReconcile do
     By default this operator command is dry-run:
       - validates the workflow reconciliation config
       - fetches exactly the supplied issue id
+      - loads workflow-local structured KnownTarget records from
+        .symphony/change_proposal_known_targets.json
       - runs targeted reconciliation without source-route scans
       - does not write tracker state
 

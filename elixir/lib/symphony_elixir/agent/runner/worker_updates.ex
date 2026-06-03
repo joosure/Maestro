@@ -48,6 +48,17 @@ defmodule SymphonyElixir.Agent.Runner.WorkerUpdates do
 
   def runtime_info(_recipient, _issue, _worker_host, _workspace, _run_id, _extra), do: :ok
 
+  @spec issue_fact(term(), Issue.t(), worker_host(), Path.t() | nil, String.t(), atom()) :: :ok
+  def issue_fact(recipient, %Issue{} = issue, worker_host, workspace, run_id, source)
+      when is_atom(source) do
+    runtime_info(recipient, issue, worker_host, workspace, run_id, %{
+      issue: issue,
+      issue_fact_source: source
+    })
+  end
+
+  def issue_fact(_recipient, _issue, _worker_host, _workspace, _run_id, _source), do: :ok
+
   defp send_agent_update(recipient, %Issue{id: issue_id}, message)
        when is_binary(issue_id) and is_pid(recipient) do
     send(recipient, {worker_update_message(message), issue_id, message})

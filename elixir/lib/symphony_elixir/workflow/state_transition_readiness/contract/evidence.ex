@@ -12,7 +12,6 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Evidence do
 
   @status_key "status"
   @source_key "source"
-  @sections_key "sections"
   @key_key "key"
   @id_key "id"
   @url_key "url"
@@ -25,7 +24,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Evidence do
   @linked_to_tracker_key "linked_to_tracker"
   @observed_at_key "observed_at"
   @commands_key "commands"
-  @comment_id_key "comment_id"
+  @workpad_id_key "workpad_id"
   @updated_at_key "updated_at"
   @provider_kind_key "provider_kind"
   @repository_key "repository"
@@ -61,9 +60,6 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Evidence do
 
   @spec source_key() :: String.t()
   def source_key, do: @source_key
-
-  @spec sections_key() :: String.t()
-  def sections_key, do: @sections_key
 
   @spec key_key() :: String.t()
   def key_key, do: @key_key
@@ -101,8 +97,8 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Evidence do
   @spec commands_key() :: String.t()
   def commands_key, do: @commands_key
 
-  @spec comment_id_key() :: String.t()
-  def comment_id_key, do: @comment_id_key
+  @spec workpad_id_key() :: String.t()
+  def workpad_id_key, do: @workpad_id_key
 
   @spec updated_at_key() :: String.t()
   def updated_at_key, do: @updated_at_key

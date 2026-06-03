@@ -17,6 +17,8 @@ defmodule SymphonyElixir.WorkflowProfileContract do
         Validator
       }
 
+      alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
+
       @profile unquote(profile)
 
       test "profile identity is registered and resolvable" do
@@ -36,7 +38,6 @@ defmodule SymphonyElixir.WorkflowProfileContract do
 
       test "route maps cover the complete profile route vocabulary" do
         route_keys = @profile.route_keys()
-        raw_state_by_route_key = @profile.default_raw_state_by_route_key()
         policy_by_route_key = @profile.default_policy_by_route_key(@profile.default_options())
         lifecycle_phase_by_route_key = @profile.lifecycle_phase_by_route_key()
 
@@ -44,11 +45,9 @@ defmodule SymphonyElixir.WorkflowProfileContract do
         assert Enum.all?(route_keys, &is_atom/1)
         assert Enum.uniq(route_keys) == route_keys
 
-        assert MapSet.new(Map.keys(raw_state_by_route_key)) == MapSet.new(route_keys)
         assert MapSet.new(Map.keys(policy_by_route_key)) == MapSet.new(route_keys)
         assert MapSet.new(Map.keys(lifecycle_phase_by_route_key)) == MapSet.new(route_keys)
 
-        assert Enum.all?(Map.values(raw_state_by_route_key), &non_empty_string?/1)
         assert Enum.all?(Map.values(lifecycle_phase_by_route_key), &Lifecycle.valid_phase?/1)
       end
 
@@ -107,6 +106,12 @@ defmodule SymphonyElixir.WorkflowProfileContract do
         end)
       end
 
+      test "profile option schema drives defaults and validates default options" do
+        assert is_map(@profile.options_schema())
+        assert @profile.default_options() == ProfileOptions.default_options(@profile.options_schema())
+        assert :ok == @profile.validate_options(@profile.default_options())
+      end
+
       test "default effective workflow passes tracker-agnostic workflow validation" do
         assert :ok == Validator.validate_workflow(:profile_contract, default_effective_workflow())
       end
@@ -122,7 +127,7 @@ defmodule SymphonyElixir.WorkflowProfileContract do
 
       defp default_effective_workflow do
         options = @profile.default_options()
-        raw_state_by_route_key = @profile.default_raw_state_by_route_key()
+        raw_state_by_route_key = RoutePolicy.identity_raw_state_by_route_key(@profile)
         policy_by_route_key = @profile.default_policy_by_route_key(options)
         lifecycle_phase_by_route_key = @profile.lifecycle_phase_by_route_key()
 

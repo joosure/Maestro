@@ -4,6 +4,7 @@ defmodule Mix.Tasks.AgentProvider.SmokeTest do
   import ExUnit.CaptureIO
 
   alias Mix.Tasks.AgentProvider.Smoke, as: AgentProviderSmokeTask
+  alias SymphonyElixir.Workflow.TemplateRegistry
 
   setup do
     Mix.Task.reenable("agent_provider.smoke")
@@ -28,7 +29,7 @@ defmodule Mix.Tasks.AgentProvider.SmokeTest do
   test "runs agent-provider smoke for a bundled memory/mock template" do
     output =
       capture_io(fn ->
-        AgentProviderSmokeTask.run(["--template", "memory/no_repo/mock", "--json"])
+        AgentProviderSmokeTask.run(["--template", TemplateRegistry.local_quickstart_alias(), "--json"])
       end)
 
     payload = Jason.decode!(output)
@@ -53,7 +54,7 @@ defmodule Mix.Tasks.AgentProvider.SmokeTest do
   test "rejects workflow and template together" do
     assert_raise Mix.Error, ~r/Pass either --workflow or --template/, fn ->
       capture_io(fn ->
-        AgentProviderSmokeTask.run(["--workflow", "WORKFLOW.md", "--template", "memory/no_repo/mock"])
+        AgentProviderSmokeTask.run(["--workflow", "WORKFLOW.md", "--template", TemplateRegistry.local_quickstart_alias()])
       end)
     end
   end

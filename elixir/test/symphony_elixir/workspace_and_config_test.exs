@@ -1080,7 +1080,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "linear",
       tracker_api_token: "linear-token",
-      tracker_project_slug: "PROJ"
+      tracker_project_slug: "PROJ",
+      tracker_raw_state_by_route_key: %{
+        "planning" => "Todo",
+        "developing" => "In Progress",
+        "review" => "In Review",
+        "merging" => "Merging",
+        "rework" => "Rework",
+        "resolved" => "Done",
+        "rejected" => "Canceled"
+      }
     )
 
     workflow = Config.settings!().tracker |> LinearWorkflowConfig.global_workflow()
@@ -1115,6 +1124,44 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert IssueContext.route_facts(issue).action == :dispatch
   end
 
+  test "linear workflow config accepts profile-disabled rework route without a Rework state" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_api_token: "linear-token",
+      tracker_project_slug: "PROJ",
+      workflow_profile_options: %{"routes" => %{"rework" => %{"enabled" => false}}},
+      tracker_active_states: ["Todo", "In Progress", "Merging"],
+      tracker_state_phase_map: %{
+        "Todo" => "todo",
+        "In Progress" => "in_progress",
+        "In Review" => "human_review",
+        "Merging" => "merging",
+        "Done" => "done",
+        "Canceled" => "canceled",
+        "Duplicate" => "canceled"
+      },
+      tracker_terminal_states: ["Canceled", "Duplicate", "Done"],
+      tracker_raw_state_by_route_key: %{
+        "planning" => "Todo",
+        "developing" => "In Progress",
+        "review" => "In Review",
+        "merging" => "Merging",
+        "resolved" => "Done",
+        "rejected" => "Canceled"
+      }
+    )
+
+    settings = Config.settings!()
+    workflow = LinearWorkflowConfig.global_workflow(settings.tracker)
+
+    assert :ok == Config.validate!()
+    assert :ok == LinearAdapter.validate_config(settings.tracker)
+    assert workflow.profile_options["routes"]["rework"]["enabled"] == false
+    refute Map.has_key?(workflow.raw_state_by_route_key, :rework)
+    assert workflow.policy_by_route_key.rework == %{action: :disabled}
+    refute "rework" in workflow.completion_contract.allowed_completion_routes
+  end
+
   test "linear config validation rejects route keys outside the active profile vocabulary" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "linear",
@@ -1132,13 +1179,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       }
     )
 
+    source_reason =
+      {:invalid_linear_workflow_config, {:invalid_raw_state_route_key, :global, invalid_coding_route_key("qa_review")}}
+
     assert {:error,
             %TrackerError{
               provider: "linear",
               operation: :validate_config,
-              details: %{
-                source_reason: {:invalid_linear_workflow_config, {:invalid_raw_state_route_key, :global, "qa_review"}}
-              }
+              details: %{source_reason: ^source_reason}
             }} = LinearAdapter.validate_config(Config.settings!().tracker)
   end
 
@@ -1152,13 +1200,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       }
     )
 
+    source_reason =
+      {:invalid_linear_workflow_config, {:invalid_route_policy_key, :global, invalid_coding_route_key("qa_review")}}
+
     assert {:error,
             %TrackerError{
               provider: "linear",
               operation: :validate_config,
-              details: %{
-                source_reason: {:invalid_linear_workflow_config, {:invalid_route_policy_key, :global, "qa_review"}}
-              }
+              details: %{source_reason: ^source_reason}
             }} = LinearAdapter.validate_config(Config.settings!().tracker)
   end
 
@@ -2154,6 +2203,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                },
                "execution_profiles" => %{
                  "allowed" => ["land"]
+               },
+               "readiness" => %{
+                 "review_handoff" => %{
+                   "change_proposal_checks" => %{
+                     "mode" => "required_when_available"
+                   }
+                 }
+               },
+               "routes" => %{
+                 "rework" => %{
+                   "enabled" => true
+                 }
                }
              }
            }
@@ -3223,7 +3284,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "workflow prompt can render generated typed tool inventory" do
-    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ tool_inventory }}")
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ runtime.tool_inventory }}")
 
     prompt =
       SymphonyElixir.Workflow.Prompt.Builder.build_prompt(%{id: "issue-1"},
@@ -3252,7 +3313,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "workflow prompt renders Claude Code MCP tool names in typed inventory" do
-    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ tool_inventory }}")
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ runtime.tool_inventory }}")
 
     prompt =
       SymphonyElixir.Workflow.Prompt.Builder.build_prompt(%{id: "issue-1"},
@@ -3281,7 +3342,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "workflow prompt renders explicit typed tool operator migration fallback policy" do
-    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ tool_inventory }}")
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ runtime.tool_inventory }}")
 
     prompt =
       SymphonyElixir.Workflow.Prompt.Builder.build_prompt(%{id: "issue-1"},
@@ -3553,5 +3614,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
   defp revalidate_issue_for_dispatch(issue, fetcher) do
     Dispatch.revalidate_issue_for_dispatch(issue, fetcher, OrchestratorRuntime.dispatch_context())
+  end
+
+  defp invalid_coding_route_key(route_key) do
+    {:invalid_workflow_route_key, "coding_pr_delivery", 1, route_key}
   end
 end

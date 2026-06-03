@@ -2,13 +2,12 @@ defmodule SymphonyElixir.Workflow.Profile.Defaults do
   @moduledoc """
   Profile-owned defaults after profile options have been applied.
 
-  Tracker adapters may override raw tracker state mappings, but this struct is
-  the profile contract that Workflow Core validates against.
+  Raw tracker state mappings are intentionally excluded: they belong to
+  workflow config and tracker adapters, not profile semantics.
   """
 
   @enforce_keys [
     :route_keys,
-    :raw_state_by_route_key,
     :policy_by_route_key,
     :lifecycle_phase_by_route_key,
     :completion_contract,
@@ -21,7 +20,6 @@ defmodule SymphonyElixir.Workflow.Profile.Defaults do
 
   @type t :: %__MODULE__{
           route_keys: [atom()],
-          raw_state_by_route_key: map(),
           policy_by_route_key: map(),
           lifecycle_phase_by_route_key: map(),
           completion_contract: map(),

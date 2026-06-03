@@ -20,6 +20,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Settings do
   @default_acp_endpoint_path "/api/v1/acp"
   @default_http_bind_host "127.0.0.1"
   @default_http_port :auto
+  @auto_http_port_name "auto"
   @default_http_allowlist ["health"]
   @auxiliary_http_allowlist_ids ~w(auth_status health version metrics_summary session_stats plugin_inventory)
   @default_mcp_server_name "symphony_dynamic_tools"
@@ -253,7 +254,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Settings do
   def http_port(%__MODULE__{http: http}) when is_map(http) do
     case Map.get(InputNormalizer.normalize_keys(http), "port") do
       value when is_integer(value) and value > 0 and value <= 65_535 -> value
-      "auto" -> :auto
+      @auto_http_port_name -> @default_http_port
       _value -> @default_http_port
     end
   end

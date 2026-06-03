@@ -51,7 +51,7 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.AppServer.Launcher do
       with :ok <- maybe_write_runtime_mcp_config(workspace, target, opts, bridge_env) do
         command_spec = command_spec(workspace, target, settings, session_id, env, opts)
 
-        target.executor.start(command_spec, target, Keyword.put(opts, :line, @port_line_bytes))
+        target.executor.start(command_spec, target, executor_opts(opts))
       end
     end
   end
@@ -83,6 +83,12 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.AppServer.Launcher do
       %Target{} = target -> %{target | workspace_path: workspace}
       _target -> Target.new(workspace_path: workspace, worker_host: Keyword.get(opts, :worker_host))
     end
+  end
+
+  defp executor_opts(opts) do
+    opts
+    |> Keyword.put(:line, @port_line_bytes)
+    |> Keyword.put_new(:provider_kind, @provider_kind)
   end
 
   defp claude_args(%Settings{} = settings, session_id, opts) when is_binary(session_id) and is_list(opts) do

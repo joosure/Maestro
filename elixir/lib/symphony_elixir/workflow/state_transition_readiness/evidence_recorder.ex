@@ -4,12 +4,15 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorder do
   """
 
   alias SymphonyElixir.Workflow.StateTransitionReadiness.PolicyRegistry
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan
 
   @spec record_typed_tool_result(String.t() | atom() | nil, term(), String.t() | nil, term(), term(), keyword()) :: :ok
   def record_typed_tool_result(source_kind, source_context, tool, arguments, result, opts \\ []) do
     Enum.each(PolicyRegistry.evidence_recorders(), fn recorder ->
       recorder.record_typed_tool_result(source_kind, source_context, tool, arguments, result, opts)
     end)
+
+    StructuredExecutionPlan.EvidenceRecorder.record_typed_tool_result(source_kind, source_context, tool, arguments, result, opts)
 
     :ok
   end

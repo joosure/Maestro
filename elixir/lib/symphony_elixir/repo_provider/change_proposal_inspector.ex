@@ -7,6 +7,12 @@ defmodule SymphonyElixir.RepoProvider.ChangeProposalInspector do
   alias SymphonyElixir.RepoProvider.LandWatch.{Checks, Reviews}
   alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Facts
 
+  @provider_state_by_name %{
+    "merged" => :merged,
+    "open" => :open,
+    "closed" => :closed
+  }
+
   @spec facts(map(), map() | nil, keyword()) :: Facts.t()
   def facts(repo_config, target, opts \\ [])
 
@@ -183,12 +189,8 @@ defmodule SymphonyElixir.RepoProvider.ChangeProposalInspector do
         :merged
 
       true ->
-        case payload |> field_value("state") |> normalize_token() do
-          "merged" -> :merged
-          "open" -> :open
-          "closed" -> :closed
-          _state -> :unknown
-        end
+        @provider_state_by_name
+        |> Map.get(payload |> field_value("state") |> normalize_token(), :unknown)
     end
   end
 

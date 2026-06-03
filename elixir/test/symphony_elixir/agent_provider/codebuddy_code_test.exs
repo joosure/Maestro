@@ -10,6 +10,9 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
   alias SymphonyElixir.Platform.Process, as: PlatformProcess
 
   @provider_kind "codebuddy_code"
+  @acp_stdio_read_timeout_ms 5_000
+  @acp_http_read_timeout_ms 3_000
+  @acp_http_auto_port_startup_timeout_ms 10_000
 
   defmodule CodeBuddyHttpTestPlug do
     import Plug.Conn
@@ -591,12 +594,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     config =
       ProviderConfig.new(%{
         kind: @provider_kind,
-        options: %{
-          command_argv: [script],
-          read_timeout_ms: 1_000,
-          turn_timeout_ms: 2_000,
-          stall_timeout_ms: 1_000
-        }
+        options: fake_acp_options(script)
       })
 
     assert {:ok, session} = AgentProvider.start_session(workspace, agent_provider_config: config, run_id: "run-codebuddy")
@@ -624,6 +622,85 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     assert :ok = AgentProvider.stop_session(session)
   end
 
+  test "fake ACP provider validates configured model against session metadata" do
+    workspace = tmp_workspace("codebuddy-model-match")
+    script = write_fake_acp_script!(workspace, :success)
+
+    config =
+      ProviderConfig.new(%{
+        kind: @provider_kind,
+        options: Map.put(fake_acp_options(script), :model, "glm-5.1")
+      })
+
+    assert {:ok, session} = AgentProvider.start_session(workspace, agent_provider_config: config, run_id: "run-codebuddy-model-match")
+    assert get_in(session.provider_state, [:provider_metadata, "session", "currentModelId"]) == "glm-5.1"
+    assert :ok = AgentProvider.stop_session(session)
+  end
+
+  test "fake ACP provider fails clearly when configured model does not match session metadata" do
+    workspace = tmp_workspace("codebuddy-model-mismatch")
+    script = write_fake_acp_script!(workspace, :available_model_success)
+
+    config =
+      ProviderConfig.new(%{
+        kind: @provider_kind,
+        options: Map.put(fake_acp_options(script), :model, "not-a-codebuddy-model")
+      })
+
+    assert {:error,
+            %Error{
+              provider: @provider_kind,
+              operation: :start_session,
+              code: :agent_provider_config_invalid,
+              retryable?: false,
+              details: %{
+                configured_model: "not-a-codebuddy-model",
+                current_model: "glm-5.1",
+                available_models: ["glm-5.1", "glm-5.1-pro"]
+              }
+            } = error} =
+             AgentProvider.start_session(workspace, agent_provider_config: config, run_id: "run-codebuddy-model-mismatch")
+
+    assert error.message =~ "configured model is not supported"
+  end
+
+  test "fake ACP provider treats zero exit during prompt as completed turn" do
+    workspace = tmp_workspace("codebuddy-exit-zero")
+    script = write_fake_acp_script!(workspace, :success_exit_zero_after_prompt)
+
+    config =
+      ProviderConfig.new(%{
+        kind: @provider_kind,
+        options: fake_acp_options(script)
+      })
+
+    assert {:ok, session} = AgentProvider.start_session(workspace, agent_provider_config: config, run_id: "run-codebuddy-exit-zero")
+
+    assert {:ok,
+            %TurnResult{
+              status: :completed,
+              session_id: "codebuddy-session-1",
+              thread_id: "codebuddy-session-1",
+              turn_id: nil,
+              metadata: %{
+                "provider_result" => %{
+                  "stopReason" => "end_turn",
+                  "_meta" => %{"codebuddy.ai/finishReason" => "stop"}
+                }
+              }
+            }} =
+             AgentProvider.run_turn(
+               session,
+               "Reply with exactly pong",
+               %{id: "issue-1", identifier: "MEM-1"},
+               on_message: fn message -> send(self(), {:codebuddy_message, message}) end
+             )
+
+    assert_receive {:codebuddy_message, %{event: "message.part.updated"} = message}
+    assert AgentProvider.present_message(message, kind: @provider_kind) == "agent message streaming: pong"
+    assert :ok = AgentProvider.stop_session(session)
+  end
+
   test "fake ACP provider stop terminates spawned MCP-style child process" do
     workspace = tmp_workspace("codebuddy-child-cleanup")
     script = write_fake_acp_script!(workspace, :success_with_child)
@@ -632,12 +709,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     config =
       ProviderConfig.new(%{
         kind: @provider_kind,
-        options: %{
-          command_argv: [script],
-          read_timeout_ms: 1_000,
-          turn_timeout_ms: 2_000,
-          stall_timeout_ms: 1_000
-        }
+        options: fake_acp_options(script)
       })
 
     assert {:ok, session} = AgentProvider.start_session(workspace, agent_provider_config: config, run_id: "run-codebuddy-child-cleanup")
@@ -667,13 +739,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     config =
       ProviderConfig.new(%{
         kind: @provider_kind,
-        options: %{
-          command_argv: [script],
-          credential_ref: Store.credential_ref(account),
-          read_timeout_ms: 1_000,
-          turn_timeout_ms: 2_000,
-          stall_timeout_ms: 1_000
-        }
+        options: Map.merge(fake_acp_options(script), %{credential_ref: Store.credential_ref(account)})
       })
 
     assert {:ok, session} =
@@ -714,7 +780,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
           transport: "acp_http",
           command_argv: [script],
           http: %{bind_host: "127.0.0.1", port: "auto", auth_mode: "none_for_loopback_smoke"},
-          read_timeout_ms: 1_000,
+          read_timeout_ms: @acp_http_auto_port_startup_timeout_ms,
           turn_timeout_ms: 2_000,
           stall_timeout_ms: 1_000
         }
@@ -849,7 +915,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
           command_argv: [script],
           credential_ref: Store.credential_ref(account),
           http: %{bind_host: "127.0.0.1", port: "auto", auth_mode: "none_for_loopback_smoke"},
-          read_timeout_ms: 1_000,
+          read_timeout_ms: @acp_http_auto_port_startup_timeout_ms,
           turn_timeout_ms: 2_000,
           stall_timeout_ms: 1_000
         }
@@ -894,11 +960,11 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
           http: %{
             enabled: true,
             bind_host: "127.0.0.1",
-            port: "auto",
+            port: port,
             auth_mode: "none_for_loopback_smoke",
             allowlist: ["health", "version", "metrics_summary", "session_stats", "plugin_inventory"]
           },
-          read_timeout_ms: 1_000,
+          read_timeout_ms: @acp_http_read_timeout_ms,
           turn_timeout_ms: 2_000,
           stall_timeout_ms: 1_000
         }
@@ -950,7 +1016,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
           transport: "acp_http",
           command_argv: [script],
           http: %{enabled: true, bind_host: "127.0.0.1", port: port, auth_mode: "none_for_loopback_smoke", allowlist: ["health"]},
-          read_timeout_ms: 1_000,
+          read_timeout_ms: @acp_http_read_timeout_ms,
           turn_timeout_ms: 2_000,
           stall_timeout_ms: 1_000
         }
@@ -986,7 +1052,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
             gateway_auth_ref: "credential://gateway/codebuddy-local",
             allowlist: ["health"]
           },
-          read_timeout_ms: 1_000,
+          read_timeout_ms: @acp_http_read_timeout_ms,
           turn_timeout_ms: 2_000,
           stall_timeout_ms: 1_000
         }
@@ -1041,7 +1107,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
             gateway_auth_ref: Store.credential_ref(gateway_account),
             allowlist: ["health"]
           },
-          read_timeout_ms: 1_000,
+          read_timeout_ms: @acp_http_read_timeout_ms,
           turn_timeout_ms: 2_000,
           stall_timeout_ms: 1_000
         }
@@ -1099,7 +1165,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
             gateway_auth_ref: "credential://gateway/missing",
             allowlist: ["health"]
           },
-          read_timeout_ms: 1_000,
+          read_timeout_ms: @acp_http_read_timeout_ms,
           turn_timeout_ms: 2_000,
           stall_timeout_ms: 1_000
         }
@@ -1137,14 +1203,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     config =
       ProviderConfig.new(%{
         kind: @provider_kind,
-        options: %{
-          command_argv: [script],
-          permission_mode: "planned_tools",
-          mcp: %{enabled: true},
-          read_timeout_ms: 1_000,
-          turn_timeout_ms: 2_000,
-          stall_timeout_ms: 1_000
-        }
+        options: Map.merge(fake_acp_options(script), %{permission_mode: "planned_tools", mcp: %{enabled: true}})
       })
 
     assert {:ok, session} =
@@ -1191,14 +1250,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     config =
       ProviderConfig.new(%{
         kind: @provider_kind,
-        options: %{
-          command_argv: [script],
-          permission_mode: "planned_tools",
-          mcp: %{enabled: true},
-          read_timeout_ms: 1_000,
-          turn_timeout_ms: 2_000,
-          stall_timeout_ms: 1_000
-        }
+        options: Map.merge(fake_acp_options(script), %{permission_mode: "planned_tools", mcp: %{enabled: true}})
       })
 
     assert {:ok, session} =
@@ -1314,12 +1366,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     config =
       ProviderConfig.new(%{
         kind: @provider_kind,
-        options: %{
-          command_argv: [script],
-          read_timeout_ms: 1_000,
-          turn_timeout_ms: 2_000,
-          stall_timeout_ms: 1_000
-        }
+        options: fake_acp_options(script)
       })
 
     assert {:ok, session} = AgentProvider.start_session(workspace, agent_provider_config: config, run_id: "run-codebuddy-permission")
@@ -1339,6 +1386,41 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
              )
 
     assert_receive {:codebuddy_message, %{event: :turn_input_required}}
+    assert :ok = AgentProvider.stop_session(session)
+  end
+
+  test "permission requests are auto-selected in explicit bypass mode" do
+    workspace = tmp_workspace("codebuddy-permission-bypass")
+    script = write_fake_acp_script!(workspace, :permission_request_then_success)
+
+    config =
+      ProviderConfig.new(%{
+        kind: @provider_kind,
+        options: Map.merge(fake_acp_options(script), %{permission_mode: "bypass_permissions"})
+      })
+
+    assert {:ok, session} =
+             AgentProvider.start_session(workspace,
+               agent_provider_config: config,
+               run_id: "run-codebuddy-permission-bypass"
+             )
+
+    assert {:ok, result} =
+             AgentProvider.run_turn(
+               session,
+               "Run git status",
+               %{id: "issue-1", identifier: "MEM-1"},
+               on_message: fn message -> send(self(), {:codebuddy_message, message}) end
+             )
+
+    assert result.status == :completed
+    assert get_in(result.metadata, [:result, "stopReason"]) == "end_turn"
+    refute_receive {:codebuddy_message, %{event: :turn_input_required}}, 100
+
+    response = workspace |> Path.join("permission_response.json") |> File.read!() |> Jason.decode!()
+    assert get_in(response, ["result", "outcome", "outcome"]) == "selected"
+    assert get_in(response, ["result", "outcome", "optionId"]) == "allow_always"
+
     assert :ok = AgentProvider.stop_session(session)
   end
 
@@ -1409,6 +1491,16 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
 
   defp settings_with_argv(argv), do: settings_with_argv(argv, "acp_stdio")
   defp settings_with_argv(argv, transport), do: Settings.from_options(%{"command_argv" => argv, "transport" => transport})
+
+  defp fake_acp_options(script) do
+    %{
+      command_argv: [script],
+      acp: %{"handshake_timeout_ms" => 3_000},
+      read_timeout_ms: @acp_stdio_read_timeout_ms,
+      turn_timeout_ms: 2_000,
+      stall_timeout_ms: 1_000
+    }
+  end
 
   defp option_value(argv, flag) do
     argv
@@ -1580,6 +1672,25 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     """
   end
 
+  defp fake_acp_script(:available_model_success) do
+    """
+    #!/usr/bin/env bash
+    while IFS= read -r line; do
+      case "$line" in
+        *initialize*)
+          printf '%s\\n' '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"promptCapabilities":{"image":true,"embeddedContext":true},"mcpCapabilities":{"http":true,"sse":true},"loadSession":true,"delegateToolsSupport":true},"authMethods":[]}}'
+          ;;
+        *session/new*)
+          printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"codebuddy-session-1","models":{"availableModels":[{"id":"glm-5.1"},{"modelId":"glm-5.1-pro"}],"currentModelId":"glm-5.1"},"modes":{"availableModes":[{"id":"plan"}],"currentModeId":"plan"},"configOptions":[]}}'
+          ;;
+        *session/prompt*)
+          printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn","userMessageId":"codebuddy-user-message-1","_meta":{"codebuddy.ai/finishReason":"stop"}}}'
+          ;;
+      esac
+    done
+    """
+  end
+
   defp fake_acp_script(:success_with_child) do
     """
     #!/usr/bin/env bash
@@ -1599,6 +1710,26 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
         *session/prompt*)
           printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"codebuddy-session-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"pong"},"messageId":"assistant-message-1"}}}'
           printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn","userMessageId":"codebuddy-user-message-1"}}'
+          ;;
+      esac
+    done
+    """
+  end
+
+  defp fake_acp_script(:success_exit_zero_after_prompt) do
+    """
+    #!/usr/bin/env bash
+    while IFS= read -r line; do
+      case "$line" in
+        *initialize*)
+          printf '%s\\n' '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"promptCapabilities":{"image":true,"embeddedContext":true},"mcpCapabilities":{"http":true,"sse":true},"loadSession":true,"delegateToolsSupport":true},"authMethods":[]}}'
+          ;;
+        *session/new*)
+          printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"codebuddy-session-1","models":{"availableModels":[],"currentModelId":"glm-5.1"},"modes":{"availableModes":[{"id":"plan"}],"currentModeId":"plan"},"configOptions":[]}}'
+          ;;
+        *session/prompt*)
+          printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"codebuddy-session-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"pong"},"messageId":"assistant-message-1"}}}'
+          exit 0
           ;;
       esac
     done
@@ -1647,6 +1778,30 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
         *session/prompt*)
           printf '%s\\n' '{"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"toolCall":{"name":"Read","arguments":{"path":"package.json"}}}}'
           IFS= read -r _cancel_response || true
+          ;;
+      esac
+    done
+    """
+  end
+
+  defp fake_acp_script(:permission_request_then_success) do
+    """
+    #!/usr/bin/env bash
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+
+    while IFS= read -r line; do
+      case "$line" in
+        *initialize*)
+          printf '%s\\n' '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"promptCapabilities":{},"mcpCapabilities":{},"loadSession":true},"authMethods":[]}}'
+          ;;
+        *session/new*)
+          printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"codebuddy-session-1","models":{"availableModels":[],"currentModelId":"glm-5.1"},"modes":{"availableModes":[{"id":"default"}],"currentModeId":"default"},"configOptions":[]}}'
+          ;;
+        *session/prompt*)
+          printf '%s\\n' '{"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"options":[{"kind":"allow_once","name":"Allow","optionId":"allow"},{"kind":"allow_always","name":"Always Allow","optionId":"allow_always"},{"kind":"reject_once","name":"Reject","optionId":"reject"}],"toolCall":{"name":"Bash","arguments":{"command":"git status"}}}}'
+          IFS= read -r permission_response || true
+          printf '%s\\n' "$permission_response" > "$script_dir/permission_response.json"
+          printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn","_meta":{"codebuddy.ai/finishReason":"stop"}}}'
           ;;
       esac
     done

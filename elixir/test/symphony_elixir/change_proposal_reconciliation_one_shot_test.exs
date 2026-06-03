@@ -13,7 +13,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShotTest do
       Application.delete_env(:symphony_elixir, :memory_repo_provider_issue_comments)
       Application.delete_env(:symphony_elixir, :memory_repo_provider_review_comments)
       Application.delete_env(:symphony_elixir, :memory_repo_provider_reviews)
-      Application.delete_env(:symphony_elixir, :memory_repo_provider_checks)
+      Application.delete_env(:symphony_elixir, :memory_repo_change_proposal_checks)
       Application.delete_env(:symphony_elixir, :memory_tracker_issue_state_overrides)
     end)
 
@@ -77,6 +77,35 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShotTest do
     assert {:ok, [%Issue{state: "Merging"}]} = Tracker.fetch_issue_states_by_ids(["issue-one-shot-write"])
   end
 
+  test "dry-run one-shot restores persisted known target from workflow-local storage" do
+    issue =
+      memory_issue(%{
+        "id" => "issue-one-shot-known-target",
+        "identifier" => "MEM-ONE-SHOT-KNOWN-TARGET",
+        "title" => "Ready change proposal with persisted target",
+        "state" => "In Review"
+      })
+
+    write_memory_reconciliation_workflow!([issue])
+
+    write_known_target!(
+      "issue-one-shot-known-target",
+      "https://example.test/acme/widgets/-/pulls/35"
+    )
+
+    put_ready_repo_provider_payloads()
+
+    report = OneShot.run(issue_id: "issue-one-shot-known-target")
+
+    assert report.ok
+    assert report.mode == "dry_run"
+    assert report.before_state == "In Review"
+    assert report.after_state == "In Review"
+    assert report.decision["reason"] == "ready_to_land"
+    assert report.transition["event"] == "change_proposal_transition_skipped"
+    refute report.state_changed
+  end
+
   test "one-shot report fails before reconciliation when change proposal config is disabled" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
@@ -133,7 +162,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShotTest do
             "passing_checks_required" => true,
             "mergeable_required" => true
           },
-          "transitions" => %{
+          "outcome_routes" => %{
             "ready" => "merging",
             "changes_requested" => "rework",
             "failed_checks" => "rework",
@@ -180,8 +209,29 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.OneShotTest do
       }
     ])
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "status" => "completed", "conclusion" => "success"}
     ])
+  end
+
+  defp write_known_target!(issue_id, url) when is_binary(issue_id) and is_binary(url) do
+    path =
+      Workflow.workflow_file_path()
+      |> Path.dirname()
+      |> Path.join(".symphony/change_proposal_known_targets.json")
+
+    payload = [
+      %{
+        "issue_id" => issue_id,
+        "tracker_kind" => "memory",
+        "repo_provider_kind" => "memory",
+        "repository" => "acme/widgets",
+        "number" => "35",
+        "url" => url
+      }
+    ]
+
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(payload))
   end
 end

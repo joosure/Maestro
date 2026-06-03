@@ -1,14 +1,20 @@
 defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.AgentProvider.Kinds, as: AgentProviderKinds
+  alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
   alias SymphonyElixir.Orchestrator.Running
   alias SymphonyElixir.Orchestrator.Runtime, as: OrchestratorRuntime
   alias SymphonyElixir.Orchestrator.ServerOptions
   alias SymphonyElixir.Orchestrator.WorkerHosts
   alias SymphonyElixir.Platform.CommandEnv
   alias SymphonyElixir.RepoProvider.Error, as: RepoProviderError
+  alias SymphonyElixir.RepoProvider.Kinds, as: RepoProviderKinds
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error, as: TrackerError
+  alias SymphonyElixir.Tracker.Kinds, as: TrackerKinds
+  alias SymphonyElixir.Workflow.TemplateRegistry
+  alias SymphonyElixir.Workflow.Templates
 
   defmodule FailingLinearClient do
     def fetch_candidate_issues(_tracker) do
@@ -21,62 +27,40 @@ defmodule SymphonyElixir.CoreTest do
     def graphql(_query, _variables, _opts), do: {:error, :unexpected_graphql_call}
   end
 
-  defp bundled_workflow_template_path(criteria) when is_map(criteria) do
-    SymphonyElixir.Workflow.Templates.paths()
-    |> Enum.find_value(fn path ->
-      case Workflow.load(path) do
-        {:ok, %{config: config}} ->
-          if workflow_template_matches?(config, criteria), do: path
+  defp bundled_workflow_template_path(tracker_kind, repo_provider_kind, agent_provider_kind) do
+    template_alias = TemplateRegistry.alias_for!(tracker_kind, repo_provider_kind, agent_provider_kind)
 
-        {:error, _reason} ->
-          nil
-      end
-    end) ||
-      flunk("no bundled workflow template matched #{inspect(criteria)}")
+    case Templates.resolve(template_alias) do
+      {:ok, path} -> path
+      {:error, reason} -> flunk("bundled workflow template #{template_alias} did not resolve: #{inspect(reason)}")
+    end
   end
 
   defp tapd_github_codex_workflow_template_path do
-    bundled_workflow_template_path(%{
-      tracker: "tapd",
-      repo_provider: "github",
-      agent_provider: "codex"
-    })
+    bundled_workflow_template_path(TrackerKinds.tapd(), RepoProviderKinds.github(), AgentProviderKinds.codex())
   end
 
   defp tapd_cnb_claude_code_workflow_template_path do
-    bundled_workflow_template_path(%{
-      tracker: "tapd",
-      repo_provider: "cnb",
-      agent_provider: "claude_code"
-    })
+    bundled_workflow_template_path(TrackerKinds.tapd(), RepoProviderKinds.cnb(), AgentProviderKinds.claude_code())
   end
 
   defp tapd_cnb_codebuddy_code_workflow_template_path do
-    bundled_workflow_template_path(%{
-      tracker: "tapd",
-      repo_provider: "cnb",
-      agent_provider: "codebuddy_code"
-    })
+    bundled_workflow_template_path(TrackerKinds.tapd(), RepoProviderKinds.cnb(), AgentProviderKinds.codebuddy_code())
+  end
+
+  defp tapd_cnb_codebuddy_code_template_entry do
+    {:ok, entry} =
+      TemplateRegistry.fetch_by(TrackerKinds.tapd(), RepoProviderKinds.cnb(), AgentProviderKinds.codebuddy_code())
+
+    entry
   end
 
   defp linear_github_claude_code_workflow_template_path do
-    bundled_workflow_template_path(%{
-      tracker: "linear",
-      repo_provider: "github",
-      agent_provider: "claude_code"
-    })
+    bundled_workflow_template_path(TrackerKinds.linear(), RepoProviderKinds.github(), AgentProviderKinds.claude_code())
   end
 
   defp linear_tracker_skill_path do
     Path.expand("../../priv/workspace_automation/skills/tracker/linear/SKILL.md", __DIR__)
-  end
-
-  defp workflow_template_matches?(config, criteria) when is_map(config) and is_map(criteria) do
-    Enum.all?(criteria, fn
-      {:tracker, expected} -> get_in(config, ["tracker", "kind"]) == expected
-      {:repo_provider, expected} -> get_in(config, ["repo", "provider", "kind"]) == expected
-      {:agent_provider, expected} -> get_in(config, ["agent_provider", "kind"]) == expected
-    end)
   end
 
   test "config defaults and validation checks" do
@@ -91,15 +75,8 @@ defmodule SymphonyElixir.CoreTest do
 
     config = Config.settings!()
     assert config.polling.interval_ms == 30_000
-    assert TrackerConfig.active_states(config.tracker) == ["Todo", "In Progress"]
-
-    assert TrackerConfig.terminal_states(config.tracker) == [
-             "Closed",
-             "Cancelled",
-             "Canceled",
-             "Duplicate",
-             "Done"
-           ]
+    assert TrackerConfig.active_states(config.tracker) == []
+    assert TrackerConfig.terminal_states(config.tracker) == []
 
     assert TrackerConfig.state_phase_map(config.tracker)["todo"] == "todo"
     assert TrackerConfig.state_phase_map(config.tracker)["in progress"] == "in_progress"
@@ -130,11 +107,19 @@ defmodule SymphonyElixir.CoreTest do
       assert config.repo.path == "target-repo"
       assert config.repo.remote.name == "upstream"
       assert config.repo.remote.url == "https://example.test/acme/widgets.git"
+      assert config.repo.provider.repository == "acme/widgets"
     after
       restore_env("SOURCE_REPO_PATH", previous_repo_path)
       restore_env("SOURCE_REPO_REMOTE", previous_repo_remote)
       restore_env("SOURCE_REPO_URL", previous_repo_url)
     end
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      repo_remote_url: "https://github.com/acme/widgets.git",
+      repo_provider_repository: "explicit/repo"
+    )
+
+    assert Config.settings!().repo.provider.repository == "explicit/repo"
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
 
@@ -343,8 +328,17 @@ defmodule SymphonyElixir.CoreTest do
     assert is_map(config)
 
     assert get_in(config, ["workflow", "profile", "kind"]) == "coding_pr_delivery"
-    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_tracker_tools"]) == true
-    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_repo_tools"]) == true
+
+    assert get_in(config, [
+             "workflow",
+             "profile",
+             "options",
+             "requirements",
+             "typed_tracker_tools"
+           ]) == true
+
+    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_repo_tools"]) ==
+             true
 
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
@@ -415,22 +409,38 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~
              "workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists"
 
-    assert prompt =~ "{{ tool_inventory }}"
+    assert prompt =~ "{{ runtime.tool_inventory }}"
     assert prompt =~ "Linear Access Boundary"
     assert prompt =~ "Use the inventory `tracker.move_issue` typed tool"
-    assert prompt =~ "Fetch the issue by explicit ticket ID through the inventory `tracker.issue_snapshot` typed tool"
-    assert prompt =~ "Use the inventory `tracker.issue_snapshot` typed tool with comments included"
+
+    assert prompt =~
+             "Fetch the issue by explicit ticket ID through the inventory `tracker.issue_snapshot` typed tool"
+
+    assert prompt =~
+             "Use the inventory `tracker.issue_snapshot` typed tool with comments included"
+
     assert prompt =~ "through the inventory `tracker.upsert_workpad` typed tool"
-    assert prompt =~ "Record a short note in the workpad if state and issue content are inconsistent"
+
+    assert prompt =~
+             "Record a short note in the workpad if state and issue content are inconsistent"
+
     assert prompt =~ "tracker.attach_change_proposal"
-    assert prompt =~ "If it is missing, stop as blocked and record the missing typed tracker capability"
+
+    assert prompt =~
+             "If it is missing, stop as blocked and record the missing typed tracker capability"
+
     assert prompt =~ "repo.read_change_proposal_discussion"
     assert prompt =~ "unresolvedFeedbackSummary.unresolvedItems"
     assert prompt =~ "repo.read_change_proposal_checks"
     assert prompt =~ "repo.create_or_update_change_proposal"
     assert prompt =~ "repo.change_proposal_snapshot"
-    assert prompt =~ "Create or update the PR through the inventory `repo.create_or_update_change_proposal` typed tool"
-    assert prompt =~ "For a new PR, pass `mode: \"create\"`, `title`, `base: \"{{ repo.base_branch }}\"`"
+
+    assert prompt =~
+             "Create or update the PR through the inventory `repo.create_or_update_change_proposal` typed tool"
+
+    assert prompt =~
+             "For a new PR, pass `mode: \"create\"`, `title`, `base: \"{{ repo.base_branch }}\"`"
+
     assert prompt =~ "Confirm the resulting PR with `repo.change_proposal_snapshot`"
     assert prompt =~ "`repo.commit` mode is `all` or `staged`"
     assert prompt =~ "`repo.checkout` mode is `create_or_switch`, `create`, or `switch`"
@@ -498,12 +508,10 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "provided repository copy at `repo/`"
 
     assert prompt =~
-             "The active repo provider for bundled automation is `{{ repo.provider.kind }}`."
+             "Follow the resolved route policy and the completion bars in this workflow template"
 
-    assert prompt =~ "When workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo` exists"
-    assert prompt =~ "provider-neutral repo operations not"
-
-    assert prompt =~ "`${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo-provider` exists"
+    assert prompt =~
+             "Use the generated Typed Workflow Tool Inventory plus the bundled TAPD and repo skills"
 
     assert prompt =~
              "workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists"
@@ -511,12 +519,14 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~
              "Otherwise, merge the PR with the repository's normal repo-core/repo-provider flow"
 
-    refute prompt =~ "For sample-repo, set `SOURCE_REPO_URL=https://github.com/example-user/sample-repo.git`"
+    refute prompt =~
+             "For sample-repo, set `SOURCE_REPO_URL=https://github.com/example-user/sample-repo.git`"
+
     refute prompt =~ "make e2e-tapd"
 
-    assert prompt =~ "{% if repo.provider.kind == \"github\" %}"
     assert prompt =~ "{% if repo.provider.options.required_pr_label %}"
-    assert prompt =~ "Ensure the PR has label `{{ repo.provider.options.required_pr_label }}`."
+    refute prompt =~ "{% if repo.provider.kind == \"github\" %}"
+    assert prompt =~ "If `repo.provider.options.required_pr_label` is configured"
     assert prompt =~ "labels: [\"{{ repo.provider.options.required_pr_label }}\"]"
     refute prompt =~ "pr-add-label"
     assert prompt =~ "actionableItems"
@@ -588,7 +598,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Pass `mode`, `base`, `head`, and `title`"
     assert prompt =~ "omit `body` when no task-specific body is needed"
     assert prompt =~ "repo.change_proposal_snapshot"
-    assert prompt =~ "use it only as documented fallback"
+    assert prompt =~ "only as documented fallback"
     assert prompt =~ "/-/pulls/"
     assert prompt =~ "Do not use `--target-branch`, `--description`, `curl`, `gh`, `glab`, `brew`"
     refute prompt =~ "repo-provider\" pr-create"
@@ -630,8 +640,15 @@ defmodule SymphonyElixir.CoreTest do
     assert get_in(config, ["agent_provider", "kind"]) == "codebuddy_code"
     assert get_in(config, ["agent_provider", "options", "transport"]) == "acp_stdio"
     assert get_in(config, ["agent_provider", "options", "command_argv"]) == ["codebuddy"]
-    assert get_in(config, ["agent_provider", "options", "credential_ref"]) == "credential://codebuddy_code/default"
-    assert get_in(config, ["agent_provider", "options", "permission_mode"]) == "bypass_permissions"
+
+    assert get_in(config, ["agent_provider", "options", "credential_ref"]) ==
+             tapd_cnb_codebuddy_code_template_entry().credential_ref
+
+    assert get_in(config, ["agent_provider", "options", "model"]) == "glm-5.1"
+
+    assert get_in(config, ["agent_provider", "options", "permission_mode"]) ==
+             "bypass_permissions"
+
     assert get_in(config, ["agent_provider", "options", "mcp", "enabled"]) == true
     assert get_in(config, ["agent_provider", "options", "plugin", "enabled"]) == false
     assert get_in(config, ["agent_provider", "options", "http", "enabled"]) == false
@@ -700,15 +717,20 @@ defmodule SymphonyElixir.CoreTest do
     assert get_in(config, ["agent_provider", "options", "permission_mode"]) == "bypassPermissions"
     assert get_in(config, ["agent_provider", "options", "model"]) == "sonnet"
 
-    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_tracker_tools"]) ==
+    assert get_in(config, [
+             "workflow",
+             "profile",
+             "options",
+             "requirements",
+             "typed_tracker_tools"
+           ]) ==
              true
 
-    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_repo_tools"]) == true
+    assert get_in(config, ["workflow", "profile", "options", "requirements", "typed_repo_tools"]) ==
+             true
 
     assert prompt =~
-             "The active repo provider for bundled automation is `{{ repo.provider.kind }}`."
-
-    assert prompt =~ "When workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo` exists"
+             "Use repo-core or repo-provider helpers only for unsupported\noperations, diagnostics, or documented fallback."
 
     assert prompt =~
              "\"${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo\" diff-check \"origin/{{ repo.base_branch }}...HEAD\""
@@ -716,12 +738,10 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Do not substitute plain `git diff --check` on a clean working tree"
 
     assert prompt =~
-             "When workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo-provider` exists"
-
-    assert prompt =~
              "workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists"
 
-    assert prompt =~ "## Claude Code Workpad"
+    assert prompt =~ "## Linear Workpad Contract"
+    assert prompt =~ "## Workpad"
     assert prompt =~ "## Provider Runtime: Claude Code MCP dynamic-tool bridge"
 
     assert prompt =~
@@ -730,15 +750,14 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "This is a Claude Code provider runtime"
     assert prompt =~ "prerequisite whenever this session exposes Dynamic Tools"
     assert prompt =~ "it is not a\nLinear/GitHub workflow prerequisite"
-    assert prompt =~ "repo-provider change-proposal actions"
-    assert prompt =~ "{{ tool_inventory }}"
+    assert prompt =~ "{{ runtime.tool_inventory }}"
     assert prompt =~ "For Linear tracker actions, open and follow the bundled workspace skill"
     assert prompt =~ "${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/tracker/linear/SKILL.md"
-    assert prompt =~ "provider-facing callable tool names listed in the generated inventory"
+    assert prompt =~ "Use the exact Claude-facing callable names"
     assert prompt =~ "tracker.attach_change_proposal"
 
     assert prompt =~
-             "The inventory is the only source for Claude Code's provider-specific callable"
+             "The inventory is the source for\nprovider-specific callable names"
 
     refute prompt =~ "`mcp__symphony-planned-tools__...`"
 
@@ -780,9 +799,9 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~
              "Otherwise, use the inventory `repo.merge_change_proposal` typed tool when it is listed"
 
-    assert prompt =~ "{% if repo.provider.kind == \"github\" %}"
     assert prompt =~ "{% if repo.provider.options.required_pr_label %}"
-    assert prompt =~ "Ensure the PR has label `{{ repo.provider.options.required_pr_label }}`"
+    refute prompt =~ "{% if repo.provider.kind == \"github\" %}"
+    assert prompt =~ "If `repo.provider.options.required_pr_label` is configured"
     assert prompt =~ "repo.read_change_proposal_discussion"
     assert prompt =~ "unresolvedFeedbackSummary"
     assert prompt =~ "responseAction"
@@ -1187,6 +1206,8 @@ defmodule SymphonyElixir.CoreTest do
       File.mkdir_p!(test_root)
       File.mkdir_p!(workspace)
 
+      now = DateTime.utc_now()
+
       agent_pid =
         spawn(fn ->
           receive do
@@ -1201,7 +1222,7 @@ defmodule SymphonyElixir.CoreTest do
             ref: nil,
             identifier: issue_identifier,
             issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
-            started_at: DateTime.utc_now()
+            started_at: now
           }
         },
         claimed: MapSet.new([issue_id]),
@@ -1218,9 +1239,54 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
-      log =
+      running_opts =
+        state
+        |> ServerOptions.running_opts()
+        |> Keyword.put(:completion_grace_ms, 5)
+        |> Keyword.put(:now, now)
+
+      grace_log =
         capture_log(fn ->
-          send(self(), {:terminal_updated_state, reconcile_issue_states([issue], state)})
+          send(
+            self(),
+            {:terminal_grace_state,
+             Running.reconcile_issue_states(
+               [issue],
+               state,
+               OrchestratorRuntime.dispatch_context(),
+               running_opts
+             )}
+          )
+        end)
+
+      assert_receive {:terminal_grace_state, grace_state}
+
+      assert %{
+               ^issue_id => %{
+                 completion_grace_observed_at: ^now,
+                 issue: %{state: "Closed"}
+               }
+             } = grace_state.running
+
+      assert MapSet.member?(grace_state.claimed, issue_id)
+      assert Process.alive?(agent_pid)
+      assert File.exists?(workspace)
+      assert grace_log =~ "issue_reconcile_deferred"
+      assert grace_log =~ "skip_reason=terminal_completion_grace"
+      refute grace_log =~ "issue_workspace_cleanup_requested"
+
+      final_log =
+        capture_log(fn ->
+          send(
+            self(),
+            {:terminal_updated_state,
+             Running.reconcile_issue_states(
+               [issue],
+               grace_state,
+               OrchestratorRuntime.dispatch_context(),
+               Keyword.put(running_opts, :now, DateTime.add(now, 1, :second))
+             )}
+          )
         end)
 
       assert_receive {:terminal_updated_state, updated_state}
@@ -1229,8 +1295,9 @@ defmodule SymphonyElixir.CoreTest do
       refute MapSet.member?(updated_state.claimed, issue_id)
       refute Process.alive?(agent_pid)
       refute File.exists?(workspace)
-      assert log =~ "issue_reconcile_stopped"
-      assert log =~ "issue_workspace_cleanup_requested"
+      assert final_log =~ "issue_reconcile_stopped"
+      assert final_log =~ "skip_reason=terminal"
+      assert final_log =~ "issue_workspace_cleanup_requested"
     after
       File.rm_rf(test_root)
     end
@@ -1263,6 +1330,8 @@ defmodule SymphonyElixir.CoreTest do
 
       File.mkdir_p!(workspace)
 
+      now = DateTime.utc_now()
+
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: current_root,
@@ -1285,7 +1354,7 @@ defmodule SymphonyElixir.CoreTest do
             identifier: issue_identifier,
             issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
             workspace_path: workspace,
-            started_at: DateTime.utc_now()
+            started_at: now
           }
         },
         claimed: MapSet.new([issue_id]),
@@ -1302,11 +1371,52 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
+      running_opts =
+        state
+        |> ServerOptions.running_opts()
+        |> Keyword.put(:completion_grace_ms, 5)
+        |> Keyword.put(:now, now)
+
+      grace_log =
+        capture_log(fn ->
+          send(
+            self(),
+            {:terminal_recorded_cleanup_grace_state,
+             Running.reconcile_issue_states(
+               [issue],
+               state,
+               OrchestratorRuntime.dispatch_context(),
+               running_opts
+             )}
+          )
+        end)
+
+      assert_receive {:terminal_recorded_cleanup_grace_state, grace_state}
+
+      assert %{
+               ^issue_id => %{
+                 completion_grace_observed_at: ^now,
+                 workspace_path: ^workspace,
+                 issue: %{state: "Closed"}
+               }
+             } = grace_state.running
+
+      assert Process.alive?(agent_pid)
+      assert File.exists?(workspace)
+      assert grace_log =~ "issue_reconcile_deferred"
+      refute grace_log =~ "issue_workspace_cleanup_requested"
+
       log =
         capture_log(fn ->
           send(
             self(),
-            {:terminal_recorded_cleanup_state, reconcile_issue_states([issue], state)}
+            {:terminal_recorded_cleanup_state,
+             Running.reconcile_issue_states(
+               [issue],
+               grace_state,
+               OrchestratorRuntime.dispatch_context(),
+               Keyword.put(running_opts, :now, DateTime.add(now, 1, :second))
+             )}
           )
         end)
 
@@ -1498,6 +1608,9 @@ defmodule SymphonyElixir.CoreTest do
     issue_id = "issue-resume"
     ref = make_ref()
     orchestrator_name = __MODULE__.ContinuationOrchestrator
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, schedule_initial_poll?: false)
 
     on_exit(fn ->
@@ -1589,6 +1702,9 @@ defmodule SymphonyElixir.CoreTest do
     issue_id = "issue-crash-initial"
     ref = make_ref()
     orchestrator_name = __MODULE__.InitialCrashRetryOrchestrator
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, schedule_initial_poll?: false)
 
     on_exit(fn ->
@@ -1634,6 +1750,75 @@ defmodule SymphonyElixir.CoreTest do
     assert log =~ "agent_run_retry_scheduled"
   end
 
+  test "abnormal worker exit suppresses retry when refreshed issue is no longer dispatchable" do
+    issue_id = "issue-handoff-complete"
+    ref = make_ref()
+    orchestrator_name = __MODULE__.HandoffCompleteRetrySuppressOrchestrator
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_active_states: ["Todo", "In Progress", "Merging"],
+      tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+      tracker_state_phase_map: %{
+        "Todo" => "todo",
+        "In Progress" => "in_progress",
+        "In Review" => "human_review",
+        "Merging" => "merging"
+      }
+    )
+
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, schedule_initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560",
+      issue: %Issue{
+        id: issue_id,
+        identifier: "MT-560",
+        title: "Handoff complete after provider timeout",
+        state: "In Review"
+      },
+      started_at: DateTime.utc_now(),
+      run_id: "run-handoff-complete"
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    log =
+      capture_log(fn ->
+        send(pid, {:DOWN, ref, :process, self(), :provider_timeout})
+        Process.sleep(50)
+      end)
+
+    state = :sys.get_state(pid)
+
+    refute Map.has_key?(state.running, issue_id)
+    refute Map.has_key?(state.retry_attempts, issue_id)
+    refute MapSet.member?(state.claimed, issue_id)
+    assert MapSet.member?(state.completed, issue_id)
+    assert log =~ "issue_worker_finished"
+    assert log =~ "current_state=\"In Review\""
+    assert log =~ "result=retry_suppressed_non_dispatchable"
+    assert log =~ "agent_run_retry_suppressed"
+    assert log =~ "skip_reason=not_active"
+    refute log =~ "issue_retry_scheduled"
+    refute log =~ "agent_run_retry_scheduled"
+  end
+
   test "abnormal worker exit preserves failure_class in the retry entry" do
     issue_id = "issue-crash-failure-class"
     ref = make_ref()
@@ -1669,6 +1854,177 @@ defmodule SymphonyElixir.CoreTest do
     state = :sys.get_state(pid)
 
     assert %{attempt: 1, failure_class: "remote_startup_failure"} = state.retry_attempts[issue_id]
+  end
+
+  test "abnormal worker exit suppresses retry after typed tool non-retryable blocker" do
+    issue_id = "issue-typed-tool-blocked"
+    ref = make_ref()
+    orchestrator_name = __MODULE__.TypedToolBlockedRetryOrchestrator
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, schedule_initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-562",
+      issue: %Issue{id: issue_id, identifier: "MT-562", state: "In Progress"},
+      started_at: DateTime.utc_now(),
+      run_id: "run-typed-tool-blocked"
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    SymphonyElixir.Observability.Logger.emit(:warning, :typed_tool_failure_policy_blocked, %{
+      component: "agent.dynamic_tool_failure_policy",
+      issue_id: issue_id,
+      run_id: "run-typed-tool-blocked",
+      resource_kind: "tracker_issue",
+      resource_id: issue_id,
+      tool_name: "linear_move_issue",
+      error_code: "review_handoff_blocked_after_retries",
+      original_error_code: "review_handoff_not_ready",
+      retryable: false
+    })
+
+    log =
+      capture_log(fn ->
+        send(pid, {:DOWN, ref, :process, self(), :provider_failed_after_blocker})
+        Process.sleep(50)
+      end)
+
+    state = :sys.get_state(pid)
+
+    refute Map.has_key?(state.running, issue_id)
+    refute Map.has_key?(state.retry_attempts, issue_id)
+    refute MapSet.member?(state.claimed, issue_id)
+    assert MapSet.member?(state.completed, issue_id)
+    assert log =~ "agent_run_retry_suppressed"
+    assert log =~ "skip_reason=typed_tool_non_retryable_blocker"
+    assert log =~ "result=retry_suppressed_blocked"
+    refute log =~ "issue_retry_scheduled"
+    refute log =~ "agent_run_retry_scheduled"
+
+    assert %{
+             "status" => "active",
+             "resource" => %{"kind" => "tracker_issue", "id" => ^issue_id},
+             "blocker_code" => "review_handoff_blocked_after_retries",
+             "original_error_code" => "review_handoff_not_ready",
+             "tool_name" => "linear_move_issue"
+           } = BlockedResourceRegistry.get_active_for_issue(issue_id)
+  end
+
+  test "active typed tool blocker prevents dispatch and retry redispatch" do
+    issue_id = "issue-dispatch-blocked"
+
+    issue = %Issue{
+      id: issue_id,
+      identifier: "MT-563",
+      title: "Blocked dispatch candidate",
+      state: "In Progress"
+    }
+
+    context =
+      SymphonyElixir.Orchestrator.Dispatch.new_context(["In Progress"], ["Done"],
+        state_phase_map: %{"In Progress" => "in_progress", "Done" => "done"},
+        max_concurrent_agents_for_state: fn _state -> 1 end
+      )
+
+    runtime = %{
+      running: %{},
+      claimed: [],
+      orchestrator_slots: 1,
+      worker_slots_available?: true
+    }
+
+    refute BlockedResourceRegistry.active_for_issue?(issue_id)
+    assert SymphonyElixir.Orchestrator.Dispatch.dispatch_skip_reason(issue, runtime, context) == nil
+    assert SymphonyElixir.Orchestrator.Dispatch.retry_candidate_issue?(issue, context)
+
+    assert {:ok, _record} =
+             BlockedResourceRegistry.register(%{
+               "resource_kind" => "tracker_issue",
+               "resource_id" => issue_id,
+               "blocker_code" => "review_handoff_blocked_after_retries"
+             })
+
+    assert SymphonyElixir.Orchestrator.Dispatch.dispatch_skip_reason(issue, runtime, context) ==
+             :typed_tool_blocked
+
+    refute SymphonyElixir.Orchestrator.Dispatch.retry_candidate_issue?(issue, context)
+
+    assert :ok = BlockedResourceRegistry.release_issue(issue_id, :evidence_changed)
+    assert SymphonyElixir.Orchestrator.Dispatch.dispatch_skip_reason(issue, runtime, context) == nil
+  end
+
+  test "normal worker exit does not schedule continuation after typed tool blocker" do
+    issue_id = "issue-normal-exit-blocked"
+    ref = make_ref()
+    orchestrator_name = __MODULE__.TypedToolBlockedNormalExitOrchestrator
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, schedule_initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-564",
+      issue: %Issue{id: issue_id, identifier: "MT-564", state: "In Progress"},
+      started_at: DateTime.utc_now(),
+      run_id: "run-normal-exit-blocked"
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    SymphonyElixir.Observability.Logger.emit(:warning, :typed_tool_failure_policy_blocked, %{
+      component: "agent.dynamic_tool_failure_policy",
+      issue_id: issue_id,
+      run_id: "run-normal-exit-blocked",
+      resource_kind: "tracker_issue",
+      resource_id: issue_id,
+      tool_name: "linear_move_issue",
+      error_code: "review_handoff_blocked_after_retries",
+      original_error_code: "review_handoff_not_ready",
+      retryable: false
+    })
+
+    log =
+      capture_log(fn ->
+        send(pid, {:DOWN, ref, :process, self(), :normal})
+        Process.sleep(50)
+      end)
+
+    state = :sys.get_state(pid)
+
+    refute Map.has_key?(state.running, issue_id)
+    refute Map.has_key?(state.retry_attempts, issue_id)
+    assert MapSet.member?(state.completed, issue_id)
+    assert log =~ "skip_reason=typed_tool_non_retryable_blocker"
+    refute log =~ "result=continuation_scheduled"
+    refute log =~ "issue_retry_scheduled"
+    assert BlockedResourceRegistry.active_for_issue?(issue_id)
   end
 
   test "stale retry timer messages do not consume newer retry entries" do
@@ -1840,7 +2196,9 @@ defmodule SymphonyElixir.CoreTest do
                      fetch_terminal_issues: fn ->
                        {:ok, [%Issue{id: "issue-terminal-cleanup", identifier: "MT-TERMINAL"}]}
                      end,
-                     cleanup_workspace: fn "MT-TERMINAL" -> raise ArgumentError, "cleanup boom" end,
+                     cleanup_workspace: fn "MT-TERMINAL" ->
+                       raise ArgumentError, "cleanup boom"
+                     end,
                      emit_event: fn level, event, extra_fields ->
                        SymphonyElixir.Observability.Logger.emit(level, event, extra_fields)
                      end
@@ -1999,7 +2357,7 @@ defmodule SymphonyElixir.CoreTest do
   test "select_worker_host does not apply local caps to Worker Daemon placement" do
     write_workflow_file!(Workflow.workflow_file_path(),
       worker_max_concurrent_local_agents: 1,
-      agent_runtime: %{
+      runtime_agent: %{
         placement: "worker_daemon",
         worker_daemon: %{endpoint: "http://daemon.example"}
       }
@@ -2041,9 +2399,9 @@ defmodule SymphonyElixir.CoreTest do
     assert {:ok, []} = Client.fetch_issues_by_states([], TrackerConfig.current!())
   end
 
-  test "prompt builder renders issue and attempt values from workflow template" do
+  test "prompt builder renders issue and runtime retry values from workflow template" do
     workflow_prompt =
-      "Ticket {{ issue.identifier }} {{ issue.title }} labels={{ issue.labels }} attempt={{ attempt }}"
+      "Ticket {{ issue.identifier }} {{ issue.title }} labels={{ issue.labels }} retry={{ runtime.retry.attempt }}"
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
 
@@ -2060,7 +2418,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert prompt =~ "Ticket S-1 Refactor backend request path"
     assert prompt =~ "labels=backend"
-    assert prompt =~ "attempt=3"
+    assert prompt =~ "retry=3"
   end
 
   test "prompt builder renders repo config values from workflow template" do
@@ -2482,7 +2840,9 @@ defmodule SymphonyElixir.CoreTest do
     on_exit(fn -> Workflow.set_workflow_file_path(workflow_path) end)
 
     settings = Config.settings!()
-    prompt = PromptBuilder.build_prompt(issue, attempt: 2, settings: settings, repo: settings.repo)
+
+    prompt =
+      PromptBuilder.build_prompt(issue, attempt: 2, settings: settings, repo: settings.repo)
 
     assert prompt =~ "You are working on a Linear ticket `MT-616`"
     assert prompt =~ "Issue context:"
@@ -2492,7 +2852,10 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "https://example.org/issues/MT-616/use-rich-templademo-for-workflowmd"
     assert prompt =~ "Workflow facts:"
     assert prompt =~ "profile -> `coding_pr_delivery` v1"
-    assert prompt =~ "current route -> `developing`; action -> `dispatch`; gate -> `open/dispatch`"
+
+    assert prompt =~
+             "current route -> `developing`; action -> `dispatch`; gate -> `open/dispatch`"
+
     assert prompt =~ "completion routes ->"
     assert prompt =~ "This is an unattended orchestration session."
     assert prompt =~ "Only stop early for a true blocker"
@@ -2584,19 +2947,18 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "the resolved route-policy facts win"
     assert prompt =~ "Never treat this prompt as authority to perform backend-owned pre-dispatch"
 
-    assert prompt =~
-             "do not rely on prompt text to decide or perform the pre-dispatch transition yourself"
+    assert prompt =~ "do not perform prompt-driven pre-dispatch transitions"
 
     assert prompt =~
-             "Use this protocol before moving a story into its next non-dispatch handoff route."
+             "Before moving a Story into its next non-dispatch handoff route, confirm this bar:"
 
-    assert prompt =~ "Do not move a story into a non-dispatch handoff route such as `qa_review`"
-    assert prompt =~ "## Completion Bar Before Non-Dispatch Handoff"
+    assert prompt =~ "Do not move to a non-dispatch handoff route such as `qa_review`"
+    assert prompt =~ "Guardrails:"
     assert prompt =~ "retry attempt #2"
   end
 
   test "prompt builder adds continuation guidance for retries" do
-    workflow_prompt = "{% if attempt %}Retry #" <> "{{ attempt }}" <> "{% endif %}"
+    workflow_prompt = "{% if runtime.retry.attempt %}Retry #" <> "{{ runtime.retry.attempt }}" <> "{% endif %}"
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
 
     issue = %Issue{
@@ -3071,7 +3433,9 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
-      assert :ok = AgentRunner.run(issue, nil, http_port: 4521, issue_state_fetcher: state_fetcher)
+      assert :ok =
+               AgentRunner.run(issue, nil, http_port: 4521, issue_state_fetcher: state_fetcher)
+
       assert_receive {:issue_state_fetch, 1}
       assert_receive {:issue_state_fetch, 2}
 
@@ -3196,7 +3560,8 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
-      assert :ok = AgentRunner.run(issue, nil, http_port: 4521, issue_state_fetcher: state_fetcher)
+      assert :ok =
+               AgentRunner.run(issue, nil, http_port: 4521, issue_state_fetcher: state_fetcher)
 
       trace = File.read!(trace_file)
       assert length(String.split(trace, "RUN", trim: true)) == 1

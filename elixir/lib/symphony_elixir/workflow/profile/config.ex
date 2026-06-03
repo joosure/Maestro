@@ -34,12 +34,14 @@ defmodule SymphonyElixir.Workflow.Profile.Config do
     }
   end
 
-  @spec fetch(t(), atom() | String.t()) :: {:ok, term()} | :error
-  def fetch(%__MODULE__{} = config, key) do
+  @spec fetch(t(), atom()) :: {:ok, term()} | :error
+  def fetch(%__MODULE__{} = config, key) when is_atom(key) do
     config
     |> Map.from_struct()
-    |> Map.fetch(normalize_key(key))
+    |> Map.fetch(key)
   end
+
+  def fetch(%__MODULE__{}, _key), do: :error
 
   defp required_field(map, key) when is_map(map) and is_atom(key) do
     case fetch_field(map, key) do
@@ -60,12 +62,4 @@ defmodule SymphonyElixir.Workflow.Profile.Config do
       true -> :error
     end
   end
-
-  defp normalize_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> key
-  end
-
-  defp normalize_key(key), do: key
 end

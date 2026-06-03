@@ -186,6 +186,39 @@ defmodule SymphonyElixir.Agent.Credential.AccountsTest do
     assert {"OPENROUTER_API_KEY", "sk-or-verify"} in env
   end
 
+  test "verify can run OpenCode non-interactive auth probe" do
+    parent = self()
+    store_root = temp_store_root!("opencode-auth-probe")
+    opts = store_opts(store_root)
+
+    {:ok, _account} =
+      Accounts.login(
+        "opencode",
+        "openrouter",
+        [env_name: "OPENROUTER_API_KEY", token: "sk-or-probe"],
+        opts
+      )
+
+    runner = fn executable, args, env, _run_opts ->
+      send(parent, {:provider_command, executable, args, env})
+      {:ok, ~s({"message":"OK"})}
+    end
+
+    assert {:ok, result} =
+             Accounts.verify(
+               "opencode",
+               "openrouter",
+               [runner: runner, auth_probe: true, prompt: "Reply OK.", model: "openrouter/test-model"],
+               opts
+             )
+
+    assert result.output == ~s({"message":"OK"})
+
+    assert_received {:provider_command, "opencode", ["run", "--format", "json", "--model", "openrouter/test-model", "Reply OK."], env}
+
+    assert {"OPENROUTER_API_KEY", "sk-or-probe"} in env
+  end
+
   test "verify uses materialized CodeBuddy API-key environment" do
     parent = self()
     store_root = temp_store_root!("codebuddy-verify")
@@ -215,6 +248,40 @@ defmodule SymphonyElixir.Agent.Credential.AccountsTest do
     assert {"CODEBUDDY_INTERNET_ENVIRONMENT", "ioa"} in env
     assert {"CODEBUDDY_AUTH_TOKEN", ""} in env
     assert {"CODEBUDDY_BASE_URL", ""} in env
+  end
+
+  test "verify can run CodeBuddy non-interactive auth probe" do
+    parent = self()
+    store_root = temp_store_root!("codebuddy-auth-probe")
+    opts = store_opts(store_root)
+
+    {:ok, _account} =
+      Accounts.login(
+        "codebuddy",
+        "china",
+        [internet_environment: "internal", token: "ck-probe"],
+        opts
+      )
+
+    runner = fn executable, args, env, _run_opts ->
+      send(parent, {:provider_command, executable, args, env})
+      {:ok, "OK"}
+    end
+
+    assert {:ok, result} =
+             Accounts.verify(
+               "codebuddy",
+               "china",
+               [runner: runner, auth_probe: true, prompt: "Reply OK.", model: "codebuddy-test"],
+               opts
+             )
+
+    assert result.output == "OK"
+
+    assert_received {:provider_command, "codebuddy", ["-p", "Reply OK.", "--output-format", "text", "--max-turns", "1", "--tools", "", "--model", "codebuddy-test"], env}
+
+    assert {"CODEBUDDY_API_KEY", "ck-probe"} in env
+    assert {"CODEBUDDY_INTERNET_ENVIRONMENT", "internal"} in env
   end
 
   test "verify uses materialized Codex CODEX_HOME instead of OPENAI_API_KEY env injection" do

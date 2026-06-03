@@ -25,14 +25,15 @@ For each Linear action, call the exact runtime tool name from the generated
 inventory for the matching semantic capability:
 
 - `tracker.issue_snapshot`: read issue state, comments, attachments, labels,
-  branch name, team states, and workpad candidates.
+  branch name, team states, and the adapter-resolved active workpad reference.
 - `tracker.move_issue`: move an issue to a named state. Pass the destination
   state name from a typed issue snapshot; the tool resolves `stateId`.
-- `tracker.upsert_workpad`: create or update the single active workflow workpad
-  comment. The heading is the stable comment identity; the workflow-defined
-  section skeleton is the body structure. The tool owns the canonical Markdown
-  heading and duplicate-avoidance identity.
-- `tracker.attach_change_proposal`: attach a GitHub PR or other change proposal
+- `tracker.upsert_workpad`: create or update the single active workflow workpad.
+  Use the `workpad_id` returned by `tracker.issue_snapshot` when it is present.
+  If no `workpad_id` exists yet, omit it and let the typed tool create and
+  register the canonical workpad. The tool owns the provider comment mapping and
+  canonical Markdown rendering.
+- `tracker.attach_change_proposal`: attach a PR, MR, or other change proposal
   URL to the issue.
 - `tracker.upsert_comment`: create a general issue comment or update a specific
   existing comment by `comment_id`.
@@ -47,10 +48,9 @@ Do not use any non-inventory Linear access path for workflow actions.
 
 ## Common Calls
 
-Use the workpad heading required by the active workflow. The examples below use
-`WORKFLOW_WORKPAD_HEADING` as a placeholder; replace it with that workflow's
-stable workpad marker. Do not replace the heading with the first body section
-such as `### Plan`.
+Use `workpad_id` as the workpad identity. The stored workpad body is human
+readable content only; do not use headings, sections, checkbox text, or comment
+body shape to find or update a workpad.
 
 Read current issue context:
 
@@ -59,8 +59,7 @@ Read current issue context:
   "issue_id": "{{ issue.id }}",
   "include_comments": true,
   "include_attachments": true,
-  "comment_limit": 50,
-  "workpad_heading": "## WORKFLOW_WORKPAD_HEADING"
+  "comment_limit": 50
 }
 ```
 
@@ -80,14 +79,13 @@ Upsert the workflow workpad:
 ```json
 {
   "issue_id": "{{ issue.id }}",
-  "heading": "WORKFLOW_WORKPAD_HEADING",
+  "workpad_id": "linear:issue:{{ issue.id }}:workpad",
   "body": "### Plan\n\n- [x] ...\n\n### Validation\n\n- ..."
 }
 ```
 
-The upsert tool prefixes the canonical Markdown heading when the body omits it,
-so the stored Linear comment starts with the workflow workpad heading and then
-the workflow body sections.
+When `workpad_id` is omitted, the upsert tool creates and registers the
+canonical workpad for the issue.
 
 Create a general comment:
 
@@ -137,7 +135,7 @@ Attach a change proposal:
 ```json
 {
   "issue_id": "{{ issue.id }}",
-  "url": "https://github.com/org/repo/pull/123",
+  "url": "https://provider.example/org/repo/change-proposals/123",
   "title": "DEMO-123 implementation"
 }
 ```

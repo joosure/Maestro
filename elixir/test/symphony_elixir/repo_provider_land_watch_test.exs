@@ -12,7 +12,7 @@ defmodule SymphonyElixir.RepoProviderLandWatchTest do
       :memory_repo_provider_issue_comments,
       :memory_repo_provider_review_comments,
       :memory_repo_provider_reviews,
-      :memory_repo_provider_checks
+      :memory_repo_change_proposal_checks
     ]
 
     on_exit(fn ->
@@ -82,7 +82,7 @@ defmodule SymphonyElixir.RepoProviderLandWatchTest do
   test "land watcher exits successfully when checks pass and reviews are clear" do
     configure_memory_pr()
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "status" => "completed", "conclusion" => "success"}
     ])
 
@@ -95,7 +95,7 @@ defmodule SymphonyElixir.RepoProviderLandWatchTest do
 
   test "land watcher times out when checks never appear" do
     configure_memory_pr()
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [])
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [])
 
     assert {:ok, output, 3} =
              LandWatch.watch(memory_repo(),
@@ -111,7 +111,7 @@ defmodule SymphonyElixir.RepoProviderLandWatchTest do
   test "repo-provider CLI exposes pr-land-watch through command dispatch" do
     configure_memory_pr()
 
-    Application.put_env(:symphony_elixir, :memory_repo_provider_checks, [
+    Application.put_env(:symphony_elixir, :memory_repo_change_proposal_checks, [
       %{"name" => "ci", "status" => "completed", "conclusion" => "success"}
     ])
 

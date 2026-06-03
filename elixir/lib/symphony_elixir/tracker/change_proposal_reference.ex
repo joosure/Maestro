@@ -13,20 +13,64 @@ defmodule SymphonyElixir.Tracker.ChangeProposalReference do
 
   @spec from_issue(Issue.t() | map()) :: t() | nil
   def from_issue(%Issue{} = issue) do
-    change_proposal =
-      issue.workflow
-      |> map_value("change_proposal")
-      |> normalize_map()
+    issue
+    |> issue_struct_candidates()
+    |> Enum.find_value(&from_map/1)
+    |> with_issue_branch(issue.branch_name)
+  end
 
+  def from_issue(issue) when is_map(issue) do
+    issue
+    |> issue_map_candidates()
+    |> Enum.find_value(&from_map/1)
+    |> with_issue_branch(map_value(issue, "branch_name") || map_value(issue, "branchName"))
+  end
+
+  def from_issue(_issue), do: nil
+
+  @spec from_map(map()) :: t() | nil
+  def from_map(value) when is_map(value) do
     %__MODULE__{
-      number: present_string(map_value(change_proposal, "number")),
-      url: present_string(map_value(change_proposal, "url")),
-      branch: present_string(map_value(change_proposal, "branch") || issue.branch_name)
+      number: present_string(map_value(value, "number") || map_value(value, "change_proposal_id") || map_value(value, "changeProposalId")),
+      url: present_string(map_value(value, "url")),
+      branch: present_string(map_value(value, "branch") || map_value(value, "head_ref") || map_value(value, "headRefName"))
     }
     |> blank_to_nil()
   end
 
-  def from_issue(_issue), do: nil
+  def from_map(_value), do: nil
+
+  defp issue_struct_candidates(%Issue{} = issue) do
+    workflow = normalize_map(issue.workflow)
+
+    [
+      map_value(workflow, "change_proposal"),
+      map_value(workflow, "changeProposal")
+    ]
+  end
+
+  defp issue_map_candidates(issue) when is_map(issue) do
+    workflow = normalize_map(map_value(issue, "workflow"))
+
+    [
+      map_value(workflow, "change_proposal"),
+      map_value(workflow, "changeProposal"),
+      map_value(issue, "change_proposal"),
+      map_value(issue, "changeProposal")
+    ]
+  end
+
+  defp with_issue_branch(%__MODULE__{branch: nil} = reference, branch) do
+    %{reference | branch: present_string(branch)}
+    |> blank_to_nil()
+  end
+
+  defp with_issue_branch(nil, branch) do
+    %__MODULE__{branch: present_string(branch)}
+    |> blank_to_nil()
+  end
+
+  defp with_issue_branch(reference, _branch), do: reference
 
   defp blank_to_nil(%__MODULE__{} = reference) do
     if Enum.any?([reference.number, reference.url, reference.branch], &present_string?/1) do

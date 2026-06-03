@@ -2,7 +2,7 @@ defmodule SymphonyElixir.Orchestrator.Running.StallDetection do
   @moduledoc false
 
   alias SymphonyElixir.Orchestrator.Retry
-  alias SymphonyElixir.Orchestrator.Running.{Events, InactiveGrace, StateView, Termination}
+  alias SymphonyElixir.Orchestrator.Running.{CompletionGrace, Events, StateView, Termination}
 
   @spec reconcile_stalled(map(), integer(), keyword()) :: map()
   def reconcile_stalled(state, timeout_ms, opts)
@@ -59,7 +59,7 @@ defmodule SymphonyElixir.Orchestrator.Running.StallDetection do
 
   defp stall_elapsed_ms(running_entry, now) do
     running_entry
-    |> InactiveGrace.last_activity_timestamp()
+    |> CompletionGrace.last_activity_timestamp()
     |> case do
       %DateTime{} = timestamp ->
         max(0, DateTime.diff(now, timestamp, :millisecond))

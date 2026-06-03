@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Context do
 
   @type t :: %{
           optional(:runtime_metadata) => map(),
+          optional(:workflow_settings) => map(),
           source: module(),
           source_context: term(),
           source_kind: String.t() | nil,
@@ -24,7 +25,8 @@ defmodule SymphonyElixir.Agent.DynamicTool.Context do
       tool_specs: [],
       tool_metadata: %{},
       tool_environment: %{},
-      runtime_metadata: %{}
+      runtime_metadata: %{},
+      workflow_settings: %{}
     }
   end
 
@@ -42,6 +44,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.Context do
       tool_metadata: Policy.metadata_many(tool_specs),
       tool_environment: Source.environment(source, source_context, opts)
     }
+    |> put_workflow_settings(opts)
   end
 
   @spec from_opts(keyword()) :: t()
@@ -119,6 +122,20 @@ defmodule SymphonyElixir.Agent.DynamicTool.Context do
     |> Map.put_new(:tool_metadata, Policy.metadata_many(tool_specs))
     |> Map.put_new(:tool_environment, %{})
     |> Map.put_new(:runtime_metadata, %{})
+    |> put_workflow_settings(opts)
+  end
+
+  defp put_workflow_settings(context, opts) when is_map(context) and is_list(opts) do
+    workflow_settings =
+      Map.get(context, :workflow_settings) ||
+        Map.get(context, "workflow_settings") ||
+        Keyword.get(opts, :workflow_settings)
+
+    if is_map(workflow_settings) do
+      Map.put(context, :workflow_settings, workflow_settings)
+    else
+      context
+    end
   end
 
   defp filter_tool_specs(tool_specs, allowed_names) when is_list(tool_specs) do

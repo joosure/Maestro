@@ -138,7 +138,7 @@ defmodule SymphonyElixir.Workflow.ExecutionProfileRegistry.Selection do
           {:cont, :ok}
 
         true ->
-          base_policy = route_policy_entry(base_policy_by_route_key, normalized_route_key)
+          base_policy = effective_route_policy(base_policy_by_route_key, normalized_route_key)
 
           case validate_raw_policy_execution_profile_entry(scope, normalized_route_key, policy, base_policy) do
             :ok -> {:cont, :ok}
@@ -172,21 +172,19 @@ defmodule SymphonyElixir.Workflow.ExecutionProfileRegistry.Selection do
     end
   end
 
-  defp route_policy_entry(policy_by_route_key, route_key)
+  defp effective_route_policy(policy_by_route_key, route_key)
        when is_map(policy_by_route_key) and is_atom(route_key) do
-    Map.get(policy_by_route_key, route_key) ||
-      Map.get(policy_by_route_key, Atom.to_string(route_key)) ||
-      %{}
+    RoutePolicy.policy_for_route_key(policy_by_route_key, route_key)
   end
 
-  defp route_policy_entry(_policy_by_route_key, _route_key), do: %{}
+  defp effective_route_policy(_policy_by_route_key, _route_key), do: %{}
 
   defp route_policy_entry_field(entry, key) when is_map(entry) and is_atom(key) do
-    Values.map_field(entry, key)
+    Map.get(entry, Atom.to_string(key))
   end
 
   defp route_policy_entry_has_key?(entry, key) when is_map(entry) and is_atom(key) do
-    Map.has_key?(entry, key) || Map.has_key?(entry, Atom.to_string(key))
+    Map.has_key?(entry, Atom.to_string(key))
   end
 
   defp route_policy_entry_has_key?(_entry, _key), do: false

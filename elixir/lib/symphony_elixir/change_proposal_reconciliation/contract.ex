@@ -13,6 +13,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Contract do
 
   @tracker_tool_result_ignored_event :change_proposal_tracker_tool_result_ignored
   @candidate_enqueue_dropped_event :change_proposal_candidate_enqueue_dropped
+  @candidate_suspended_event :change_proposal_candidate_suspended
   @known_target_watcher_failed_event :change_proposal_known_target_watcher_failed
 
   @reconciliation_ok_status "ok"
@@ -55,6 +56,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Contract do
   @type event_id ::
           :tracker_tool_result_ignored
           | :candidate_enqueue_dropped
+          | :candidate_suspended
           | :known_target_watcher_failed
           | :config_invalid
           | :reconciliation_started
@@ -72,6 +74,7 @@ defmodule SymphonyElixir.ChangeProposalReconciliation.Contract do
   @spec event(event_id()) :: atom()
   def event(:tracker_tool_result_ignored), do: @tracker_tool_result_ignored_event
   def event(:candidate_enqueue_dropped), do: @candidate_enqueue_dropped_event
+  def event(:candidate_suspended), do: @candidate_suspended_event
   def event(:known_target_watcher_failed), do: @known_target_watcher_failed_event
   def event(:config_invalid), do: @config_invalid_event
   def event(:reconciliation_started), do: @reconciliation_started_event

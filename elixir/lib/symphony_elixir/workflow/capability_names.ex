@@ -51,6 +51,11 @@ defmodule SymphonyElixir.Workflow.CapabilityNames do
   @repo_provider_check_read "repo_provider.check.read"
   @repo_provider_merge "repo_provider.merge"
 
+  @workflow_plan_snapshot "workflow.plan_snapshot"
+  @workflow_plan_upsert "workflow.plan_upsert"
+  @workflow_plan_update_item "workflow.plan_update_item"
+  @workflow_plan_render_workpad "workflow.plan_render_workpad"
+
   @agent_turn_run "agent.turn.run"
   @agent_session_stateful "agent.session.stateful"
   @agent_events_streaming "agent.events.streaming"
@@ -180,6 +185,18 @@ defmodule SymphonyElixir.Workflow.CapabilityNames do
   @spec repo_provider_merge() :: String.t()
   def repo_provider_merge, do: @repo_provider_merge
 
+  @spec workflow_plan_snapshot() :: String.t()
+  def workflow_plan_snapshot, do: @workflow_plan_snapshot
+
+  @spec workflow_plan_upsert() :: String.t()
+  def workflow_plan_upsert, do: @workflow_plan_upsert
+
+  @spec workflow_plan_update_item() :: String.t()
+  def workflow_plan_update_item, do: @workflow_plan_update_item
+
+  @spec workflow_plan_render_workpad() :: String.t()
+  def workflow_plan_render_workpad, do: @workflow_plan_render_workpad
+
   @spec agent_turn_run() :: String.t()
   def agent_turn_run, do: @agent_turn_run
 
@@ -241,7 +258,11 @@ defmodule SymphonyElixir.Workflow.CapabilityNames do
       repo_reply_change_proposal_review_comment(),
       repo_read_change_proposal_checks(),
       repo_merge_change_proposal(),
-      repo_close_change_proposal()
+      repo_close_change_proposal(),
+      workflow_plan_snapshot(),
+      workflow_plan_upsert(),
+      workflow_plan_update_item(),
+      workflow_plan_render_workpad()
     ]
   end
 

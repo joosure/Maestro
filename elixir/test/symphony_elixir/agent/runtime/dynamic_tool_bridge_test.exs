@@ -1,10 +1,12 @@
 defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridgeTest do
   use ExUnit.Case, async: false
 
-  alias SymphonyElixir.Agent.DynamicTool.{Bridge, BridgeContract}
+  alias SymphonyElixir.Agent.DynamicTool.{Bridge, BridgeContract, BridgeRegistry}
   alias SymphonyElixir.Agent.Runtime.{DynamicToolBridge, Target}
 
   setup do
+    ensure_named_process!(BridgeRegistry)
+
     previous_token = Application.get_env(:symphony_elixir, BridgeContract.token_config_key())
     Application.put_env(:symphony_elixir, BridgeContract.token_config_key(), "test-bridge-token")
 
@@ -185,5 +187,12 @@ defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridgeTest do
 
   defp empty_tool_context do
     %{source_context: %{}, tool_specs: [], tool_environment: %{}}
+  end
+
+  defp ensure_named_process!(module) do
+    case Process.whereis(module) do
+      pid when is_pid(pid) -> :ok
+      nil -> start_supervised!(module)
+    end
   end
 end
