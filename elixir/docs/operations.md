@@ -1,311 +1,287 @@
 # Operations Guide
 
-This guide covers runtime configuration and operational behavior for the
-Maestro Elixir runtime. The public product name is Maestro, while concrete
-implementation identifiers still use compatibility names such as
-`SymphonyElixir`, `symphony`, `.symphony`, and `SYMPHONY_*`.
+This guide is for people who want to run Maestro beyond the local demo.
 
-## Runtime Prerequisites
+Core principle:
 
-Use [mise](https://mise.jdx.dev/) to manage Elixir/Erlang versions:
+```text
+try locally -> connect one real system -> observe results -> increase permissions gradually
+```
+
+Maestro can let AI agents work on real project tasks and real Git repositories. The more powerful the setup, the more carefully you should handle credentials, repository writes, project-system updates, and logs.
+
+## Runtime modes
+
+| Mode | Uses | Best for |
+| --- | --- | --- |
+| Local demo | local simulated tasks + mock agent | first experience and learning |
+| Trusted evaluation | test project/test repository + real agent | workflow validation |
+| Team pilot | real project workflow + human review | small team rollout |
+| Production operation | credentials, monitoring, approval, and cleanup policies | long-running use |
+
+Do not jump from local demo to unrestricted production operation.
+
+## Questions to answer before running
+
+1. Does the task come from TAPD, Linear, or local simulated data?
+2. Where is the target Git repository? GitHub, CNB, or a local simulated code platform?
+3. Which agent is used: Codex, Claude Code, OpenCode, or mock?
+4. Can the agent modify the repository or push branches?
+5. Can the agent update project-system states, comments, or links?
+6. Where is the isolated workspace created?
+7. Who reviews the result?
+8. How do you stop, clean up, and inspect a run?
+
+When in doubt, start with `memory/no_repo/mock`.
+
+## Runtime prerequisites
+
+Use `mise` to install pinned Erlang/Elixir versions:
 
 ```bash
+cd elixir
+mise trust
 mise install
 mise exec -- elixir --version
 ```
 
-Workspace sessions and bundled helpers also rely on standard host tooling:
+Common host tools:
 
-- `bash` and `git` for workspace bootstrap and repository operations
-- `gh` for GitHub-backed PR automation
-- `symphony` on `PATH`, or `SYMPHONY_CLI` pointing to the executable, for
-  bundled workspace helpers
-- `CNB_TOKEN` for CNB-backed repository operations
+- `bash`
+- `git`
+- `gh`, for GitHub PR workflows
+- the selected agent CLI, such as Codex, Claude Code, or OpenCode
+- `./bin/symphony` or `SYMPHONY_CLI`
 
-These environment names are maintained as explicit runtime contracts in code,
-not repeated ad hoc across callers. Repo-core variables are owned by
-`SymphonyElixir.Repo.RuntimeEnv`, repo-provider variables by
-`SymphonyElixir.RepoProvider.RuntimeEnv`, and CNB-specific variables by
-`SymphonyElixir.RepoProvider.CNB.RuntimeEnv`.
-
-For provider-specific runtime requirements, see
-[`agent_providers/`](./agent_providers/).
-
-## Workflow Files
-
-A workflow file has YAML front matter for runtime configuration and a Markdown
-body used as the agent-provider prompt.
-
-When no path or `--template` is provided, `./bin/symphony` loads
-[`../WORKFLOW.md`](../WORKFLOW.md). If `WORKFLOW.md` is missing or has invalid
-YAML at startup, Maestro does not boot. If a later reload fails, Maestro keeps
-running with the last known good workflow and logs the reload error until the
-file is fixed.
-
-Important workflow fields:
-
-- `tracker.kind`: tracker adapter, such as `linear`, `tapd`, or `memory`
-- `tracker.auth`: tracker credential fields, usually supplied from environment
-  variables
-- `tracker.lifecycle.active_states`: raw tracker states that are dispatchable
-- `tracker.lifecycle.terminal_states`: raw tracker states that stop active work
-- `tracker.lifecycle.state_phase_map`: raw tracker state to shared lifecycle
-  phase mapping
-- `workspace.root`: root directory for issue workspaces
-- `repo.path`: target repository path inside an issue workspace, usually
-  `repo`
-- `repo.provider.kind`: repo provider, currently `github`, `cnb`, or `memory`
-- `agent.execution.max_concurrent_agents`: concurrent session cap
-- `agent.execution.max_turns`: continuation cap for one active issue
-- `agent_provider.kind`: agent provider, such as `codex`, `claude_code`,
-  `opencode`, or `mock`
-- `agent_provider.options`: provider-native options
-
-Agent provider kind strings and supported aliases are owned by
-`SymphonyElixir.AgentProvider.Kinds`. The registry, config resolver, provider
-metadata, and managed-credential code should use that owner instead of
-duplicating provider-kind literals.
-
-Tracker kind strings are owned by `SymphonyElixir.Tracker.Kinds`.
-Repo-provider kind strings and labels are owned by
-`SymphonyElixir.RepoProvider.Kinds`, while the default repo provider is owned by
-`SymphonyElixir.RepoProvider.Defaults`. Operator docs, workflow templates, and
-runtime validation should use those owners as the implementation source of
-truth.
-
-Environment-backed fields can be supplied as `$VAR`, for example:
-
-- Linear: `tracker.auth.api_key: $LINEAR_API_KEY`
-- TAPD: `tracker.auth.api_key: $TAPD_API_USER`
-- TAPD: `tracker.auth.api_secret: $TAPD_API_PASSWORD`
-
-For path values, `~` is expanded to the home directory. For env-backed path
-values, `$VAR` is resolved before path handling. Command strings such as
-`agent_provider.options.command` keep shell expansion in the launched process.
-
-## Templates
-
-Bundled workflow templates live under
-[`../priv/workflow_templates/`](../priv/workflow_templates/) and are selected
-with `--template <alias>`. Alias format is:
+Provider details live under:
 
 ```text
-<tracker>/<source>/<agent-provider>[.<variant>]
+elixir/docs/agent_providers/
 ```
 
-Template aliases and safety notes are documented in
-[`../priv/workflow_templates/README.md`](../priv/workflow_templates/README.md).
+## Compatibility names
 
-Templates that set `approval_policy: never`, `danger-full-access`, or
-`bypassPermissions` are trusted-environment templates. Use them only where
-unattended tracker writes, repository writes, PR operations, and provider
-credentials are intentionally allowed.
+The public project name is **Maestro**.
 
-## Tracker Lifecycle
+The current runtime still uses compatibility names:
 
-The prompt always receives a normalized `issue` object, regardless of tracker
-kind. In Elixir code this maps to `SymphonyElixir.Issue`.
+- `symphony` CLI
+- `SymphonyElixir` module names
+- `.symphony` directories
+- `SYMPHONY_*` environment variables
 
-Raw tracker states remain in `Issue.state`. Configure lifecycle maps so Maestro
-can derive tracker-neutral phases for blocker gating, retry, dispatch, and
-cleanup decisions.
+Use those names in concrete runtime configuration.
 
-TAPD status configuration has three layers:
+## Credentials
 
-- `Issue.state`: the raw TAPD status returned by the API
-- `tracker.lifecycle.raw_state_by_route_key`: fixed Maestro route keys such as
-  `review` mapped to raw TAPD statuses
-- `tracker.lifecycle.state_phase_map`: raw TAPD statuses mapped to shared
-  lifecycle phases such as `human_review`
+Only provide the credentials required by the selected template.
 
-`review` and `human_review` are intentionally not the same string. `review` is
-the route key, while `human_review` is the lifecycle phase that the configured
-review status must resolve to. Example:
-
-```text
-review -> status_5 -> human_review
-```
-
-For TAPD profiles that follow the bundled route-state example:
-
-- leave `tracker.provider.platform.workitem_type_id` unset unless the target
-  workspace needs explicit narrowing
-- keep the human discussion state out of `tracker.lifecycle.active_states`
-- map the dispatchable planning route to a raw queued status such as
-  `status_4`
-- map the implementation route to the raw in-progress status such as
-  `developing`
-- map the review route to a raw handoff status such as `status_5`
-- replace all example raw values with the exact TAPD API statuses from the
-  target workspace
-
-Maestro performs configured TAPD pre-dispatch route transitions in the backend.
-For example, when a story enters the `planning` route and the route policy is
-`transition_then_dispatch`, the orchestrator moves it to the configured
-`developing` raw status before starting the agent.
-
-## TAPD Workitem Type Scope
-
-TAPD workitem type scope has three modes:
-
-- Omit `tracker.provider.platform.workitem_type_id`,
-  `tracker.provider.platform.workitem_type_ids`, and
-  `tracker.lifecycle.workflows_by_type` for workspace-wide auto-discovery.
-  Maestro scans by `tracker.provider.platform.workspace_id + status`,
-  discovers observed `workitem_type_id` values from the current active result
-  set, and validates matching workflow states only for those discovered types.
-- Use `tracker.provider.platform.workitem_type_id` for one strict narrowing
-  override when one workspace contains multiple mismatched Story subtypes.
-- Use `tracker.provider.platform.workitem_type_ids` for an explicit
-  shared-workflow whitelist when multiple Story subtypes are intended to share
-  one raw TAPD workflow. Maestro still validates every configured type in that
-  whitelist on each poll.
-
-Use `tracker.lifecycle.workflows_by_type` only when one TAPD workspace contains
-heterogeneous Story subtype workflows. Do not combine it with
-`tracker.provider.platform.workitem_type_id` or
-`tracker.provider.platform.workitem_type_ids`.
-
-## Workspace Automation
-
-Maestro copies its bundled provider-neutral workspace automation pack from
-[`../priv/workspace_automation/`](../priv/workspace_automation/) into each newly
-created issue workspace root before `hooks.after_create` runs. The active agent
-provider chooses the target discovery directory. For example, Codex uses
-`<workspace>/.codex`.
-
-The copied automation directory is exposed to hooks and agent sessions as
-`SYMPHONY_WORKSPACE_AUTOMATION_DIR`.
-
-Bundled skills are grouped under:
-
-- `skills/core/`: `commit`, `pull`, and `debug`
-- `skills/repo/`: `push` and `land`
-- `skills/tracker/`: `linear` and `tapd`
-
-The bundled pack is separate from the repository-root `.codex/` used for
-developing Maestro itself. It is also separate from any `repo/.codex` or
-`repo/.agents` content in the target repository.
-
-Set `workspace.bootstrap_automation_from` only when you want to override the
-bundled skill pack with a different local workspace automation directory.
-
-## Workspace Hooks
-
-Use `hooks.after_create` to bootstrap a fresh workspace. For Git-backed
-workflows, prefer cloning the target repository into `repo/` so the outer issue
-workspace can hold Maestro-only automation config without colliding with
-repo-local automation config.
-
-The bundled templates keep `hooks.after_create` and `hooks.before_remove` as
-explicit extension points. By default they clone the target repo and leave
-comment-only placeholders for repo-specific bootstrap or cleanup logic.
-
-If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo
-config and fetch project dependencies in `hooks.after_create` before invoking
-`mise` later from other hooks.
-
-## SSH Workers
-
-SSH worker workflows are enabled per workflow by configuring
-`worker.ssh_hosts`. If `worker.ssh_hosts` is absent, Maestro stays in local-only
-mode for that workflow.
-
-Supported `worker.ssh_hosts` forms:
-
-- `host`
-- `user@host`
-- `host:port`
-- `user@host:port`
-- `[ipv6-literal]`
-- `user@[ipv6-literal]`
-- `[ipv6-literal]:port`
-- `user@[ipv6-literal]:port`
-
-Use bracketed IPv6 notation in workflow config. Unbracketed forms such as
-`::1:2200` are rejected as ambiguous.
-
-`worker.max_concurrent_agents_per_host` is optional, but when set it requires
-valid `worker.ssh_hosts`.
-
-SSH worker execution is intentionally non-interactive. Configure SSH auth,
-host-key verification posture, and any aliasing through `SYMPHONY_SSH_CONFIG`
-or your ambient OpenSSH config rather than relying on prompts during runtime.
-
-Remote cleanup uses the recorded `worker_host` plus the recorded canonical
-`workspace_path` when available, so a later `workspace.root` change does not
-redirect deletion to a different path.
-
-SSH worker execution is implemented by `SymphonyElixir.Platform.SSH`,
-`SymphonyElixir.Agent.Runtime.WorkerDaemon`, and the worker-daemon CLI.
-Production-readiness claims for SSH workers should only be made after running
-representative live validation against the target host class.
-
-## Dashboard And APIs
-
-`server.port` or CLI `--port` enables the optional Phoenix LiveView dashboard
-and JSON API:
-
-- `/`: dashboard
-- `/issues/:issue_identifier`: issue detail page
-- `/api/v1/state`: JSON state snapshot
-- `/api/v1/<issue_identifier>`: issue JSON detail
-- `/api/v1/refresh`: refresh endpoint
-
-The dashboard projects orchestrator snapshot state, recent structured runtime
-events, and issue/session history from the shared in-memory event store.
-
-When using shell commands to summarize `/api/v1/state`, gate JSON parsing on a
-successful HTTP response. A failed local monitor command should be diagnosed
-separately from the resident service:
+TAPD:
 
 ```bash
-state_json=$(mktemp)
-if curl -fsS --max-time 3 http://127.0.0.1:4000/api/v1/state -o "$state_json"; then
-  python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); print(sorted(data.keys()))' "$state_json"
-else
-  echo "state_api_unavailable"
-fi
-rm -f "$state_json"
+export TAPD_API_USER=...
+export TAPD_API_PASSWORD=...
+export TAPD_WORKSPACE_ID=...
 ```
 
-Current logging, event-store, redaction, dashboard, and terminal status behavior
-is documented in [`logging.md`](./logging.md).
+Linear:
 
-## Long-Running Service Verification
+```bash
+export LINEAR_API_KEY=...
+export LINEAR_PROJECT_SLUG=...
+```
 
-The main `./bin/symphony` service is a resident process. An empty queue is not a
-terminal condition: the orchestrator should continue polling, and
-`candidate_count=0` should be followed by later `poll_cycle_started` events.
+GitHub:
 
-For local verification, prefer a foreground run:
+```bash
+gh auth status
+export SOURCE_REPO_PROVIDER_REPOSITORY=owner/repo
+```
+
+CNB:
+
+```bash
+export CNB_TOKEN=...
+```
+
+Repository inputs:
+
+```bash
+export SOURCE_REPO_URL=https://github.com/owner/repo.git
+export SOURCE_REPO_BASE_BRANCH=main
+export SOURCE_REPO_PROVIDER_REPOSITORY=owner/repo
+```
+
+Use least-privilege credentials when possible. Avoid using high-privilege personal tokens for long-running unattended operation.
+
+## Workspaces
+
+Each task should have its own workspace.
+
+Before connecting real systems, set:
+
+```bash
+export SYMPHONY_WORKSPACE_ROOT=/path/to/isolated/maestro-workspaces
+```
+
+The workspace is created inside Maestro's runtime environment: local machine, SSH host, or worker environment. It is not created inside TAPD, Linear, GitHub, or CNB.
+
+Good workspace practices:
+
+- use a dedicated directory;
+- do not place it inside important local projects;
+- give each task its own directory and repository copy;
+- make it easy to inspect;
+- make it easy to delete;
+- do not mix it with unrelated automation.
+
+Why isolated workspaces matter:
+
+- multiple tasks can run in parallel;
+- code copies, logs, and temporary files do not leak across tasks;
+- failed runs can be inspected and cleaned up separately;
+- reviewers can reconstruct what happened in one agent run.
+
+## Safe rollout path
+
+### Step 1: local demo
 
 ```bash
 ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
-  path/to/WORKFLOW.md \
+  --template memory/no_repo/mock \
   --port 4000
 ```
 
-Keep the process attached long enough to observe at least two or three poll
-cycles. A healthy empty-queue service keeps the configured dashboard/API port
-listening and continues to emit `poll_cycle_completed status=ok` in
-`log/symphony.log*`.
+Goal: confirm that the runtime, dashboard, and local task flow work.
 
-Do not use a background process launched from a transient automation shell as
-proof of daemon behavior. In particular, `nohup ./bin/symphony ... &` inside an
-agent/tool execution shell may be cleaned up when that shell returns. If that
-happens without `service_stopped`, child crash logs, or missing poll cycles
-while the parent shell is still alive, treat it as a launch-method artifact
-before investigating Supervisor or child lifecycle code.
+### Step 2: low-risk validation
 
-When true daemon behavior needs validation, run the service under a real
-supervisor such as launchd, systemd, Docker/release runner, tmux, or screen.
-Always stop verification runs explicitly and confirm the configured port is
-released before starting another run.
+Use smoke tests or disposable tasks first.
 
-## Repo Provider And Testing
+```bash
+mix tracker.smoke --template memory/no_repo/mock --issue local-memory-1 --json
+```
 
-Repository provider operation details live in
-[`repo_provider.md`](./repo_provider.md). Local and live validation details live
-in [`testing.md`](./testing.md).
+Goal: validate configuration without affecting real users.
+
+### Step 3: real project system + disposable repository
+
+Use a test project, test repository, or explicitly approved sandbox.
+
+Goal: validate real end-to-end integration behavior.
+
+### Step 4: team pilot
+
+Limit task scope, reviewers, credential permissions, and concurrency.
+
+Goal: learn failure modes and improve templates and prompts.
+
+### Step 5: production hardening
+
+Add approvals, monitoring, credential rotation, cleanup policies, and incident handling.
+
+## Dashboard and API
+
+Use `--port` or `server.port` to enable the dashboard/API.
+
+| Path | Purpose |
+| --- | --- |
+| `/` | Dashboard |
+| `/issues/:issue_identifier` | Task detail page |
+| `/api/v1/state` | Runtime state JSON |
+| `/api/v1/<issue_identifier>` | Task detail JSON |
+| `/api/v1/refresh` | Refresh endpoint |
+
+The dashboard helps inspect:
+
+- which tasks are running;
+- which agent is used;
+- recent events;
+- workspace and session state;
+- final results.
+
+## Logs and delivery records
+
+A run should answer:
+
+- Why did Maestro start this task?
+- Which project system did the task come from?
+- Which Git repository and branch were used?
+- Which template and agent were used?
+- What changed in the repository?
+- Which tools did the agent call?
+- Was a branch or PR created?
+- Where did it fail?
+- What should a human review next?
+
+Detailed logging and redaction behavior lives in:
+
+```text
+elixir/docs/logging.md
+```
+
+## Repository operations
+
+Repo-backed workflows may clone repositories, create branches, push commits, open PRs, check statuses, or watch merge state.
+
+Before enabling repository writes, confirm:
+
+- a disposable repository was tested first;
+- base branch and branch naming are correct;
+- repository permissions are appropriate;
+- PRs or important changes require human review;
+- early runs do not bypass tests, review, or release judgment.
+
+More details:
+
+```text
+elixir/docs/repo_provider.md
+```
+
+## Tracker lifecycle
+
+Maestro needs to know which task states can run and which states should stop.
+
+| Concept | Meaning |
+| --- | --- |
+| Active state | Maestro may pick up this task |
+| Terminal state | Maestro should stop or clean up this task |
+| Route state | Workflow next step, such as planning or review |
+| Human review state | A human should inspect the result |
+
+TAPD raw API states may differ from the workflow names people see. Configure mappings carefully and test them on disposable tasks first.
+
+## SSH and worker execution
+
+Some workflows can run agents on an SSH host or worker service instead of the local machine.
+
+Enable this only after the local and single-machine paths are stable.
+
+Before enabling remote workers, confirm:
+
+- SSH can authenticate without interactive prompts;
+- host-key policy is clear;
+- workspace roots are isolated;
+- cleanup has been tested;
+- concurrency limits are set;
+- operators can see logs and errors.
+
+## Stop and cleanup checklist
+
+Before running real tasks, know how to:
+
+- stop the Maestro process;
+- find the workspace for a task;
+- inspect logs and dashboard state;
+- remove or revert test branches;
+- clean temporary workspaces;
+- undo test states or comments in the project system.
+
+## Related docs
+
+- [Elixir runtime guide](../README.md)
+- [Workflow templates](../priv/workflow_templates/README.md)
+- [Logging guide](./logging.md)
+- [Repo provider guide](./repo_provider.md)
+- [Testing guide](./testing.md)

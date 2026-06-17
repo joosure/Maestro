@@ -1,328 +1,217 @@
 # Maestro
 
 [![GitHub](https://img.shields.io/badge/GitHub-joosure%2FMaestro-black?logo=github)](https://github.com/joosure/Maestro)
-[![Status](https://img.shields.io/badge/status-platformizing-orange)](https://github.com/joosure/Maestro)
+[![Status](https://img.shields.io/badge/status-early%20stage-orange)](https://github.com/joosure/Maestro)
 [![Origin](https://img.shields.io/badge/origin-openai%2Fsymphony-412991)](https://github.com/openai/symphony)
 
-[English](./README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-TW.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Español](./README.es.md) | [Português (Brasil)](./README.pt-BR.md) | [Deutsch](./README.de.md) | [Français](./README.fr.md) | [Русский](./README.ru.md) | [Bahasa Indonesia](./README.id.md)
+Sprachen: [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Español](./README.es.md) · [Português](./README.pt-BR.md) · [More](./LANGUAGES.md)
 
-## Eine Orchestrierungs- und Governance-Plattform für KI-Agents im Enterprise Engineering.
+## Lass AI Agents aus echten Projektaufgaben heraus arbeiten.
 
-Maestro ist eine Orchestrierungs- und Governance-Plattform für Engineering-Teams. Es verbindet Issue Tracker, Anforderungen, Repositories, Agent Provider, Runtime-Umgebungen, Tool-Integrationen und Delivery Evidence, damit Codex, Claude Code, CodeBuddy Code, OpenCode und künftige Coding Agents echte Projektarbeit übernehmen, ausführen, Änderungen einreichen und auditierbare Evidence hinterlassen können.
+Maestro verbindet **Projektsysteme, Git-Repositories und Coding Agents** zu einem gemeinsamen Ausführungsfluss für Engineering-Aufgaben.
 
-Es ist kein weiterer Coding Agent.
+Statt einzelne AI-Chats manuell zu überwachen, kann Maestro neue oder bereite Aufgaben aus Systemen wie Linear oder TAPD lesen, für jede Aufgabe eine isolierte Arbeitsumgebung erstellen, das Ziel-Git-Repository vorbereiten, den passenden AI Agent starten, den Ablauf protokollieren und das Ergebnis in das Projektsystem zurückschreiben.
 
-Es ermöglicht Codex, Claude Code, CodeBuddy Code, OpenCode und künftigen Agents, aus echten Projektsystemen, echten Repositories, echten Workflows und echten operativen Grenzen heraus zu arbeiten.
+Maestro ist kein weiterer Coding Agent.
 
-> **Symphony hat das Muster bewiesen. Maestro baut die Plattform.**
+Maestro hilft Teams bei den Fragen, die entstehen, wenn Agents praktisch nützlich werden: Woher kommt die Aufgabe? Woher kommt der Code? Wo läuft der Agent? Wie laufen mehrere Aufgaben parallel? Was wurde geändert? Ist das Ergebnis nachvollziehbar? Wie kann das Team prüfen, übernehmen oder einen Lauf wiederherstellen?
 
----
-
-## Container-Schnellstart
-
-Starte den lokalen memory/mock-Workflow ohne externe Credentials:
-
-```bash
-docker compose -f deploy/compose/compose.quickstart.yml up --build
-```
-
-Öffne das Dashboard unter `http://localhost:4000`.
-
-Den vollständigen Container-Mock-Quickstart, echte Workflow-Container-Integration, Volumes und Credential Handling findest du in [`docs/deployment/container.md`](./docs/deployment/container.md).
+> **Symphony hat gezeigt, dass Projektaufgaben Agents steuern können. Maestro macht daraus eine betreibbare Engineering-Plattform.**
 
 ---
 
-## Warum Maestro
+## Ein Beispiel
 
-OpenAI Symphony brachte eine starke Idee ein: **Verwalte die Arbeit, nicht die Agent Sessions**.
+Angenommen, in TAPD oder Linear erscheint eine neue Aufgabe:
 
-Statt Ingenieurinnen und Ingenieure einzelne Coding-Agent-Chats überwachen zu lassen, zeigte Symphony, dass Projektmanagementsysteme wie Linear zum Einstiegspunkt für autonome Coding-Arbeit werden können.
+> Die Checkout-Seite schlägt fehl, wenn ein Nutzer zwei Gutscheine anwendet.
 
-Maestro führt dieses Muster weiter.
+Mit Maestro wird daraus ein nachvollziehbarer Agent-Lauf:
 
-Es verallgemeinert die ursprüngliche `Linear + Codex` Referenzimplementierung zu einer **tracker-driven, provider-neutral Orchestrierungs- und Governance-Plattform** für moderne Engineering Workflows.
+1. Maestro synchronisiert oder liest die Aufgabe aus TAPD, Linear oder einem anderen Projektsystem.
+2. Maestro erstellt in seiner eigenen Laufzeitumgebung eine isolierte Arbeitsumgebung für diese Aufgabe.
+3. Maestro clont oder checkt das Ziel-Git-Repository in diese Arbeitsumgebung aus.
+4. Maestro startet Codex, Claude Code, OpenCode oder einen anderen unterstützten Agent mit Aufgabe, Repository-Kopie und erlaubten Werkzeugen.
+5. Der Agent analysiert die Repository-Kopie und bereitet eine Codeänderung, ein Analyseergebnis oder einen Review-Vorschlag vor.
+6. Maestro zeichnet diff, Logs, Tool-Aufrufe, Zusammenfassung und zugehörige Links auf.
+7. Maestro schreibt das Ergebnis in das Projektsystem zurück, damit das Team prüfen, fortsetzen oder übernehmen kann.
 
-Praktisch hilft Maestro Teams beim Übergang von:
+Es geht nicht darum, einen Agent blind laufen zu lassen. Der Kern ist:
+
+> **Eine Projektaufgabe wird zu einem isolierten, aufgezeichneten, reviewbaren und übernehmbaren Agent-Engineering-Lauf.**
+
+Die isolierte Arbeitsumgebung ist wichtig: Jede Aufgabe hat ein eigenes Verzeichnis, eine eigene Repository-Kopie, eigene Logs und temporäre Dateien. Dadurch können mehrere Projekte und Aufgaben parallel laufen, ohne sich gegenseitig zu beeinflussen. Fehlgeschlagene Läufe lassen sich leichter untersuchen, bereinigen und erneut starten.
+
+---
+
+## Warum das wichtig ist
+
+Coding Agents werden immer besser darin, Code zu schreiben. Teams brauchen aber mehr als Codegenerierung.
+
+Sie brauchen praktische Antworten:
+
+- Aus welchem Projektsystem kommt die Aufgabe?
+- Welchem Git-Repository und Branch ist sie zugeordnet?
+- Welcher Agent soll laufen?
+- Wo läuft der Agent?
+- Wie bleiben mehrere Läufe voneinander getrennt?
+- Was wurde geändert?
+- Können Menschen das Ergebnis prüfen?
+- Was passiert bei einem Fehler?
+- Wie versteht das Team den Ablauf?
+
+Maestro ist um diese Fragen herum gebaut.
+
+---
+
+## Was du mit Maestro tun kannst
+
+### 1. Aus einer Bug-Aufgabe einen Pull Request machen
+
+Ein Bug erscheint in TAPD oder Linear. Maestro liest die Aufgabe, erstellt eine isolierte Arbeitsumgebung, bereitet das Ziel-Git-Repository vor, startet einen Agent, lässt den Agent Code analysieren und ändern und schreibt PR-Link, Zusammenfassung und offene Fragen zurück in die Aufgabe.
+
+### 2. Anforderungen vor der Umsetzung analysieren
+
+Wenn eine Anforderung noch unklar ist, kann Maestro einen Agent zuerst Umfang, Risiken, Akzeptanzkriterien und Klärungsfragen erstellen lassen.
+
+### 3. Eine Aufgabe klären, die noch nicht startbereit ist
+
+Wenn Kontext fehlt, kann Maestro Annahmen, Blocker und Fragen sichtbar machen, statt den Agent raten zu lassen.
+
+### 4. Eingehende Arbeit triagieren
+
+Maestro kann neue Aufgaben klassifizieren, Priorität vorschlagen, Risiken erkennen und den nächsten Status empfehlen.
+
+### 5. Verschiedene Coding Agents vergleichen
+
+Ähnliche Aufgaben können mit Codex, Claude Code oder OpenCode laufen. Das Team kann Ergebnisse, Fehlerarten, Logs und Liefernachweise vergleichen.
+
+### 6. Lokal ohne echte Konten ausprobieren
+
+Mit dem lokalen `memory/no_repo/mock`-Flow lässt sich Maestro verstehen, ohne Linear, TAPD, GitHub, CNB, Codex, Claude Code oder OpenCode zu verbinden.
+
+---
+
+## Aktuell unterstützte Integrationen
+
+Die folgenden Systeme sind **unterstützte Integrationen und mitgelieferte Templates**, keine in Maestro eingebauten Systeme. Linear, TAPD, GitHub, CNB, Codex, Claude Code und OpenCode bleiben externe Systeme oder Werkzeuge. Maestro verbindet und orchestriert sie.
+
+Adapter für Projektsysteme:
+
+- Linear
+- TAPD
+- Memory, für lokale Tests und Demos
+
+Agent-Adapter:
+
+- Codex
+- Claude Code
+- OpenCode
+- Mock, für lokale Tests und Demos
+
+Adapter für Code-Plattformen:
+
+- GitHub
+- CNB
+- Memory, für lokale Tests und Demos
+
+Mitgelieferte Workflow-Templates:
+
+- `memory/no_repo/mock`
+- `linear/github/codex`
+- `linear/github/claude_code`
+- `linear/github/opencode.canary`
+- `tapd/github/codex`
+- `tapd/cnb/opencode`
+- `tapd/cnb/claude_code`
+
+Maestro ist darauf ausgelegt, mit weiteren Projektsystemen, Code-Plattformen, Agents und Workflow-Templates zu wachsen.
+
+---
+
+## Wie es funktioniert
 
 ```text
-human-managed agent chats
+Aufgabe in einem Projektsystem
+   ↓
+Maestro liest/synchronisiert die Aufgabe und entscheidet, ob sie bearbeitet wird
+   ↓
+Maestro erstellt eine isolierte Arbeitsumgebung in seiner eigenen Laufzeitumgebung
+   ↓
+Das Ziel-Git-Repository wird in dieser Arbeitsumgebung vorbereitet
+   ↓
+Ein AI Agent läuft mit Aufgabe, Repository-Kopie und erlaubten Werkzeugen
+   ↓
+Der Agent erzeugt Codeänderung, Analyseergebnis oder Review-Vorschlag
+   ↓
+Maestro zeichnet diffs, Logs, Tool-Aufrufe, Zusammenfassungen und Links auf
+   ↓
+Maestro schreibt das Ergebnis zur Prüfung oder Übergabe in das Projektsystem zurück
 ```
 
-zu:
+Für Entwickler lässt sich derselbe Ablauf über einige Erweiterungspunkte verstehen:
 
-```text
-tracker-driven agent operations
-```
-
-Dieser Unterschied ist wichtig. Demos können mit einem Agent, einem Issue und einem Repository funktionieren. Produktionsteams brauchen scheduling, isolation, credential control, quota awareness, evidence, logs, reviews, state transitions und failure recovery.
-
-Maestro ist für diese zweite Welt gebaut.
-
----
-
-## Was Maestro macht
-
-Maestro koordiniert den vollständigen Lebenszyklus einer agentic engineering task:
-
-```text
-Work Item
-  Ticket / Story / Issue
-        ↓
-Workflow Policy
-  WORKFLOW.md / Profile / Route Policy / Capabilities
-        ↓
-Control Plane
-  Orchestrator / Dispatch / Retry / Reconciliation
-        ↓
-Execution Runtime
-  Agent Runner / Workspace / Local / SSH / Worker Daemon
-        ↓
-Provider & Tool Integration
-  Agent Provider / Dynamic Tool Bridge / Repo Provider
-        ↓
-Delivery & Evidence
-  Diff / PR / Review / CI / Tracker Update / Audit Trail
-```
-
-Es verbindet Arbeitssysteme, Agent Provider, Codeplattformen, Runtime-Umgebungen und Observability zu einer Betriebsschicht.
-
-| Schicht | Was Maestro bereitstellt |
-| --- | --- |
-| Tracker | Linear, TAPD, Memory und erweiterbare Adapter für Jira, YouTrack, Feishu Project, GitHub Issues und mehr |
-| Agent Provider | Codex, Claude Code, CodeBuddy Code, OpenCode und erweiterbare Provider für künftige CLI- oder Remote Agents |
-| Repo | Provider-neutrale Git-Operationen wie clone, branch, commit, diff und push |
-| Repo Provider | GitHub, CNB, Memory und erweiterbare Unterstützung für GitLab, Gitea, Bitbucket und Gerrit |
-| Workflow | Wiederverwendbare Profiles für coding delivery, requirement analysis, refinement, review routing und triage |
-| Runtime | Local, SSH und Worker Daemon execution modes |
-| Tool Bridge | Provider-neutrale dynamic tools, die Agents bereitgestellt werden |
-| Governance | Accounts, credential store, lease, quota polling, redaction und human gates |
-| Observability | Structured events, JSON logs, event store, dashboard drilldown und production evidence |
+- **Projektsysteme**: Wo Aufgaben herkommen, etwa Linear oder TAPD.
+- **Git-Repositories und Code-Plattformen**: Wo Code geclont wird und wo Branches, PRs, Reviews und Checks passieren.
+- **Agents**: Wer die Arbeit ausführt, etwa Codex, Claude Code oder OpenCode.
+- **Workflows**: Welche Art von Arbeit passiert: Bugs beheben, Anforderungen analysieren, Aufgaben verfeinern, Arbeit triagieren oder Reviews vorschlagen.
+- **Arbeitsumgebungen und Runtimes**: Wo jeder Agent-Lauf stattfindet, wie er isoliert wird und wie Läufe parallel stattfinden können.
+- **Aufzeichnungen**: Logs, diffs, Aufgabenkommentare, Zusammenfassungen und andere reviewbare Informationen.
 
 ---
 
-## Welches Problem Maestro löst
-
-Coding Agents werden leistungsfähiger. Leistungsfähige Agents werden aber nicht automatisch zu verlässlichen Engineering-Systemen.
-
-| Ohne Maestro | Mit Maestro |
-| --- | --- |
-| Agent-Arbeit passiert in isolierten Chat Sessions | Arbeit wird aus echten Trackern dispatcht und mit echten Issues verknüpft |
-| Jeder Provider hat ein eigenes Session Model | Provider werden durch einen gemeinsamen Lifecycle Contract gekapselt |
-| Agent Output ist schwer auditierbar | Diffs, PRs, tool calls, logs, state transitions und evidence werden erfasst |
-| Teams sind an einen Tracker oder eine Codeplattform gebunden | Tracker und Repo Provider sind adapter-based |
-| Workflows sind in Scripts hardcoded | Workflow Profile definiert policy, state, routing und deliverables |
-| Credentials und Quotas sind ad hoc | Accounts, leases, quota polling und redaction werden Plattformanliegen |
-| Skalierung verlangt manuelle Session-Überwachung | Worker Daemon ermöglicht capacity-aware execution und operational control |
-
-Maestros These ist einfach:
-
-> **Die Zukunft ist nicht ein perfekter Coding Agent. Die Zukunft ist eine Betriebsschicht, die viele Agents über echte Engineering Workflows hinweg schedule, observe und govern kann.**
-
----
-
-## Designprinzipien
-
-### 1. Tracker sind die Steuerungsebene
-
-Teams arbeiten bereits in Projektmanagementsystemen. Maestro versteckt Arbeit nicht in einer privaten Queue. Es macht Linear, TAPD, Memory und künftige Tracker zur Dispatch-Oberfläche für autonome Arbeit.
-
-### 2. Agents sind Ausführungseinheiten
-
-Codex, Claude Code, CodeBuddy Code, OpenCode und künftige Agents werden als austauschbare Provider behandelt. Maestro standardisiert den Lifecycle, den die Orchestrierungsschicht braucht: session creation, turn execution, tool-call capture, evidence collection, quota awareness und cleanup.
-
-### 3. Workflow Profiles kodieren Geschäftsabsicht
-
-Coding, requirement analysis, refinement, review routing und triage sind unterschiedliche Workflows. Maestro macht Profiles zu first-class Objekten, damit Teams definieren können, wann dispatch, wait oder stop gilt, welche evidence nötig ist und wann ein Mensch übernehmen muss.
-
-### 4. Evidence schlägt Behauptungen
-
-"Done" reicht nicht. Maestro bevorzugt prüfbare artifacts: branch, commit, diff, PR, review note, CI result, tracker comment, tool call, event und log.
-
-### 5. Adapter verhindern Plattform-Lock-in
-
-Jedes externe System tritt durch einen Contract ein. Der Orchestrator darf nicht zu einem Haufen Branches werden, die an einen einzelnen Provider gebunden sind. Neue Integrationen sollten über adapters, contract tests, smoke tests und explicit capability discovery eintreten.
-
----
-
-## Architektur
-
-Maestro ist am besten als Engineering-Orchestrierungs- und Governance-Architektur zu verstehen: Der Orchestrator besitzt den Scheduling-Zustand, die Workflow Policy trägt die fachliche Bedeutung, und Provider treten über explizite Contracts ein. Governance und Evidence wirken über den gesamten Run hinweg.
-
-```text
-+----------------------------------------------------------------------------+
-| Governance                                                                 |
-| Credential / Lease / Quota / Redaction / Approval Policy                   |
-+----------------------------------------------------------------------------+
-                                      |
-                               governs / constrains
-                                      v
-+============================================================================+
-| Core Execution Pipeline                                                    |
-|                                                                            |
-| +-------------+    +-----------------+    +------------------+             |
-| | Work Source | -> | Workflow Policy | -> | Control Plane    |             |
-| | Tracker     |    | WORKFLOW.md     |    | Orchestrator     |             |
-| | Issue       |    | Profile         |    | Dispatch / Retry |             |
-| | Story       |    | Route Policy    |    | Reconciliation   |             |
-| | Ticket      |    | Capabilities    |    | State Tracking   |             |
-| +-------------+    +-----------------+    +------------------+             |
-|                                                   |                        |
-|                                                   v                        |
-|                                         +---------------------+            |
-|                                         | Execution Runtime   |            |
-|                                         | Agent Runner        |            |
-|                                         | Workspace           |            |
-|                                         | local / ssh / daemon|            |
-|                                         | Session Lifecycle   |            |
-|                                         +---------------------+            |
-|                                                   |                        |
-|                                                   v                        |
-| +---------------------+              +-----------------------------+       |
-| | Agent Provider      | <----------> | Provider & Tool Integration |       |
-| | Codex               |              | Dynamic Tool Bridge         |       |
-| | Claude Code         |              | Tracker Adapter             |       |
-| | CodeBuddy Code      |              | Repo Facade                 |       |
-| | OpenCode            |              | Repo Provider               |       |
-| | Mock                |              +-----------------------------+       |
-| +---------------------+                                                    |
-+============================================================================+
-                                      |
-                                  emits / records
-                                      v
-+----------------------------------------------------------------------------+
-| Evidence & Observability                                                   |
-| Events / JSON Logs / Diff / PR / CI / Audit Trail / Dashboard              |
-+----------------------------------------------------------------------------+
-```
-
-### Zentrale Architekturebenen
-
-Maestros Plattformarchitektur lässt sich in acht Ebenen zusammenfassen. Die ersten sechs beschreiben den Hauptausführungspfad; Governance und Evidence sind übergreifende Kontroll- und Auditschichten.
-
-| Ebene | Komponenten | Verantwortung |
-| --- | --- | --- |
-| Work Source Layer | Tracker / Issue / Story / Ticket | Definiert, wo Arbeit ins System gelangt |
-| Workflow Policy Layer | `WORKFLOW.md` / Workflow Profile / Route Policy / Capabilities / Human Gate Declarations | Definiert, wie das Team Agent-Arbeit steuern will |
-| Control Plane Layer | Orchestrator / Scheduler / Dispatch / Retry / Reconciliation / State Tracking | Entscheidet, wann Arbeit läuft, wiederholt, stoppt oder reconciled wird |
-| Execution Runtime Layer | Agent Runner / Workspace / Runtime / Local / SSH / Worker Daemon / Session Lifecycle | Führt jedes Work Item in einer isolierten Ausführungsgrenze aus |
-| Agent Provider Layer | Codex / Claude Code / CodeBuddy Code / OpenCode / Mock / Future Agent Providers | Kapselt austauschbare Agent-Implementierungen hinter einem gemeinsamen Lifecycle |
-| Provider & Tool Integration Layer | Dynamic Tool Bridge / Tracker Adapter / Repo Facade / Repo Provider | Bindet externe Systeme über provider-neutrale Contracts an |
-| Governance Layer | Credential / Lease / Quota / Redaction / Approval / Policy Enforcement | Kontrolliert Zugriff, Kapazität, Freigaben und Sicherheitsvorgaben |
-| Evidence & Observability Layer | Events / JSON Logs / Diff / PR / CI / Evidence / Audit Trail / Dashboard | Hält fest, was passiert ist, warum es passiert ist und ob das Ergebnis belastbar ist |
-
-### Primäre Grenzen
-
-| Grenze | Verantwortung |
-| --- | --- |
-| `Workflow File` | Liefert Runtime-Konfiguration per YAML front matter und den Agent prompt über den Markdown-Body |
-| `Workflow Profile` | Definiert route policy, capabilities, completion contract, stop conditions und human gates |
-| `Tracker Adapter` | Liest candidate work items, synchronisiert state, schreibt comments und stellt tracker typed tools bereit |
-| `Orchestrator` | Übernimmt polling, reconciliation, scheduling, retry, runtime state tracking und terminal cleanup |
-| `Agent Runner` | Erstellt den Workspace für ein work item, führt hooks aus, startet und steuert die Agent session |
-| `Workspace` | Isoliert runtime directory, workspace automation, repository copy und local evidence je work item |
-| `Agent Provider` | Startet, steuert, streamt, stoppt und räumt Codex / Claude Code / CodeBuddy Code / OpenCode / Mock sessions auf |
-| `Agent Runtime` | Platziert den provider process in local, SSH oder Worker Daemon und löst sandbox / executor context auf |
-| `Repo` | Provider-neutrale lokale Git-Operationen: clone, branch, commit, diff, push |
-| `Repo Provider` | Codeplattform-Fähigkeiten für GitHub, CNB, Memory und Erweiterungen: PR / MR, reviews, checks, merge, comments, status updates |
-| `Dynamic Tool Bridge` | Bündelt Tracker-, Repo- und Repo-Provider-Fähigkeiten zu session-scoped provider-neutral tools |
-| `Observability` | Structured events, JSON logs, event store, redaction, dashboard, evidence, audit trail |
-
----
-
-## Workflow Profiles
-
-Maestro ist nicht auf "Code aus einem Issue schreiben" beschränkt. Es kann mehrere Engineering Workflows mit derselben Plattformschicht orchestrieren.
-
-| Profile | Zweck | Typische Evidence |
-| --- | --- | --- |
-| `coding_pr_delivery` | Ein work item in Codeänderungen und einen PR umwandeln | branch, commit, diff, PR, CI result, review note |
-| `requirement_analysis` | Eine Anforderung in strukturierte Analyse umwandeln | scope, risks, impact, acceptance criteria, task breakdown |
-| `requirement_refinement` | Unklarheiten vor der Implementierung erkennen | clarification questions, blockers, assumptions, refined acceptance criteria |
-| `review_routing` | Reviews an passende Personen oder Agents routen | reviewer suggestions, risk tags, checklist |
-| `triage` | Work items klassifizieren und routen | priority, owner, type, risk, next state |
-
-Hier wird Maestro mehr als ein Automatisierungsscript. Ein Profile ist die operative Definition dessen, was ein Agent tun soll, was er nicht tun darf, welche evidence er liefern muss und wann ein Mensch übernehmen soll.
-
----
-
-## Beispielhafte Konfigurationsform
-
-Die aktuelle Implementierung nutzt YAML front matter in einer Workflow-Markdown-Datei für Runtime-Konfiguration; der Markdown-Body ist der Agent prompt. Dieses Beispiel zeigt die aktuellen Feldpositionen der Kerndimensionen, ist aber keine vollständige ausführbare Konfiguration:
-
-```yaml
-workflow:
-  profile:
-    kind: coding_pr_delivery  # coding_pr_delivery | requirement_analysis | requirement_refinement | review_routing | triage
-tracker:
-  kind: linear                # linear | tapd | memory
-repo:
-  provider:
-    kind: github              # github | cnb | memory
-agent_provider:
-  kind: codex                 # codex | claude_code | codebuddy_code | opencode | mock
-agent_runtime:
-  placement: local            # local | ssh | worker_daemon
-```
-
-Agent-provider kind values sind kanonische Runtime-Strings. Die aktuellen built-ins sind `codex`, `claude_code`, `codebuddy_code`, `opencode` und `mock`; unterstützte Aliases werden vor dem Registry Lookup vom Elixir provider-kind owner normalisiert.
-
-Kanonische tracker-, repo-provider- und agent-provider-kind strings gehören zu den Elixir-Modulen `Tracker.Kinds`, `RepoProvider.Kinds` und `AgentProvider.Kinds`, damit Registries, Defaults und Dokumentation synchron bleiben.
-
-Ein Production Deployment kann diese Dimensionen unabhängig kombinieren. Beispiele:
-
-```text
-TAPD + CodeBuddy Code + CNB + Worker Daemon + requirement_analysis
-Linear + Codex + GitHub + Local Runtime + coding_pr_delivery
-Memory + Mock Agent + Memory Repo Provider + Contract Tests
-```
-
----
-
-## Schnellstart
-
-Wenn du Maestro zum ersten Mal ausführst, beginne mit dem [Newcomer End-to-End Run Guide](./elixir/docs/quickstart/en.md). Der Leitfaden deckt den lokalen `memory/no_repo/mock`-Flow sowie die echten Workflows `TAPD + CNB + CodeBuddy Code` und `Linear + GitHub + OpenCode` ab.
-
-Repository klonen:
+## Quick start
 
 ```bash
 git clone https://github.com/joosure/Maestro.git
 cd Maestro
-```
-
-Bereite zuerst die im Repository fixierte Erlang / Elixir Toolchain vor. `mise` wird empfohlen; die Versionen sind in `elixir/mise.toml` fixiert:
-
-```bash
 cd elixir
 mise trust
 mise install
 cd ..
-```
-
-Dependencies installieren und Test Suite ausführen. Wenn die `mise` Toolchain in der aktuellen Shell aktiv ist, kannst du `make` direkt verwenden:
-
-```bash
 make -C elixir deps
 make -C elixir test
-```
-
-Alternativ kannst du aus `elixir/` heraus `mise exec -- mix setup` und `mise exec -- mix test` ausführen.
-
-### Workflow Template ausprobieren
-
-Baue die CLI und starte den lokalen memory/mock Workflow aus `elixir/`:
-
-```bash
+make -C elixir build
 cd elixir
-make build
-mise exec -- ./bin/symphony \
+./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
   --template memory/no_repo/mock \
   --port 4000
 ```
 
-Das startet den Service mit dem Template `memory/no_repo/mock` und stellt das optionale Dashboard/API unter `http://localhost:4000` bereit. Es nutzt den Memory-Tracker, den Memory-Repo-Provider und den Mock-Agent-Provider, daher sind keine Linear-, GitHub-, Codex-, Claude-Code-, CodeBuddy-Code-, OpenCode- oder CNB-Credentials erforderlich.
+Optionales dashboard öffnen:
 
-Wenn du einen echten Tracker, ein Repository und eine Agent Runtime verbinden willst, konfiguriere zuerst die nötigen Credentials und wechsle dann das Template:
+```text
+http://localhost:4000
+```
+
+Diese Demo nutzt Speicherdaten und einen Mock Agent. Sie ist der sicherste Einstieg, bevor echte Systeme verbunden werden.
+
+> Die öffentliche Marke ist **Maestro**. Einige Laufzeitnamen verwenden aus Kompatibilitätsgründen weiterhin `symphony`, darunter der CLI-Einstieg und einige Umgebungsvariablen.
+
+---
+
+## Echte Systeme verwenden
+
+Nach der lokalen Demo kannst du ein echtes Projektsystem, ein Git-Repository und einen Coding Agent verbinden.
+
+### Beispiel: TAPD + GitHub + Codex
+
+```bash
+export TAPD_API_USER=...
+export TAPD_API_PASSWORD=...
+export TAPD_WORKSPACE_ID=...
+export SOURCE_REPO_URL=https://github.com/owner/repo.git
+export SOURCE_REPO_BASE_BRANCH=main
+export SOURCE_REPO_PROVIDER_REPOSITORY=owner/repo
+
+./bin/symphony \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  --template tapd/github/codex \
+  --port 4000
+```
+
+### Beispiel: Linear + GitHub + Codex
 
 ```bash
 export LINEAR_API_KEY=...
@@ -330,170 +219,80 @@ export LINEAR_PROJECT_SLUG=...
 export SOURCE_REPO_URL=https://github.com/owner/repo.git
 export SOURCE_REPO_BASE_BRANCH=main
 export SOURCE_REPO_PROVIDER_REPOSITORY=owner/repo
-export ZAI_API_KEY=...
-
-command -v opencode
-gh auth status
 
 ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
-  --template linear/github/opencode \
+  --template linear/github/codex \
   --port 4000
 ```
 
-`SOURCE_REPO_BRANCH_WORK_PREFIX` und `SOURCE_REPO_PROVIDER_REQUIRED_PR_LABEL` sind optional. `SYMPHONY_WORKSPACE_ROOT` kann im lokalen Schnellstart weggelassen werden; bevor du einen echten Tracker, ein echtes Repository oder eine vollständige Flow-Validierung anschließt, setze es explizit auf eine isolierte Workspace-Root, damit Workspaces nicht in lokale Entwicklerpfade fallen und schwer zu bereinigen sind. Lies [workflow template aliases](./elixir/priv/workflow_templates/README.md) und [runtime configuration](./elixir/README.md), bevor du einen echten Tracker oder ein echtes Repository verbindest.
+Lies vor echten Repositories oder hochberechtigten Zugangsdaten:
 
-Vor dem Öffnen eines Pull Requests dieselben lokalen Gates ausführen, die CI nutzt:
-
-```bash
-make -C elixir all
-make -C elixir secret-scan
-```
-
-`make -C elixir secret-scan` führt `gitleaks`, `trufflehog` und
-`detect-secrets` über `scripts/secret-scan.sh` aus. CI führt dasselbe Gate bei pushes nach `main` und pull requests aus.
-
-Gehe bei lokalen Experimenten zuerst den risikoärmsten Weg:
-
-- Setze `tracker.kind: memory` und `repo.provider.kind: memory`, wenn du Orchestrierung ohne externe Credentials prüfen willst.
-- Nutze fake oder simulated agent adapters nur in Tests oder Extension-Arbeit über die adapter registry; die integrierten Agent Provider sind `codex`, `claude_code`, `codebuddy_code` und `opencode`.
-- Wechsle erst zu Linear/TAPD, GitHub/CNB oder destructive smoke tests, wenn der memory path stabil ist.
-
-> Das öffentliche Branding verwendet **Maestro**. Frühe Versionen können noch module names, CLI entrypoints oder environment variables aus `symphony` enthalten. Behandle sie als compatibility names, während project branding und platform boundaries stabilisiert werden.
+- [Elixir runtime guide](./elixir/README.md)
+- [Workflow templates](./elixir/priv/workflow_templates/README.md)
+- [Operations guide](./elixir/docs/operations.md)
 
 ---
 
-## Erweiterungsmodell
+## Was Maestro ist — und was nicht
 
-Maestro soll durch Contracts wachsen, nicht durch hardcoded branches.
+Maestro ist:
 
-### Tracker Adapter hinzufügen
+- eine Plattform zur Ausführung von Engineering-Aufgaben, die Projektsysteme, Git-Repositories und Coding Agents verbindet;
+- eine Möglichkeit, AI Agents aus echten Projektaufgaben heraus auszuführen;
+- eine Workflow-Schicht für Coding, Anforderungsanalyse, Aufgabenverfeinerung, Triage und Review-Vorschläge;
+- ein sichererer Weg, verschiedene Coding Agents zu testen, zu vergleichen und zu verwalten.
 
-Implementiere den tracker contract für:
+Maestro ist nicht:
 
-- listing candidate work items;
-- reading title, description, labels, state, owner und metadata;
-- claiming oder locking work;
-- writing comments and evidence;
-- mapping states from each provider into Maestro's workflow model;
-- passing contract tests and live smoke tests.
-
-### Agent Provider hinzufügen
-
-Implementiere den provider contract für:
-
-- session creation;
-- prompt and context injection;
-- turn execution;
-- streaming events;
-- tool-call capture;
-- evidence extraction;
-- cancellation and cleanup;
-- capability reporting wie sandbox, tools, approval, quota und context window.
-
-### Repo Provider hinzufügen
-
-Implementiere den repo-provider contract für:
-
-- PR / MR creation;
-- review comments;
-- checks and statuses;
-- merge gates;
-- branch protection detection;
-- evidence links;
-- idempotent updates.
-
-### Workflow Profile hinzufügen
-
-Definiere:
-
-- trigger states;
-- dispatch policy;
-- input context;
-- agent instructions;
-- allowed tools;
-- required evidence;
-- stop conditions;
-- human approval gates;
-- tracker transitions.
-
----
-
-## Observability and Evidence
-
-Maestro behandelt observability als Teil des Produkts, nicht als nachträgliche Ergänzung.
-
-Jeder run sollte erklärbar sein durch:
-
-- dispatch decision;
-- workflow profile;
-- selected provider;
-- runtime and worker;
-- session and turn history;
-- tool calls;
-- stdout / stderr / structured event stream;
-- workspace and repository changes;
-- PR or review artifacts;
-- tracker comments and state changes;
-- redacted logs;
-- final evidence summary.
-
-So wird Maestro nicht nur für Automatisierung nützlich, sondern auch für evaluation, debugging, governance und production rollout.
+- ein neues großes Sprachmodell;
+- ein Ersatz für Codex, Claude Code oder OpenCode;
+- ein Werkzeug, um Team-Reviews, Tests oder Release-Entscheidungen zu umgehen;
+- ein System, dem man Repository-Zugriff gibt und das man dann unbeaufsichtigt lässt.
 
 ---
 
 ## Projektstatus
 
-Maestro befindet sich in active platformization.
+Maestro ist frühe Software in aktiver Entwicklung.
 
-Es eignet sich für:
+Geeignet für:
 
-- Untersuchung von tracker-driven agent orchestration;
-- Aufbau von adapter prototypes;
-- Validierung von workflow profiles;
-- Ausführung von memory-provider oder local test loops;
-- Experimente mit real providers in kontrollierten Umgebungen.
+- Lernen, wie aufgabengetriebene Agent-Workflows funktionieren können;
+- lokale memory/mock-Demos;
+- Prototypen für neue Integrationen;
+- Experimente mit echten Systemen in kontrollierten Umgebungen.
 
-Es sollte gehärtet werden vor:
+Besondere Vorsicht vor:
 
-- unrestricted production execution;
-- destructive repository operations;
-- high-privilege credentials;
-- multi-tenant worker pools;
-- unattended merge or deploy automation.
+- Agents, die echte Repositories ändern oder Branches pushen dürfen;
+- Agents, die Status oder Kommentare in echte Projektsysteme schreiben dürfen;
+- hochberechtigten Zugangsdaten oder persönlichen Tokens;
+- einer gemeinsamen Laufzeitumgebung für mehrere Teams;
+- Test-, Release- oder Produktionsschritten ohne menschliches Review.
 
-Die Leitregel lautet:
+Leitregel:
 
-> **Mutig automatisieren. Sorgfältig gaten. Evidence bewahren.**
+> **Mutig automatisieren. Gates sorgfältig setzen. Die Spur sichtbar halten.**
 
 ---
 
-## Für wen Maestro gedacht ist
+## Mehr erfahren
 
-Maestro ist nützlich für:
-
-- engineering teams, die Codex, Claude Code, CodeBuddy Code, OpenCode oder künftige coding agents evaluieren;
-- platform teams, die interne AI engineering infrastructure aufbauen;
-- DevTools teams, die agent operations workflows erstellen;
-- product and engineering organizations, die Agents aus bestehenden Trackern arbeiten lassen wollen;
-- researchers, die agent reliability, evidence und orchestration untersuchen;
-- open-source maintainers, die strukturierte agent-driven contribution flows wollen.
+- [Roadmap](./ROADMAP.de.md)
+- [Languages](./LANGUAGES.md)
+- [Elixir runtime guide](./elixir/README.md)
+- [Workflow templates](./elixir/priv/workflow_templates/README.md)
+- [Operations guide](./elixir/docs/operations.md)
 
 ---
 
 ## Attribution
 
-Maestro begann als Fork von [OpenAI Symphony](https://github.com/openai/symphony). Die ursprüngliche Symphony reference implementation fokussiert Linear-driven Codex orchestration. Maestro erweitert diese Idee zu einer breiteren Plattformarchitektur über trackers, agent providers, repository providers, workflow profiles, runtimes, tools und evidence hinweg.
+Maestro started as a fork of [OpenAI Symphony](https://github.com/openai/symphony). Symphony demonstrated that project tasks can drive coding agents. Maestro extends that idea into a broader platform for real engineering workflows.
 
 ---
 
-## Repository
+## License
 
-- GitHub: <https://github.com/joosure/Maestro>
-- Origin project: <https://github.com/openai/symphony>
-
----
-
-## Lizenz
-
-Maestro steht unter der GNU Affero General Public License version 3 (AGPL-3.0-only). Teile, die von OpenAI Symphony abgeleitet sind, behalten die Apache-2.0-Anforderungen an attribution und notice. Prüfe `LICENSE`, `NOTICE`, `LICENSES/Apache-2.0.txt`, `MODIFICATIONS.md`, `SOURCE.md` und `THIRD_PARTY_LICENSES.md`, bevor Maestro verwendet oder verteilt wird.
+Maestro is licensed under the GNU Affero General Public License version 3 (AGPL-3.0-only). Portions derived from OpenAI Symphony retain their Apache-2.0 attribution and notice requirements. Review `LICENSE`, `NOTICE`, `LICENSES/Apache-2.0.txt`, `MODIFICATIONS.md`, `SOURCE.md`, and `THIRD_PARTY_LICENSES.md` before using or distributing Maestro.
