@@ -50,6 +50,20 @@ Template aliases use this format:
 | `agent-provider` | AI agent or local mock | `codex`, `claude_code`, `opencode`, `mock` |
 | `variant` | optional special version | `canary` |
 
+## Current aliases
+
+```text
+memory/no_repo/mock
+tapd/cnb/opencode
+tapd/cnb/claude_code
+tapd/cnb/codebuddy_code
+tapd/github/codex
+linear/github/codex
+linear/github/claude_code
+linear/github/codebuddy_code
+linear/github/opencode
+```
+
 ## Current templates
 
 | Template | What it does | Best for |
@@ -57,12 +71,24 @@ Template aliases use this format:
 | `memory/no_repo/mock` | local simulated task + no real repository + mock agent | first safe demo |
 | `linear/github/codex` | Linear + GitHub + Codex | Linear task to GitHub PR |
 | `linear/github/claude_code` | Linear + GitHub + Claude Code | Linear/GitHub flow |
-| `linear/github/opencode.canary` | Linear + GitHub + OpenCode canary | OpenCode experiments |
+| `linear/github/opencode` | Linear + GitHub + OpenCode | OpenCode experiments |
 | `tapd/github/codex` | TAPD + GitHub + Codex | TAPD task to GitHub PR |
 | `tapd/cnb/opencode` | TAPD + CNB + OpenCode | TAPD/CNB flow |
 | `tapd/cnb/claude_code` | TAPD + CNB + Claude Code | TAPD/CNB flow |
 
 These templates connect external systems. They do not mean that Linear, TAPD, GitHub, CNB, or agents are embedded inside Maestro.
+
+### Template composition
+
+Template aliases are selected with `--template <alias>`.
+
+The workflow template owns what to do and when to do it. Bundled skills are separate reusable modules owned by `priv/workspace_automation/skills/`.
+
+Workflow templates should answer when the current issue should do work, route-policy handoffs, completion bars, and tracker/repo-provider pairing.
+
+They should not restate detailed typed-tool argument schemas. Bundled skills and runtime code own those semantics.
+
+Runtime code and typed-tool schemas enforce non-negotiable invariants such as workpad identity, typed-tool validation, gate failure policy, candidate lifecycle, and provider adapter behavior.
 
 ## Which template should I choose?
 
@@ -122,23 +148,9 @@ agent_provider:
   kind: mock
 ---
 
-You are working on {{ issue.identifier }}.
-Summarize the task and produce a safe local result.
+you are working on {{ issue.identifier }}.
+summarize the task and produce a safe local result.
 ```
-
-## Template author checklist
-
-Before adding a template, answer:
-
-- Which project system does the task come from?
-- Does it need a real Git repository?
-- Which agent runs?
-- Which credentials are required?
-- Will it write to the project system, repository, or PR?
-- Is it for local demo, trusted evaluation, team pilot, or production operation?
-- What should the agent produce?
-- How should the task be updated after completion?
-- How should failed runs clean up workspaces and test data?
 
 ## Related docs
 
