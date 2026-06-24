@@ -104,7 +104,7 @@ jobs:
 
       - name: Run repo-provider destructive smoke
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
           if [ "$SMOKE_PROVIDER" = "github" ] && [ -z "${GH_TOKEN:-}" ]; then
             echo "::error::GitHub destructive smoke requires the REPO_PROVIDER_GITHUB_TOKEN repository secret"
@@ -153,14 +153,26 @@ jobs:
             args+=(--body "$SMOKE_BODY")
           fi
 
+          set +e
           ./bin/symphony repo-provider smoke "${args[@]}" | tee repo-provider-smoke-output/report.json
           status=${PIPESTATUS[0]}
+          set -e
 
-          {
-            echo "### Repo-provider destructive smoke"
-            echo
-            jq -r '"- provider: \(.provider_kind)\n- repository: \(.repository)\n- runtime: symphony\n- mode: \(.smoke_mode)\n- ok: \(.ok)\n- probes: \(.probe_count)\n- passed: \(.passed_count)\n- failed: \(.failed_count)"' repo-provider-smoke-output/report.json
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 0 ]; then
+            {
+              echo "### Repo-provider destructive smoke"
+              echo
+              jq -r '"- provider: \(.provider_kind)\n- repository: \(.repository)\n- runtime: symphony\n- mode: \(.smoke_mode)\n- ok: \(.ok)\n- probes: \(.probe_count)\n- passed: \(.passed_count)\n- failed: \(.failed_count)"' repo-provider-smoke-output/report.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### Repo-provider destructive smoke"
+              echo
+              if ! jq -r '"- provider: \(.provider_kind)\n- repository: \(.repository)\n- runtime: symphony\n- mode: \(.smoke_mode)\n- ok: \(.ok)\n- probes: \(.probe_count)\n- passed: \(.passed_count)\n- failed: \(.failed_count)"' repo-provider-smoke-output/report.json; then
+                echo "- report: unavailable or invalid"
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           exit "$status"
 

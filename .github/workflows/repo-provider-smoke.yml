@@ -93,7 +93,7 @@ jobs:
 
       - name: Run repo-provider smoke
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
           if [ "$SMOKE_PROVIDER" = "cnb" ] && [ -z "${CNB_TOKEN:-}" ]; then
             echo "::error::CNB smoke requires the REPO_PROVIDER_CNB_TOKEN repository secret"
@@ -117,14 +117,26 @@ jobs:
             args+=(--api-jq "$SMOKE_API_JQ")
           fi
 
+          set +e
           ./bin/symphony repo-provider smoke "${args[@]}" | tee repo-provider-smoke-output/report.json
           status=${PIPESTATUS[0]}
+          set -e
 
-          {
-            echo "### Repo-provider smoke"
-            echo
-            jq -r '"- provider: \(.provider_kind)\n- repository: \(.repository)\n- runtime: symphony\n- ok: \(.ok)\n- probes: \(.probe_count)\n- passed: \(.passed_count)\n- failed: \(.failed_count)"' repo-provider-smoke-output/report.json
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 0 ]; then
+            {
+              echo "### Repo-provider smoke"
+              echo
+              jq -r '"- provider: \(.provider_kind)\n- repository: \(.repository)\n- runtime: symphony\n- ok: \(.ok)\n- probes: \(.probe_count)\n- passed: \(.passed_count)\n- failed: \(.failed_count)"' repo-provider-smoke-output/report.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### Repo-provider smoke"
+              echo
+              if ! jq -r '"- provider: \(.provider_kind)\n- repository: \(.repository)\n- runtime: symphony\n- ok: \(.ok)\n- probes: \(.probe_count)\n- passed: \(.passed_count)\n- failed: \(.failed_count)"' repo-provider-smoke-output/report.json; then
+                echo "- report: unavailable or invalid"
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           exit "$status"
 
