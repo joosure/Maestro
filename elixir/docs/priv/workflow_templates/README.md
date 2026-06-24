@@ -142,6 +142,6 @@ Before adding a template, answer:
 
 ## Related docs
 
-- [Elixir runtime guide](../../README.md)
-- [Operations guide](../../docs/operations.md)
-- [Agent provider docs](../../docs/agent_providers/)
+- [Elixir runtime guide](../../../README.md)
+- [Operations guide](../../operations.md)
+- [Agent provider docs](../../agent_providers/)

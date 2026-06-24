@@ -335,7 +335,7 @@ defmodule SymphonyElixir.TapdAdapterTest do
       tracker_active_states: ["status_4", "developing", "merging", "rework"],
       tracker_terminal_states: ["resolved", "rejected"],
       tracker_state_phase_map: %{
-        "status_4" => "human_review",
+        "status_4" => "in_progress",
         "developing" => "in_progress",
         "status_5" => "human_review",
         "merging" => "merging",
@@ -355,7 +355,7 @@ defmodule SymphonyElixir.TapdAdapterTest do
       tracker_platform: %{"workspace_id" => "53000000"}
     )
 
-    assert_validate_error({:invalid_tapd_raw_state_by_route_key, {:invalid_raw_state_lifecycle_phase, :global, coding_route_ref(:planning), "status_4", "human_review", "todo"}})
+    assert_validate_error({:invalid_tapd_raw_state_by_route_key, {:invalid_raw_state_lifecycle_phase, :global, coding_route_ref(:planning), "status_4", "in_progress", "todo"}})
   end
 
   test "tapd config validation rejects raw_state_by_route_key with non-canonical route keys" do

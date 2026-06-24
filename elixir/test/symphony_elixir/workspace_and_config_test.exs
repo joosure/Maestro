@@ -2298,7 +2298,13 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       tracker_platform: %{"workspace_id" => "53000000"}
     )
 
-    assert {:error, :missing_tracker_state_phase_map} = Config.validate!()
+    assert {:error,
+            %TrackerError{
+              provider: "tapd",
+              operation: :validate_config,
+              code: :invalid_configuration,
+              details: %{source_reason: :missing_tracker_state_phase_map}
+            }} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "tapd",
@@ -2313,8 +2319,17 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       tracker_platform: %{"workspace_id" => "53000000"}
     )
 
-    assert {:error, {:invalid_tracker_state_phase_map, {:invalid_active_phase, "planning", "human_review"}}} =
-             Config.validate!()
+    assert {:error,
+            %TrackerError{
+              provider: "tapd",
+              operation: :validate_config,
+              code: :invalid_configuration,
+              details: %{
+                source_reason:
+                  {:invalid_tapd_state_phase_map,
+                   {:invalid_tracker_state_phase_map, {:invalid_active_phase, "planning", "human_review"}}}
+              }
+            }} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: "bad")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()

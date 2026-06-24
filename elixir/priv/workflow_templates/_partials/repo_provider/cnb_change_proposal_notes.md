@@ -1,6 +1,0 @@
-- Use the inventory `repo.create_or_update_change_proposal` typed tool for CNB PR creation or update when it is listed. Pass `mode`, `base`, `head`, and `title`; omit `body` when no task-specific body is needed so Symphony can generate the configured default body.
-- Read the created PR back before tracker handoff with the inventory `repo.change_proposal_snapshot` typed tool when it is listed.
-- Use workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo-provider` only as documented fallback for provider operations not covered by the generated inventory.
-- The recorded PR URL must contain `/-/pulls/`. A `/-/compare/` URL is only a compare page and is not evidence that a PR was created.
-- Do not use `--target-branch`, `--description`, `curl`, `gh`, `glab`, `brew`, or direct CNB/GitLab API calls as PR-creation backup paths.
-- If PR creation fails, fix the branch, token, or typed tool arguments and retry the inventory `repo.create_or_update_change_proposal` typed tool; do not bypass Symphony with provider-specific commands.

@@ -142,6 +142,6 @@ Summarize the task and produce a safe local result.
 
 ## 相关文档
 
-- [Elixir 运行时指南](../../README.zh-CN.md)
-- [Operations guide](../../docs/operations.zh-CN.md)
-- [Agent provider docs](../../docs/agent_providers/)
+- [Elixir 运行时指南](../../../README.zh-CN.md)
+- [Operations guide](../../operations.zh-CN.md)
+- [Agent provider docs](../../agent_providers/)
