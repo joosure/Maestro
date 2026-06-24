@@ -329,7 +329,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
       {:invalid_tapd_state_phase_map, {:missing_mapping, state}},
       :invalid_configuration,
       "TAPD active/terminal state '#{state}' is missing its mapping in state_phase_map. " <>
-      "Please add a mapping under tracker.lifecycle.state_phase_map, e.g. '#{state}: in_progress'."
+        "Please add a mapping under tracker.lifecycle.state_phase_map, e.g. '#{state}: in_progress'."
     )
   end
 
@@ -338,7 +338,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
       {:invalid_tapd_state_phase_map, {:invalid_phase, state, phase}},
       :invalid_configuration,
       "TAPD state '#{state}' is mapped to an invalid phase '#{phase}'. " <>
-      "Please check tracker.lifecycle.state_phase_map."
+        "Please check tracker.lifecycle.state_phase_map."
     )
   end
 

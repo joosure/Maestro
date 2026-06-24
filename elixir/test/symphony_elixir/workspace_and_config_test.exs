@@ -2325,9 +2325,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
               operation: :validate_config,
               code: :invalid_configuration,
               details: %{
-                source_reason:
-                  {:invalid_tapd_state_phase_map,
-                   {:invalid_tracker_state_phase_map, {:invalid_active_phase, "planning", "human_review"}}}
+                source_reason: {:invalid_tapd_state_phase_map, {:invalid_tracker_state_phase_map, {:invalid_active_phase, "planning", "human_review"}}}
               }
             }} = Config.validate!()
 
