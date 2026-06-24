@@ -8,8 +8,8 @@ defmodule SymphonyElixir.CLITest do
   alias SymphonyElixir.RepoProvider.Error, as: RepoProviderError
   alias SymphonyElixir.RepoProvider.Kinds, as: RepoProviderKinds
   alias SymphonyElixir.Tracker.Kinds, as: TrackerKinds
-  alias SymphonyElixir.Workflow.TemplateRegistry
-  alias SymphonyElixir.Workflow.Templates, as: WorkflowTemplates
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
+  alias SymphonyElixir.Workflow.Template, as: WorkflowTemplates
 
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
 
@@ -128,7 +128,6 @@ defmodule SymphonyElixir.CLITest do
 
     assert Enum.sort(aliases) == Enum.sort(TemplateRegistry.aliases())
     refute "README" in aliases
-    refute "README.zh-CN" in aliases
     assert Enum.all?(aliases, &(length(Path.split(&1)) == 3))
   end
 
@@ -274,7 +273,7 @@ defmodule SymphonyElixir.CLITest do
             "status" => "active",
             "resource" => %{"kind" => "tracker_issue", "id" => "issue-1"},
             "blocker_code" => "review_handoff_blocked_after_retries",
-            "original_error_code" => "review_handoff_not_ready",
+            "original_error_code" => "transition_readiness_not_ready",
             "tool_name" => "tapd_move_issue",
             "run_id" => "run-1",
             "blocked_at_ms" => 123
@@ -295,7 +294,7 @@ defmodule SymphonyElixir.CLITest do
 
     assert output =~ "resource=tracker_issue:issue-1"
     assert output =~ "blocker_code=review_handoff_blocked_after_retries"
-    assert output =~ "original_error_code=review_handoff_not_ready"
+    assert output =~ "original_error_code=transition_readiness_not_ready"
     assert output =~ "tool=tapd_move_issue"
     assert output =~ "run_id=run-1"
     refute output =~ "issue-2"

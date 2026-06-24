@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.Agent.Quota do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.Credential.Store, as: CredentialStore
   alias SymphonyElixir.Agent.Quota.Snapshot
   alias SymphonyElixir.AgentProvider.{Config, Error}
@@ -8,9 +9,8 @@ defmodule SymphonyElixir.Agent.Quota do
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
   alias SymphonyElixir.Observability.OperationStatus
   alias SymphonyElixir.Observability.Redaction
-  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @probe_capability CapabilityNames.agent_quota_probe()
+  @probe_capability AgentCapabilities.quota_probe()
 
   @spec preflight(Config.t(), module(), [String.t()], keyword()) :: {:ok, keyword()} | {:error, Error.t()}
   def preflight(%Config{} = config, adapter, capabilities, opts \\ [])

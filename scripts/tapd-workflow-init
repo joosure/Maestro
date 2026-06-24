@@ -118,11 +118,10 @@ def main() -> int:
     )
 
     if args.interactive:
-        route_states = prompt_route_states(first_states, terminal_states, all_states)
+        route_states, backlog_state = prompt_route_states(first_states, terminal_states, all_states)
     else:
-        route_states = expected_route_states(all_states)
-
-    backlog_state = expected_backlog_state(all_states)
+        route_states = expected_route_states(first_states, terminal_states, all_states)
+        backlog_state = expected_backlog_state(all_states)
     transition_edges = client.all_transitions("story", requested_workitem_type_id)
     validate_expected_transitions(
         route_states, transition_edges, requested_workitem_type_id, backlog_state
@@ -531,74 +530,117 @@ def expected_backlog_state(states: list[dict[str, str]]) -> str:
     if raw_status:
         return raw_status
 
+    # Try heuristic fallback for backlog
+    backlog_kws = ["需求池", "backlog", "需求", "池"]
+    candidates = pick_state_by_heuristics(states, backlog_kws)
+    if len(candidates) == 1:
+        return candidates[0]
+
     detected = "\n".join(f"  - {state_label(state)}" for state in states) or "  <none>"
+    reason = "no candidate found" if not candidates else f"multiple ambiguous candidates found: {candidates}"
     fail(
-        "TAPD workflow does not match the quickstart expected status names.\n"
-        f"Please go back to the TAPD workflow configuration page and create/fix this backlog display name:\n  - {EXPECTED_BACKLOG_DISPLAY}\n\n"
+        f"TAPD workflow does not match expected backlog status name, and heuristic fallback failed ({reason}).\n"
+        f"Please fix backlog display name in TAPD (expected: {EXPECTED_BACKLOG_DISPLAY}) or run in interactive mode.\n\n"
         "Detected TAPD states from API:\n" + detected
     )
 
 
-def expected_route_states(states: list[dict[str, str]]) -> dict[str, str]:
+def pick_state_by_heuristics(states: list[dict[str, str]], keywords: list[str]) -> list[str]:
+    candidates = []
+    for state in states:
+        display = (state.get("display") or "").strip().lower()
+        raw = (state.get("raw") or "").strip().lower()
+        for kw in keywords:
+            kw_lower = kw.lower()
+            # Exact match (display or raw equals keyword)
+            if display == kw_lower or raw == kw_lower:
+                candidates.append(state["raw"])
+                break
+            # Fuzzy match (keyword is a substring of display or raw)
+            if kw_lower in display or kw_lower in raw:
+                candidates.append(state["raw"])
+                break
+    return unique(candidates)
+
+
+def expected_route_states(
+    first_states: list[dict[str, str]],
+    terminal_states: list[dict[str, str]],
+    all_states: list[dict[str, str]]
+) -> dict[str, str]:
     route_states: dict[str, str] = {}
     missing: list[str] = []
 
     for route_key, display_name in EXPECTED_DISPLAY_BY_ROUTE.items():
-        raw_status = resolve_state_input(display_name, states)
+        raw_status = resolve_state_input(display_name, all_states)
         if raw_status:
             route_states[route_key] = raw_status
         else:
-            missing.append(f"{display_name} ({route_key})")
+            missing.append(route_key)
 
     if missing:
-        detected = (
-            "\n".join(f"  - {state_label(state)}" for state in states) or "  <none>"
-        )
-        fail(
-            "TAPD workflow does not match the quickstart expected status names.\n"
-            "Please go back to the TAPD workflow configuration page and create/fix these status display names:\n"
-            + "\n".join(f"  - {item}" for item in missing)
-            + "\n\nDetected TAPD states from API:\n"
-            + detected
-            + "\n\nExpected display names are fixed for the quickstart path: "
-            + ", ".join([EXPECTED_BACKLOG_DISPLAY, *EXPECTED_DISPLAY_BY_ROUTE.values()])
-        )
+        # Try fallback to heuristic auto-discovery only for missing routes
+        inferred = infer_route_states(first_states, terminal_states, all_states)
+        for route_key in missing:
+            candidates = inferred.get(route_key, [])
+            if len(candidates) == 1:
+                cand = candidates[0]
+                # Check for state mapping conflicts with already mapped routes
+                if cand in route_states.values():
+                    used_by = [rk for rk, rv in route_states.items() if rv == cand]
+                    fail(
+                        f"TAPD workflow heuristic mapping conflict for route '{route_key}'.\n"
+                        f"The matched state '{cand}' is already mapped to route(s): {', '.join(used_by)}.\n"
+                        "Please run with `--interactive` to manually resolve status mappings."
+                    )
+                route_states[route_key] = cand
+            else:
+                reason = "no candidate found" if not candidates else f"multiple ambiguous candidates found: {candidates}"
+                detected = (
+                    "\n".join(f"  - {state_label(state)}" for state in all_states) or "  <none>"
+                )
+                fail(
+                    f"TAPD workflow does not match expected status names, and heuristic fallback for '{route_key}' failed ({reason}).\n"
+                    "Please run with `--interactive` to manually resolve status mappings, or fix status display names in TAPD:\n"
+                    + f"  - {EXPECTED_DISPLAY_BY_ROUTE[route_key]} ({route_key})\n\n"
+                    + "Detected TAPD states from API:\n"
+                    + detected
+                    + "\n\nExpected display names are fixed for the quickstart path: "
+                    + ", ".join([EXPECTED_BACKLOG_DISPLAY, *EXPECTED_DISPLAY_BY_ROUTE.values()])
+                )
 
     return route_states
 
 
 def infer_route_states(
-    first_states: list[dict[str, str]], terminal_states: list[dict[str, str]]
-) -> dict[str, str | None]:
+    first_states: list[dict[str, str]],
+    terminal_states: list[dict[str, str]],
+    all_states: list[dict[str, str]],
+) -> dict[str, list[str]]:
+    planning_kws = ["待开发", "待处理", "规划", "排队", "planning", "todo"]
+    developing_kws = ["开发中", "开始开发", "进行中", "进行", "实现", "编码", "developing", "development", "doing", "in_progress", "in progress"]
+    review_kws = ["测试", "评审", "检测", "testing", "review", "qa", "human_review", "human review"]
+    merging_kws = ["合并", "发布", "部署", "merging", "merge", "deploying"]
+    rework_kws = ["返工", "退回", "修改", "重新打开", "rework", "re-open", "fixing", "changes_requested"]
+    resolved_kws = ["完成", "解决", "结束", "关闭", *PREFERRED_TERMINAL]
+    rejected_kws = ["拒绝", "取消", "废弃", "丢弃", "无效", *AVOIDED_TERMINAL]
+
+    planning_cands = pick_state_by_heuristics(first_states, planning_kws)
+    if not planning_cands and first_states:
+        planning_cands = [first_states[0]["raw"]]
+
+    resolved_cands = pick_state_by_heuristics(terminal_states, resolved_kws)
+    if not resolved_cands and terminal_states:
+        resolved_cands = [terminal_states[0]["raw"]]
+
     return {
-        "planning": first_states[0]["raw"] if first_states else None,
-        "developing": pick_state(
-            first_states,
-            "developing",
-            "development",
-            "doing",
-            "in_progress",
-            "in progress",
-            "开发中",
-        ),
-        "review": pick_state(
-            first_states,
-            "review",
-            "status_5",
-            "human_review",
-            "human review",
-            "评审中",
-            "待评审",
-        ),
-        "merging": pick_state(first_states, "merging", "merge", "合并中", "待发布"),
-        "rework": pick_state(
-            first_states, "rework", "fixing", "changes_requested", "返工"
-        ),
-        "resolved": pick_state(terminal_states, *PREFERRED_TERMINAL, "已完成", "完成")
-        or (terminal_states[0]["raw"] if terminal_states else None),
-        "rejected": pick_state(
-            terminal_states, *AVOIDED_TERMINAL, "已拒绝", "拒绝", "已取消", "取消"
-        ),
+        "planning": planning_cands,
+        "developing": pick_state_by_heuristics(first_states, developing_kws),
+        "review": pick_state_by_heuristics(first_states, review_kws),
+        "merging": pick_state_by_heuristics(first_states, merging_kws),
+        "rework": pick_state_by_heuristics(first_states, rework_kws),
+        "resolved": resolved_cands,
+        "rejected": pick_state_by_heuristics(terminal_states, rejected_kws),
     }
 
 
@@ -606,14 +648,33 @@ def prompt_route_states(
     first_states: list[dict[str, str]],
     terminal_states: list[dict[str, str]],
     all_states: list[dict[str, str]],
-) -> dict[str, str]:
-    inferred = infer_route_states(first_states, terminal_states)
-    print("Please confirm TAPD status for each Maestro route key.")
+) -> tuple[dict[str, str], str]:
+    backlog_kws = ["需求池", "backlog", "需求", "池"]
+    backlog_cands = pick_state_by_heuristics(all_states, backlog_kws)
+    default_backlog = backlog_cands[0] if len(backlog_cands) == 1 else None
+    default_backlog_state = find_state_by_raw(all_states, default_backlog)
+    default_backlog_label = state_label(default_backlog_state) if default_backlog_state else default_backlog
+
+    print("Please confirm TAPD status for Backlog and each Maestro route key.")
     print(
         "You may enter the TAPD page display name or the raw status. The script will write raw status to WORKFLOW."
     )
     print()
 
+    backlog_prompt = "backlog (需求池/待排期状态)"
+    if default_backlog_label:
+        backlog_prompt += f" [{default_backlog_label}]"
+    backlog_prompt += ": "
+    while True:
+        value = input(backlog_prompt).strip()
+        backlog_state = resolve_state_input(value, all_states) if value else default_backlog
+        if backlog_state:
+            break
+        print(
+            "  value is required for backlog. Enter a TAPD display name such as 需求池, or a raw status."
+        )
+
+    inferred = infer_route_states(first_states, terminal_states, all_states)
     route_help = {
         "planning": "待开发/已排队，Maestro 可先把它流转到 developing",
         "developing": "开发中，Maestro 会派发 Agent 执行",
@@ -626,12 +687,16 @@ def prompt_route_states(
 
     route_states: dict[str, str] = {}
     for route_key in ROUTE_PHASES:
-        default_raw = inferred.get(route_key)
+        candidates = inferred.get(route_key, [])
+        default_raw = candidates[0] if len(candidates) == 1 else None
         default_state = find_state_by_raw(all_states, default_raw)
         default_label = state_label(default_state) if default_state else default_raw
         prompt = f"{route_key} ({route_help[route_key]})"
         if default_label:
             prompt += f" [{default_label}]"
+        elif candidates:
+            cand_labels = [state_label(find_state_by_raw(all_states, c)) or c for c in candidates]
+            prompt += f" (suggested: {', '.join(cand_labels)})"
         prompt += ": "
         while True:
             value = input(prompt).strip()
@@ -642,7 +707,8 @@ def prompt_route_states(
             print(
                 "  value is required. Enter a TAPD display name such as 开发中, or a raw status such as status_9."
             )
-    return route_states
+    return route_states, backlog_state
+
 
 
 def render_lifecycle(route_states: Mapping[str, str | None]) -> str:

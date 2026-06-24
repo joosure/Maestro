@@ -347,7 +347,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServer do
 
   defp planned_tool_context(opts) when is_list(opts) do
     case Keyword.get(opts, :tool_context) do
-      %{tool_specs: tool_specs} when is_list(tool_specs) -> DynamicToolContext.from_opts(opts)
+      %DynamicToolContext{} -> DynamicToolContext.from_opts(opts)
       %{"tool_specs" => tool_specs} when is_list(tool_specs) -> DynamicToolContext.from_opts(opts)
       _context -> DynamicToolContext.empty()
     end

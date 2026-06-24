@@ -8,10 +8,15 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness do
 
   alias SymphonyElixir.Workflow.StateTransitionReadiness.PolicyRegistry
 
+  @typed_tool_not_ready_error_code "transition_readiness_not_ready"
+
   @type policy_resolution ::
           {:ok, module()}
           | {:ok, :not_governed}
           | {:error, {:ambiguous_readiness_policy, [String.t()]}}
+
+  @spec typed_tool_not_ready_error_code() :: String.t()
+  def typed_tool_not_ready_error_code, do: @typed_tool_not_ready_error_code
 
   @spec resolve_policy(map() | struct() | nil, String.t() | nil, keyword()) :: policy_resolution()
   def resolve_policy(workflow, target_state_name, opts \\ []) when is_list(opts) do

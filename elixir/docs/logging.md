@@ -35,6 +35,15 @@ Current infrastructure notes:
 - issue-run scoped logs now carry `run_id` and derive `correlation_id` from `request_id` or `run_id`
 - canonical observability metadata fields are defined once in
   `SymphonyElixir.Observability.Fields` and reused by the event envelope, logger, and formatter
+- canonical observability event envelope keys and defaults are defined once in
+  `SymphonyElixir.Observability.EventContract`; `Event`, `Logger`, `Formatter`,
+  event-store projections, and dashboards consume that contract instead of
+  duplicating envelope strings
+- `Observability.Logger` keeps raw boundary handling and canonical payload
+  handling separate: raw `emit/3` and `text/3` fields may arrive with atom or
+  string keys, while the canonical event payload produced by
+  `Observability.Event.build/3` is string-keyed and consumed through
+  `EventContract`
 - `Observability.Logger.emit/3` also feeds a bounded in-memory structured event store for
   issue/session/run history
 - the event-store retention window and async mailbox pressure limit are workflow-configurable, so
@@ -78,6 +87,19 @@ top-level fields:
 - `message`
 - `service`
 - `component`
+
+These field names are the external JSON/log contract. In code, use
+`SymphonyElixir.Observability.EventContract` for envelope keys and default
+values, and use `SymphonyElixir.Observability.Fields` for the list of metadata
+fields that should be copied into logger metadata, rendered messages, or generic
+fallback events. Do not add parallel field lists or direct string-key lookups in
+`Event`, `Logger`, `Formatter`, event-store query code, or dashboard code.
+
+When one emitter module repeats the same `component` value, keep that value in a
+module-local constant, for example `@component "application"`. Do not create a
+new global component registry for a single local label; promote component values
+to a shared observability contract only when multiple modules or external
+consumers rely on a common component taxonomy.
 
 Common context fields:
 
@@ -322,6 +344,10 @@ When logging cleanup activity, include:
   identifiers?
 - Are secrets removed before anything is logged?
 - Did you summarize large payloads instead of dumping them verbatim?
+- Did raw input handling stay at the logging boundary, with canonical event
+  consumption using the string-keyed envelope and `EventContract`?
+- If you added a new event envelope field or metadata field, did you update the
+  owning contract/registry first instead of duplicating string keys locally?
 - For Dynamic Tool rejections, did you include the planned exposure mode and a
   stable rejection reason such as `unsupported_tool`?
 - Is the event/message shape consistent with the existing observability helpers?

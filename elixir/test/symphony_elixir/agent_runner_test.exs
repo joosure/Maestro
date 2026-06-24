@@ -2,6 +2,7 @@ defmodule SymphonyElixir.AgentRunnerTest do
   use SymphonyElixir.TestSupport
 
   alias SymphonyElixir.Agent.Continuation
+  alias SymphonyElixir.Agent.DynamicTool.EventContract, as: DynamicToolEventContract
   alias SymphonyElixir.AgentProvider.Config, as: ProviderConfig
   alias SymphonyElixir.AgentProvider.{EventSummary, Session, TurnResult}
   alias SymphonyElixir.Observability.EventStore
@@ -45,15 +46,15 @@ defmodule SymphonyElixir.AgentRunnerTest do
       end)
 
       if Map.get(config.options, "emit_typed_tool_blocker") == true do
-        SymphonyElixir.Observability.Logger.emit(:warning, :typed_tool_failure_policy_blocked, %{
-          component: "agent.dynamic_tool_failure_policy",
+        SymphonyElixir.Observability.Logger.emit(:warning, DynamicToolEventContract.typed_tool_failure_policy_blocked_event(), %{
+          component: DynamicToolEventContract.dynamic_tool_failure_policy_component(),
           issue_id: issue.id,
           run_id: session.run_id,
           resource_kind: "tracker_issue",
           resource_id: issue.id,
           tool_name: "linear_move_issue",
           error_code: "review_handoff_blocked_after_retries",
-          original_error_code: "review_handoff_not_ready",
+          original_error_code: "transition_readiness_not_ready",
           retryable: false
         })
       end
@@ -401,7 +402,7 @@ defmodule SymphonyElixir.AgentRunnerTest do
 
     assert Enum.any?(
              EventStore.recent_issue_events(%{issue_id: "issue-provider-blocked", run_id: "run-provider-blocked"}, limit: 20),
-             &(&1["event"] == "typed_tool_failure_policy_blocked")
+             &(&1["event"] == DynamicToolEventContract.typed_tool_failure_policy_blocked())
            )
 
     turn_blocked = Enum.find(agent_events, &(&1["event"] == "agent_turn_blocked"))

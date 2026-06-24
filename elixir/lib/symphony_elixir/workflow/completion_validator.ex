@@ -1,90 +1,31 @@
 defmodule SymphonyElixir.Workflow.CompletionValidator do
   @moduledoc """
-  Validates machine-readable completion evidence for workflow profiles.
+  Dispatches completion evidence validation to registered workflow extensions.
 
-  The first implementation targets `coding_pr_delivery`. It is intentionally
-  pure and evidence-driven: callers supply observed tracker/repo facts, and the
-  validator reports which contract checks are satisfied.
+  Platform code owns the stable facade and fallback envelope. Concrete
+  profile-specific evidence rules belong to extension-owned validators.
   """
 
-  alias SymphonyElixir.Workflow.CapabilityNames
+  alias SymphonyElixir.Workflow.Extension.Contributions
   alias SymphonyElixir.Workflow.IssueContext
-  alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
-  alias SymphonyElixir.Workflow.Profiles.CodingPrDelivery
   alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
   alias SymphonyElixir.Workflow.RouteRef
 
-  @merge_capabilities MapSet.new(CapabilityNames.merge_gate())
-  @passing_check_statuses ["passing", "passed", "success", "successful"]
-  @approved_review_statuses ["approved", "approval", "passed"]
-  @truthy_strings ["true", "yes", "passed", "passing"]
-
-  @type validation_status :: String.t()
-  @type validation_result :: %{
-          required(String.t()) => term()
-        }
+  @type validation_result :: %{required(String.t()) => term()}
 
   @spec validate(map(), keyword() | map()) :: validation_result()
   def validate(issue, opts \\ [])
 
   def validate(issue, opts) when is_map(issue) do
     profile_context = profile_context(issue, opts)
-    evidence = evidence(issue, opts)
     contract = completion_contract(issue, profile_context)
     allowed_routes = string_list(map_field(contract, :allowed_completion_routes))
-    route_key = completion_route(issue, opts, evidence)
+    route_key = completion_route(issue, opts, evidence(issue, opts))
 
-    if profile_context.kind == CodingPrDelivery.kind() do
-      checks = [
-        check(
-          "change_proposal_exists",
-          change_proposal_exists?(evidence),
-          "linked change proposal exists",
-          observed_change_proposal(evidence)
-        ),
-        check(
-          "change_proposal_linked_to_tracker",
-          change_proposal_linked_to_tracker?(evidence),
-          "change proposal is attached or linked to the tracker issue",
-          observed_tracker_link(evidence)
-        ),
-        check(
-          "commit_or_diff_exists",
-          commit_or_diff_exists?(evidence),
-          "commit or diff evidence exists",
-          observed_repo_change(evidence)
-        ),
-        check(
-          "checks_read_and_recorded",
-          checks_read_and_recorded?(evidence),
-          "CI/check evidence was read and recorded",
-          observed_checks(evidence)
-        ),
-        check(
-          "tracker_workpad_written",
-          tracker_workpad_written?(evidence),
-          "tracker workpad/comment was written",
-          observed_tracker_write(evidence)
-        ),
-        check(
-          "completion_route_allowed",
-          route_allowed?(route_key, allowed_routes),
-          "current or target route is allowed by the completion contract",
-          observed_route(route_key)
-        )
-      ]
-
-      validation_result(profile_context, route_key, allowed_routes, checks)
-    else
-      %{
-        ReadinessContract.status_key() => ReadinessContract.skipped(),
-        ReadinessContract.allowed_completion_routes_key() => allowed_routes,
-        ReadinessContract.checks_key() => [],
-        ReadinessContract.missing_evidence_key() => [],
-        ReadinessContract.observed_evidence_key() => []
-      }
-      |> Map.merge(route_ref_fields(profile_context, route_key))
+    case validator_for_profile(profile_context.kind) do
+      nil -> skipped_result(profile_context, route_key, allowed_routes)
+      validator -> validator.validate(issue, opts)
     end
   end
 
@@ -94,45 +35,10 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
   def merge_gate(evidence, capabilities \\ %{})
 
   def merge_gate(evidence, capabilities) when is_map(evidence) and is_map(capabilities) do
-    checks = [
-      check(
-        "change_proposal_exists",
-        change_proposal_exists?(evidence),
-        "linked change proposal exists",
-        observed_change_proposal(evidence)
-      ),
-      check(
-        "change_proposal_approved",
-        change_proposal_approved?(evidence),
-        "required human approval is present",
-        observed_approval(evidence)
-      ),
-      check(
-        "checks_passing",
-        checks_passing?(evidence),
-        "required CI/checks passed",
-        observed_checks(evidence)
-      ),
-      check(
-        "merge_capability_available",
-        merge_capability_available?(capabilities),
-        "merge capability is available",
-        observed_merge_capability(capabilities)
-      ),
-      check(
-        "tracker_merge_state_observed",
-        tracker_merge_state_observed?(evidence),
-        "tracker state or approval evidence indicates merge is authorized",
-        observed_tracker_merge_state(evidence)
-      )
-    ]
-
-    %{
-      ReadinessContract.status_key() => result_status(checks),
-      ReadinessContract.checks_key() => checks,
-      ReadinessContract.missing_evidence_key() => missing_evidence(checks),
-      ReadinessContract.observed_evidence_key() => observed_evidence(checks)
-    }
+    case merge_gate_validator() do
+      nil -> empty_gate_result()
+      validator -> validator.merge_gate(evidence, capabilities)
+    end
   end
 
   def merge_gate(_evidence, capabilities) when is_map(capabilities),
@@ -141,54 +47,48 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
   def merge_gate(evidence, _capabilities) when is_map(evidence), do: merge_gate(evidence, %{})
   def merge_gate(_evidence, _capabilities), do: merge_gate(%{}, %{})
 
-  defp check(key, true, required_evidence, observed_evidence) do
+  defp validator_for_profile(profile_kind) when is_binary(profile_kind) do
+    Enum.find(completion_validators(), fn validator ->
+      function_exported?(validator, :profile_kind, 0) and validator.profile_kind() == profile_kind
+    end)
+  end
+
+  defp merge_gate_validator do
+    Enum.find(completion_validators(), &function_exported?(&1, :merge_gate, 2))
+  end
+
+  defp completion_validators do
+    :completion_validators
+    |> Contributions.list!()
+    |> Enum.filter(&validator_module?/1)
+  end
+
+  defp validator_module?(module) when is_atom(module) do
+    Code.ensure_loaded?(module) and
+      function_exported?(module, :profile_kind, 0) and
+      function_exported?(module, :validate, 2)
+  end
+
+  defp validator_module?(_module), do: false
+
+  defp skipped_result(profile_context, route_key, allowed_routes) do
     %{
-      ReadinessContract.key_key() => key,
-      ReadinessContract.status_key() => ReadinessContract.passed(),
-      ReadinessContract.required_evidence_key() => required_evidence,
-      ReadinessContract.observed_evidence_key() => observed_evidence
-    }
-  end
-
-  defp check(key, _passed?, required_evidence, observed_evidence) do
-    %{
-      ReadinessContract.key_key() => key,
-      ReadinessContract.status_key() => ReadinessContract.failed(),
-      ReadinessContract.required_evidence_key() => required_evidence,
-      ReadinessContract.observed_evidence_key() => observed_evidence
-    }
-  end
-
-  defp result_status(checks) do
-    if Enum.all?(checks, &ReadinessContract.passed?/1) do
-      ReadinessContract.passed()
-    else
-      ReadinessContract.failed()
-    end
-  end
-
-  defp missing_evidence(checks) do
-    checks
-    |> Enum.reject(&ReadinessContract.passed?/1)
-    |> Enum.map(&Map.fetch!(&1, ReadinessContract.required_evidence_key()))
-  end
-
-  defp observed_evidence(checks) do
-    checks
-    |> Enum.flat_map(&List.wrap(Map.get(&1, ReadinessContract.observed_evidence_key())))
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-  end
-
-  defp validation_result(profile_context, route, allowed_routes, checks) do
-    %{
-      ReadinessContract.status_key() => result_status(checks),
+      ReadinessContract.status_key() => ReadinessContract.skipped(),
       ReadinessContract.allowed_completion_routes_key() => allowed_routes,
-      ReadinessContract.checks_key() => checks,
-      ReadinessContract.missing_evidence_key() => missing_evidence(checks),
-      ReadinessContract.observed_evidence_key() => observed_evidence(checks)
+      ReadinessContract.checks_key() => [],
+      ReadinessContract.missing_evidence_key() => [],
+      ReadinessContract.observed_evidence_key() => []
     }
-    |> Map.merge(route_ref_fields(profile_context, route))
+    |> Map.merge(route_ref_fields(profile_context, route_key))
+  end
+
+  defp empty_gate_result do
+    %{
+      ReadinessContract.status_key() => ReadinessContract.skipped(),
+      ReadinessContract.checks_key() => [],
+      ReadinessContract.missing_evidence_key() => [],
+      ReadinessContract.observed_evidence_key() => []
+    }
   end
 
   defp route_ref_fields(profile_context, route_key) do
@@ -243,284 +143,15 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
     end
   end
 
-  defp route_allowed?(route_key, allowed_routes)
-       when is_binary(route_key) and is_list(allowed_routes),
-       do: route_key in allowed_routes
-
-  defp route_allowed?(_route_key, _allowed_routes), do: false
-
-  defp change_proposal_exists?(evidence) do
-    change_proposal =
-      first_map([
-        map_field(evidence, :change_proposal),
-        map_field(evidence, :changeProposal),
-        evidence |> map_field(:data) |> map_field(:changeProposal),
-        evidence |> map_field(:data) |> map_field(:change_proposal),
-        map_field(evidence, :pr),
-        map_field(evidence, :pull_request)
-      ])
-
-    truthy?(map_field(change_proposal, :exists)) or
-      present_string?(map_field(change_proposal, :url)) or
-      present_string?(map_field(change_proposal, :number)) or
-      present_string?(map_field(change_proposal, :target))
-  end
-
-  defp change_proposal_linked_to_tracker?(evidence) do
-    attachment =
-      first_map([
-        map_field(evidence, :attachment),
-        evidence |> map_field(:data) |> map_field(:attachment),
-        evidence |> map_field(:tracker) |> map_field(:attachment)
-      ])
-
-    truthy?(deep_field(evidence, [:tracker, :change_proposal_attached])) or
-      truthy?(deep_field(evidence, [:tracker, :tracker_attached])) or
-      truthy?(deep_field(evidence, [:change_proposal, :linked_issue])) or
-      truthy?(deep_field(evidence, [:changeProposal, :linkedIssue])) or
-      truthy?(deep_field(evidence, [:change_proposal, :tracker_linked])) or
-      present_string?(map_field(attachment, :url)) or
-      present_string?(map_field(attachment, :id))
-  end
-
-  defp commit_or_diff_exists?(evidence) do
-    repo = map_field(evidence, :repo)
-    commits = map_field(repo, :commits) || map_field(evidence, :commits)
-    diff = map_field(repo, :diff) || map_field(evidence, :diff)
-
-    truthy?(map_field(repo, :commit_exists)) or
-      truthy?(map_field(repo, :diff_exists)) or
-      truthy?(map_field(repo, :diff_present)) or
-      non_empty_list?(commits) or
-      present_string?(map_field(repo, :head_sha)) or
-      present_string?(map_field(diff, :summary)) or
-      truthy?(map_field(diff, :present))
-  end
-
-  defp checks_read_and_recorded?(evidence) do
-    checks = checks_map(evidence)
-
-    (truthy?(map_field(checks, :read)) and checks_result_recorded?(checks)) or
-      non_empty_list?(map_field(checks, :items)) or
-      non_empty_list?(map_field(checks, :checks))
-  end
-
-  defp checks_passing?(evidence) do
-    checks = checks_map(evidence)
-
-    map_field(checks, :status) in @passing_check_statuses or
-      map_field(checks, :summary) in @passing_check_statuses or
-      map_field(checks, :check_summary) in @passing_check_statuses or
-      truthy?(map_field(checks, :passing))
-  end
-
-  defp checks_result_recorded?(checks) when is_map(checks) do
-    present_string?(map_field(checks, :status)) or
-      present_string?(map_field(checks, :summary)) or
-      present_string?(map_field(checks, :check_summary)) or
-      truthy?(map_field(checks, :recorded))
-  end
-
-  defp checks_map(evidence) do
-    first_map([
-      map_field(evidence, :checks),
-      evidence |> map_field(:data) |> map_field(:checks),
-      map_field(evidence, :ci),
-      evidence |> map_field(:change_proposal) |> map_field(:checks),
-      evidence |> map_field(:changeProposal) |> map_field(:checks)
-    ])
-  end
-
-  defp tracker_workpad_written?(evidence) do
-    tracker = map_field(evidence, :tracker)
-
-    truthy?(map_field(tracker, :workpad_written)) or
-      truthy?(map_field(tracker, :comment_written)) or
-      truthy?(map_field(tracker, :workpad_upserted)) or
-      present_string?(deep_field(evidence, [:data, :comment, :id])) or
-      present_string?(deep_field(evidence, [:tracker, :comment, :id]))
-  end
-
-  defp change_proposal_approved?(evidence) do
-    review =
-      first_map([
-        map_field(evidence, :review),
-        map_field(evidence, :reviews),
-        evidence |> map_field(:change_proposal) |> map_field(:review),
-        evidence |> map_field(:changeProposal) |> map_field(:review)
-      ])
-
-    map_field(review, :status) in @approved_review_statuses or
-      map_field(review, :summary) in @approved_review_statuses or
-      map_field(review, :review_summary) in @approved_review_statuses or
-      truthy?(map_field(review, :approved))
-  end
-
-  defp merge_capability_available?(%{"checked" => false}), do: false
-  defp merge_capability_available?(%{checked: false}), do: false
-
-  defp merge_capability_available?(capabilities) when is_map(capabilities) do
-    available =
-      capabilities
-      |> map_field(:available)
-      |> capability_set()
-
-    missing =
-      capabilities
-      |> map_field(:missing)
-      |> capability_set()
-
-    Enum.any?(@merge_capabilities, &MapSet.member?(available, &1)) and
-      Enum.all?(@merge_capabilities, &(not MapSet.member?(missing, &1)))
-  end
-
-  defp tracker_merge_state_observed?(evidence) do
-    route = map_field(evidence, :route)
-    tracker = map_field(evidence, :tracker)
-
-    route_value(route, :key) == "merging" or
-      route_value(route, :current) == "merging" or
-      route_value(route, :target) == "merging" or
-      tracker_merge_phase?(tracker) or
-      truthy?(map_field(tracker, :merge_approved))
-  end
-
-  defp tracker_merge_phase?(tracker) do
-    phase = map_field(tracker, :lifecycle_phase) || map_field(tracker, :state)
-    WorkflowLifecycle.merge_phase?(phase)
-  end
-
-  defp observed_change_proposal(evidence) do
-    cond do
-      present_string?(deep_field(evidence, [:change_proposal, :url])) ->
-        ["change_proposal.url"]
-
-      present_string?(deep_field(evidence, [:changeProposal, :url])) ->
-        ["changeProposal.url"]
-
-      present_string?(deep_field(evidence, [:data, :changeProposal, :url])) ->
-        ["data.changeProposal.url"]
-
-      change_proposal_exists?(evidence) ->
-        ["change_proposal"]
-
-      true ->
-        []
-    end
-  end
-
-  defp observed_tracker_link(evidence) do
-    cond do
-      present_string?(deep_field(evidence, [:data, :attachment, :id])) -> ["data.attachment.id"]
-      present_string?(deep_field(evidence, [:attachment, :id])) -> ["attachment.id"]
-      change_proposal_linked_to_tracker?(evidence) -> ["tracker.change_proposal_attached"]
-      true -> []
-    end
-  end
-
-  defp observed_repo_change(evidence) do
-    cond do
-      non_empty_list?(deep_field(evidence, [:repo, :commits])) -> ["repo.commits"]
-      truthy?(deep_field(evidence, [:repo, :diff_present])) -> ["repo.diff_present"]
-      present_string?(deep_field(evidence, [:repo, :head_sha])) -> ["repo.head_sha"]
-      true -> []
-    end
-  end
-
-  defp observed_checks(evidence) do
-    cond do
-      checks_passing?(evidence) -> ["checks.passing"]
-      checks_read_and_recorded?(evidence) -> ["checks.read"]
-      true -> []
-    end
-  end
-
-  defp observed_tracker_write(evidence) do
-    if tracker_workpad_written?(evidence), do: ["tracker.workpad_written"], else: []
-  end
-
-  defp observed_route(route_key) when is_binary(route_key), do: ["route=#{route_key}"]
-  defp observed_route(_route_key), do: []
-
-  defp observed_approval(evidence) do
-    if change_proposal_approved?(evidence), do: ["review.approved"], else: []
-  end
-
-  defp observed_merge_capability(capabilities) do
-    if merge_capability_available?(capabilities), do: ["merge_capability.available"], else: []
-  end
-
-  defp observed_tracker_merge_state(evidence) do
-    if tracker_merge_state_observed?(evidence), do: ["tracker.merge_state"], else: []
-  end
-
   defp evidence(issue, opts) when is_map(issue) do
     opts_evidence = opt(opts, :evidence)
 
     cond do
-      is_map(opts_evidence) ->
-        opts_evidence
-
-      is_map(workflow_value(issue, :completion_evidence)) ->
-        workflow_value(issue, :completion_evidence)
-
-      is_map(workflow_value(issue, :evidence)) ->
-        workflow_value(issue, :evidence)
-
-      true ->
-        %{}
+      is_map(opts_evidence) -> opts_evidence
+      is_map(workflow_value(issue, :completion_evidence)) -> workflow_value(issue, :completion_evidence)
+      is_map(workflow_value(issue, :evidence)) -> workflow_value(issue, :evidence)
+      true -> %{}
     end
-  end
-
-  defp first_map(values) when is_list(values) do
-    Enum.find_value(values, %{}, fn
-      value when is_map(value) -> value
-      _value -> nil
-    end)
-  end
-
-  defp non_empty_list?(values) when is_list(values), do: values != []
-  defp non_empty_list?(_values), do: false
-
-  defp truthy?(true), do: true
-  defp truthy?(value) when is_binary(value), do: value in @truthy_strings
-  defp truthy?(1), do: true
-  defp truthy?(_value), do: false
-
-  defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present_string?(value) when is_integer(value), do: true
-  defp present_string?(_value), do: false
-
-  defp capability_set(%MapSet{} = values), do: values
-
-  defp capability_set(values) do
-    values
-    |> List.wrap()
-    |> Enum.filter(&is_binary/1)
-    |> MapSet.new()
-  end
-
-  defp string_list(values) do
-    values
-    |> List.wrap()
-    |> Enum.map(&normalize_string/1)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp route_value(map, key) when is_map(map) do
-    map
-    |> map_field(key)
-    |> normalize_string()
-  end
-
-  defp route_value(_map, _key), do: nil
-
-  defp deep_field(value, []), do: value
-
-  defp deep_field(value, [key | rest]) do
-    value
-    |> map_field(key)
-    |> deep_field(rest)
   end
 
   defp workflow_value(issue, key) when is_map(issue) and is_atom(key) do
@@ -547,6 +178,21 @@ defmodule SymphonyElixir.Workflow.CompletionValidator do
 
   defp normalize_map(value) when is_map(value), do: value
   defp normalize_map(_value), do: %{}
+
+  defp string_list(values) do
+    values
+    |> List.wrap()
+    |> Enum.map(&normalize_string/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp route_value(map, key) when is_map(map) do
+    map
+    |> map_field(key)
+    |> normalize_string()
+  end
+
+  defp route_value(_map, _key), do: nil
 
   defp normalize_string(value) when is_binary(value) do
     case String.trim(value) do

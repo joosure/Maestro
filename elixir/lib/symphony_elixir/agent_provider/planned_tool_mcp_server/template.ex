@@ -1,7 +1,7 @@
 defmodule SymphonyElixir.AgentProvider.PlannedToolMcpServer.Template do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.DynamicTool.BridgeContract
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract, as: BridgeContract
 
   alias SymphonyElixir.AgentProvider.PlannedToolMcpServer.{
     BridgeClient,

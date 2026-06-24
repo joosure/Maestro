@@ -2,9 +2,10 @@ defmodule SymphonyElixir.Agent.DynamicTool.InventoryTest do
   use ExUnit.Case, async: true
 
   alias SymphonyElixir.Agent.DynamicTool.Inventory
+  alias SymphonyElixir.Agent.DynamicTool.Inventory.{RenderOptions, ResolutionError, ResolvedTool}
   alias SymphonyElixir.AgentProvider.ToolInventory
 
-  test "resolves required typed capabilities to exactly one non-deprecated tool" do
+  test "resolves required typed capabilities to exactly one advertised canonical tool" do
     context = tool_context()
 
     assert {:ok,
@@ -14,128 +15,158 @@ defmodule SymphonyElixir.Agent.DynamicTool.InventoryTest do
                 tool: "linear_issue_snapshot",
                 side_effect: "read_only",
                 source_kind: "linear",
-                schema_version: "1",
-                deprecated?: false
+                schema_version: "1"
               }
             ]} = Inventory.resolve_required(context, ["tracker.issue_snapshot"])
   end
 
   test "rejects missing and ambiguous typed capability mappings" do
-    assert {:error, {:missing_typed_workflow_tool, "tracker.move_issue"}} =
+    assert {:error, %ResolutionError{reason: :missing_typed_tool, capability: "tracker.move_issue"}} =
              Inventory.resolve_required(tool_context(), ["tracker.move_issue"])
 
     ambiguous =
-      put_in(tool_context(), [:tool_metadata, "second_snapshot"], %{
-        "workflowCapability" => "tracker.issue_snapshot",
+      put_in(tool_context(), ["tool_metadata", "second_snapshot"], %{
+        "capability" => "tracker.issue_snapshot",
         "sideEffect" => "read_only",
         "sourceKind" => "linear",
         "schemaVersion" => "1"
       })
-      |> update_in([:tool_specs], &(&1 ++ [%{"name" => "second_snapshot", "inputSchema" => %{"type" => "object"}}]))
+      |> update_in(["tool_specs"], &(&1 ++ [%{"name" => "second_snapshot", "inputSchema" => %{"type" => "object"}}]))
 
-    assert {:error, {:ambiguous_typed_workflow_tool, "tracker.issue_snapshot", ["linear_issue_snapshot", "second_snapshot"]}} =
+    assert {:error,
+            %ResolutionError{
+              reason: :ambiguous_typed_tool,
+              capability: "tracker.issue_snapshot",
+              tools: ["linear_issue_snapshot", "second_snapshot"]
+            }} =
              Inventory.resolve_required(ambiguous, ["tracker.issue_snapshot"])
   end
 
-  test "ignores deprecated typed tools when resolving and rendering inventory" do
-    context =
-      tool_context()
-      |> add_tool("old_linear_issue_snapshot", %{
-        "workflowCapability" => "tracker.issue_snapshot",
-        "sideEffect" => "read_only",
-        "sourceKind" => "linear",
-        "schemaVersion" => "1",
-        "deprecated" => true
-      })
+  test "retired tools must be omitted by the source instead of marked in metadata" do
+    context = raw_only_tool_context()
 
-    assert {:ok, [%{tool: "linear_issue_snapshot", deprecated?: false}]} =
+    assert {:error, %ResolutionError{reason: :missing_typed_tool, capability: "tracker.issue_snapshot"}} =
              Inventory.resolve_required(context, ["tracker.issue_snapshot"])
 
     inventory = Inventory.render(context)
 
-    assert inventory =~ "`linear_issue_snapshot`"
-    refute inventory =~ "old_linear_issue_snapshot"
+    assert inventory =~ "No typed tools are advertised"
+    refute inventory =~ "linear_issue_snapshot"
   end
 
-  test "rejects a required typed capability when only deprecated typed tools exist" do
+  test "renders only authoritative canonical typed tools and omits aliases" do
     context =
-      put_in(tool_context(), [:tool_metadata, "linear_issue_snapshot", "deprecated"], true)
-
-    assert {:error, {:missing_typed_workflow_tool, "tracker.issue_snapshot"}} =
-             Inventory.resolve_required(context, ["tracker.issue_snapshot"])
-  end
-
-  test "allows operator migration fallback only when policy names an advertised runtime tool" do
-    policy = %{
-      "tracker.issue_snapshot" => %{
-        "tool" => "legacy_tracker_api",
-        "reason" => "temporary provider migration"
-      }
-    }
-
-    assert {:ok,
-            [
-              %{
-                capability: "tracker.issue_snapshot",
-                tool: "legacy_tracker_api",
-                side_effect: "destructive",
-                source_kind: "linear",
-                fallback?: true,
-                fallback_reason: "temporary provider migration"
-              }
-            ]} =
-             Inventory.resolve_required(raw_only_tool_context(), ["tracker.issue_snapshot"], fallback_policy: policy)
-
-    inventory = Inventory.render(raw_only_tool_context(), fallback_policy: policy)
-
-    assert inventory =~ "`tracker.issue_snapshot`"
-    assert inventory =~ "`legacy_tracker_api`"
-    assert inventory =~ "explicit operator migration fallback permitted: temporary provider migration"
-  end
-
-  test "rejects operator migration fallback policy when the fallback tool is missing or deprecated" do
-    assert {:error, {:missing_fallback_workflow_tool, "tracker.issue_snapshot", "missing_tool"}} =
-             Inventory.resolve_required(raw_only_tool_context(), ["tracker.issue_snapshot"], fallback_policy: %{"tracker.issue_snapshot" => "missing_tool"})
-
-    deprecated_raw =
-      put_in(raw_only_tool_context(), [:tool_metadata, "legacy_tracker_api", "deprecated"], true)
-
-    assert {:error, {:deprecated_fallback_workflow_tool, "tracker.issue_snapshot", "legacy_tracker_api"}} =
-             Inventory.resolve_required(deprecated_raw, ["tracker.issue_snapshot"], fallback_policy: %{"tracker.issue_snapshot" => "legacy_tracker_api"})
-  end
-
-  test "rejects operator migration fallback policy that points at another typed workflow tool" do
-    context =
-      raw_only_tool_context()
-      |> add_tool("linear_move_issue", %{
-        "workflowCapability" => "tracker.move_issue",
-        "sideEffect" => "write",
-        "sourceKind" => "linear",
-        "schemaVersion" => "1"
-      })
-
-    assert {:error, {:typed_fallback_workflow_tool, "tracker.issue_snapshot", "linear_move_issue", "tracker.move_issue"}} =
-             Inventory.resolve_required(context, ["tracker.issue_snapshot"], fallback_policy: %{"tracker.issue_snapshot" => "linear_move_issue"})
-  end
-
-  test "does not use operator migration fallback to hide ambiguous typed tool mappings" do
-    ambiguous =
       tool_context()
-      |> add_tool("second_snapshot", %{
-        "workflowCapability" => "tracker.issue_snapshot",
+      |> add_tool("linear_issue_snapshot_alias", %{
+        "capability" => "tracker.issue_snapshot",
+        "toolAliasOf" => "linear_issue_snapshot",
         "sideEffect" => "read_only",
         "sourceKind" => "linear",
         "schemaVersion" => "1"
       })
 
-    assert {:error, {:ambiguous_typed_workflow_tool, "tracker.issue_snapshot", ["linear_issue_snapshot", "second_snapshot"]}} =
-             Inventory.resolve_required(ambiguous, ["tracker.issue_snapshot"], fallback_policy: %{"tracker.issue_snapshot" => "legacy_tracker_api"})
+    assert Enum.any?(Inventory.typed_tools(context), &match?(%ResolvedTool{tool: "linear_issue_snapshot_alias"}, &1))
+    refute Enum.any?(Inventory.authoritative_typed_tools(context), &(&1.tool == "linear_issue_snapshot_alias"))
+
+    inventory = Inventory.render(context)
+
+    assert inventory =~ "`linear_issue_snapshot`"
+    refute inventory =~ "linear_issue_snapshot_alias"
+  end
+
+  test "resolves required capabilities from canonical tools and ignores aliases for authority" do
+    context =
+      tool_context()
+      |> add_tool("linear_issue_snapshot_alias", %{
+        "capability" => "tracker.issue_snapshot",
+        "toolAliasOf" => "linear_issue_snapshot",
+        "sideEffect" => "read_only",
+        "sourceKind" => "linear",
+        "schemaVersion" => "1"
+      })
+
+    assert {:ok, [%{tool: "linear_issue_snapshot"}]} =
+             Inventory.resolve_required(context, ["tracker.issue_snapshot"])
+  end
+
+  test "does not let an alias-only tool satisfy a required capability" do
+    context =
+      raw_only_tool_context()
+      |> add_tool("linear_issue_snapshot_alias", %{
+        "capability" => "tracker.issue_snapshot",
+        "toolAliasOf" => "linear_issue_snapshot",
+        "sideEffect" => "read_only",
+        "sourceKind" => "linear",
+        "schemaVersion" => "1"
+      })
+
+    assert {:error, %ResolutionError{reason: :missing_typed_tool, capability: "tracker.issue_snapshot"}} =
+             Inventory.resolve_required(context, ["tracker.issue_snapshot"])
+  end
+
+  test "resolved tools reject atom values instead of coercing them to strings" do
+    attrs = [
+      capability: "tracker.issue_snapshot",
+      tool: "linear_issue_snapshot",
+      side_effect: "read_only",
+      schema_version: "1",
+      source_kind: "linear",
+      alias_of: nil
+    ]
+
+    for field <- [:capability, :tool, :side_effect, :schema_version, :source_kind, :alias_of] do
+      assert :error = attrs |> Keyword.put(field, :atom_value) |> ResolvedTool.new()
+    end
+  end
+
+  test "does not let invalid side-effect metadata satisfy a required capability" do
+    invalid_side_effect =
+      raw_only_tool_context()
+      |> add_tool("legacy_issue_snapshot", %{
+        "capability" => "tracker.issue_snapshot",
+        "sideEffect" => "readonly",
+        "sourceKind" => "linear",
+        "schemaVersion" => "1"
+      })
+
+    assert {:error, %ResolutionError{reason: :missing_typed_tool, capability: "tracker.issue_snapshot"}} =
+             Inventory.resolve_required(invalid_side_effect, ["tracker.issue_snapshot"])
+
+    missing_side_effect =
+      raw_only_tool_context()
+      |> add_tool("missing_side_effect_snapshot", %{
+        "capability" => "tracker.issue_snapshot",
+        "sourceKind" => "linear",
+        "schemaVersion" => "1"
+      })
+
+    assert {:error, %ResolutionError{reason: :missing_typed_tool, capability: "tracker.issue_snapshot"}} =
+             Inventory.resolve_required(missing_side_effect, ["tracker.issue_snapshot"])
+  end
+
+  test "does not hide ambiguous typed tool mappings" do
+    ambiguous =
+      tool_context()
+      |> add_tool("second_snapshot", %{
+        "capability" => "tracker.issue_snapshot",
+        "sideEffect" => "read_only",
+        "sourceKind" => "linear",
+        "schemaVersion" => "1"
+      })
+
+    assert {:error,
+            %ResolutionError{
+              reason: :ambiguous_typed_tool,
+              capability: "tracker.issue_snapshot",
+              tools: ["linear_issue_snapshot", "second_snapshot"]
+            }} =
+             Inventory.resolve_required(ambiguous, ["tracker.issue_snapshot"])
   end
 
   test "renders an agent-facing inventory with exact runtime tool names" do
     inventory = Inventory.render(tool_context())
 
-    assert inventory =~ "## Typed Workflow Tool Inventory"
+    assert inventory =~ "## Typed Tool Inventory"
     assert inventory =~ "`tracker.issue_snapshot`"
     assert inventory =~ "`linear_issue_snapshot`"
     assert inventory =~ "Do not guess provider API fields"
@@ -154,45 +185,80 @@ defmodule SymphonyElixir.Agent.DynamicTool.InventoryTest do
 
   test "Claude Code provider adapter supplies inventory callable naming" do
     opts = ToolInventory.render_opts("claude_code")
+    callable_name = RenderOptions.provider_callable_name(opts)
 
-    assert is_function(Keyword.fetch!(opts, :provider_callable_name), 1)
-    assert Keyword.fetch!(opts, :provider_callable_name).("repo_checkout") == "mcp__symphony-planned-tools__repo_checkout"
-    assert Keyword.fetch!(opts, :provider_callable_label) == "Claude Code MCP tool"
+    assert %RenderOptions{} = opts
+    assert is_function(callable_name, 1)
+    assert callable_name.("repo_checkout") == "mcp__symphony-planned-tools__repo_checkout"
+    assert RenderOptions.provider_callable_label(opts) == "Claude Code MCP tool"
   end
 
   test "Codex provider adapter supplies MCP inventory callable naming" do
     inventory = Inventory.render(tool_context(), ToolInventory.render_opts("codex"))
     opts = ToolInventory.render_opts("codex")
+    callable_name = RenderOptions.provider_callable_name(opts)
 
     assert inventory =~ "`mcp__symphony-planned-tools__linear_issue_snapshot`"
     assert inventory =~ "Codex exposes Symphony Dynamic Tools through the runtime MCP bridge"
-    assert is_function(Keyword.fetch!(opts, :provider_callable_name), 1)
-    assert Keyword.fetch!(opts, :provider_callable_name).("repo_checkout") == "mcp__symphony-planned-tools__repo_checkout"
-    assert Keyword.fetch!(opts, :provider_callable_label) == "Codex MCP tool"
+    assert %RenderOptions{} = opts
+    assert is_function(callable_name, 1)
+    assert callable_name.("repo_checkout") == "mcp__symphony-planned-tools__repo_checkout"
+    assert RenderOptions.provider_callable_label(opts) == "Codex MCP tool"
   end
 
   test "CodeBuddy Code provider adapter supplies MCP inventory callable naming" do
     inventory = Inventory.render(tool_context(), ToolInventory.render_opts("codebuddy_code"))
     opts = ToolInventory.render_opts("codebuddy_code")
+    callable_name = RenderOptions.provider_callable_name(opts)
 
     assert inventory =~ "`mcp__symphony_dynamic_tools__linear_issue_snapshot`"
     assert inventory =~ "CodeBuddy Code exposes Symphony Dynamic Tools through a session-scoped MCP server"
-    assert is_function(Keyword.fetch!(opts, :provider_callable_name), 1)
-    assert Keyword.fetch!(opts, :provider_callable_name).("repo_checkout") == "mcp__symphony_dynamic_tools__repo_checkout"
-    assert Keyword.fetch!(opts, :provider_callable_label) == "CodeBuddy MCP tool"
+    assert %RenderOptions{} = opts
+    assert is_function(callable_name, 1)
+    assert callable_name.("repo_checkout") == "mcp__symphony_dynamic_tools__repo_checkout"
+    assert RenderOptions.provider_callable_label(opts) == "CodeBuddy MCP tool"
   end
 
-  test "raw provider tools do not satisfy typed capabilities without operator migration fallback policy" do
-    assert {:error, {:missing_typed_workflow_tool, "tracker.issue_snapshot"}} =
+  test "renders markdown table cells through bounded escaping" do
+    context =
+      tool_context()
+      |> put_in(["tool_metadata", "linear_issue_snapshot", "capability"], "tracker|issue`danger\nsnapshot")
+      |> put_in(["tool_metadata", "linear_issue_snapshot", "sourceKind"], "linear|provider`x\nsource")
+
+    opts = [
+      {RenderOptions.provider_callable_name_key(), fn _tool -> "mcp|tool`name\nnext" end},
+      {RenderOptions.provider_callable_label_key(), "Provider | Label\nName"},
+      {RenderOptions.provider_callable_note_key(), "Provider\nnote\ttext"}
+    ]
+
+    inventory = Inventory.render(context, opts)
+
+    assert inventory =~ "Provider \\| Label Name"
+    assert inventory =~ "Provider note text"
+    assert inventory =~ "`tracker\\|issue'danger snapshot`"
+    assert inventory =~ "`mcp\\|tool'name next`"
+    assert inventory =~ "`linear\\|provider'x source`"
+  end
+
+  test "raw provider tools do not satisfy typed capabilities" do
+    assert {:error, %ResolutionError{reason: :missing_typed_tool, capability: "tracker.issue_snapshot"}} =
              Inventory.resolve_required(raw_only_tool_context(), ["tracker.issue_snapshot"])
   end
 
-  test "recognizes repo-provider review comment capabilities as typed workflow tools" do
+  test "fails closed on invalid required capability entries" do
+    assert {:error, %ResolutionError{reason: :invalid_required_capability, value: nil}} =
+             Inventory.resolve_required(tool_context(), ["tracker.issue_snapshot", nil])
+
+    assert {:error, %ResolutionError{reason: :invalid_required_capability, value: ""}} =
+             Inventory.resolve_required(tool_context(), [""])
+  end
+
+  test "recognizes repo-provider review comment capabilities as typed tools" do
     assert Inventory.typed_capability?("repo.add_change_proposal_comment")
     assert Inventory.typed_capability?("repo.reply_change_proposal_review_comment")
   end
 
-  test "recognizes TAPD raw-fallback replacement capabilities as typed workflow tools" do
+  test "recognizes TAPD typed tracker capabilities as typed tools" do
     assert Inventory.typed_capability?("tracker.create_follow_up_issue")
     assert Inventory.typed_capability?("tracker.read_issue_relations")
     assert Inventory.typed_capability?("tracker.add_issue_relation")
@@ -202,7 +268,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.InventoryTest do
 
   defp tool_context do
     %{
-      tool_specs: [
+      "tool_specs" => [
         %{
           "name" => "linear_issue_snapshot",
           "description" => "Read issue snapshot.",
@@ -210,13 +276,13 @@ defmodule SymphonyElixir.Agent.DynamicTool.InventoryTest do
         },
         %{
           "name" => "legacy_tracker_api",
-          "description" => "Raw fallback.",
+          "description" => "Raw tracker API.",
           "inputSchema" => %{"type" => "object"}
         }
       ],
-      tool_metadata: %{
+      "tool_metadata" => %{
         "linear_issue_snapshot" => %{
-          "workflowCapability" => "tracker.issue_snapshot",
+          "capability" => "tracker.issue_snapshot",
           "sideEffect" => "read_only",
           "sourceKind" => "linear",
           "schemaVersion" => "1"
@@ -232,14 +298,14 @@ defmodule SymphonyElixir.Agent.DynamicTool.InventoryTest do
 
   defp raw_only_tool_context do
     %{
-      tool_specs: [
+      "tool_specs" => [
         %{
           "name" => "legacy_tracker_api",
-          "description" => "Raw fallback.",
+          "description" => "Raw tracker API.",
           "inputSchema" => %{"type" => "object"}
         }
       ],
-      tool_metadata: %{
+      "tool_metadata" => %{
         "legacy_tracker_api" => %{
           "sideEffect" => "destructive",
           "sourceKind" => "linear",
@@ -251,7 +317,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.InventoryTest do
 
   defp add_tool(context, tool_name, metadata) do
     context
-    |> update_in([:tool_specs], &(&1 ++ [%{"name" => tool_name, "inputSchema" => %{"type" => "object"}}]))
-    |> put_in([:tool_metadata, tool_name], metadata)
+    |> update_in(["tool_specs"], &(&1 ++ [%{"name" => tool_name, "inputSchema" => %{"type" => "object"}}]))
+    |> put_in(["tool_metadata", tool_name], metadata)
   end
 end

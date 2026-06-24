@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.Agent.DynamicTool.EventContract, as: DynamicToolEventContract
   alias SymphonyElixir.AgentProvider.Kinds, as: AgentProviderKinds
   alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
   alias SymphonyElixir.Orchestrator.Running
@@ -13,8 +14,8 @@ defmodule SymphonyElixir.CoreTest do
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error, as: TrackerError
   alias SymphonyElixir.Tracker.Kinds, as: TrackerKinds
-  alias SymphonyElixir.Workflow.TemplateRegistry
-  alias SymphonyElixir.Workflow.Templates
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
+  alias SymphonyElixir.Workflow.Template, as: Templates
 
   defmodule FailingLinearClient do
     def fetch_candidate_issues(_tracker) do
@@ -424,7 +425,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~
              "Record a short note in the workpad if state and issue content are inconsistent"
 
-    assert prompt =~ "tracker.attach_change_proposal"
+    assert prompt =~ "tracker.attach_external_reference"
 
     assert prompt =~
              "If it is missing, stop as blocked and record the missing typed tracker capability"
@@ -598,7 +599,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Pass `mode`, `base`, `head`, and `title`"
     assert prompt =~ "omit `body` when no task-specific body is needed"
     assert prompt =~ "repo.change_proposal_snapshot"
-    assert prompt =~ "only as documented fallback"
+    assert prompt =~ "outside those documented capability boundaries"
     assert prompt =~ "/-/pulls/"
     assert prompt =~ "Do not use `--target-branch`, `--description`, `curl`, `gh`, `glab`, `brew`"
     refute prompt =~ "repo-provider\" pr-create"
@@ -730,7 +731,7 @@ defmodule SymphonyElixir.CoreTest do
              true
 
     assert prompt =~
-             "Use repo-core or repo-provider helpers only for unsupported\noperations, diagnostics, or documented fallback."
+             "Use repo-core or repo-provider helpers only for unsupported\noperations or explicitly documented helper/diagnostics paths."
 
     assert prompt =~
              "\"${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo\" diff-check \"origin/{{ repo.base_branch }}...HEAD\""
@@ -754,7 +755,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "For Linear tracker actions, open and follow the bundled workspace skill"
     assert prompt =~ "${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/tracker/linear/SKILL.md"
     assert prompt =~ "Use the exact Claude-facing callable names"
-    assert prompt =~ "tracker.attach_change_proposal"
+    assert prompt =~ "tracker.attach_external_reference"
 
     assert prompt =~
              "The inventory is the source for\nprovider-specific callable names"
@@ -1886,15 +1887,15 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
-    SymphonyElixir.Observability.Logger.emit(:warning, :typed_tool_failure_policy_blocked, %{
-      component: "agent.dynamic_tool_failure_policy",
+    SymphonyElixir.Observability.Logger.emit(:warning, DynamicToolEventContract.typed_tool_failure_policy_blocked_event(), %{
+      component: DynamicToolEventContract.dynamic_tool_failure_policy_component(),
       issue_id: issue_id,
       run_id: "run-typed-tool-blocked",
       resource_kind: "tracker_issue",
       resource_id: issue_id,
       tool_name: "linear_move_issue",
       error_code: "review_handoff_blocked_after_retries",
-      original_error_code: "review_handoff_not_ready",
+      original_error_code: "transition_readiness_not_ready",
       retryable: false
     })
 
@@ -1920,7 +1921,7 @@ defmodule SymphonyElixir.CoreTest do
              "status" => "active",
              "resource" => %{"kind" => "tracker_issue", "id" => ^issue_id},
              "blocker_code" => "review_handoff_blocked_after_retries",
-             "original_error_code" => "review_handoff_not_ready",
+             "original_error_code" => "transition_readiness_not_ready",
              "tool_name" => "linear_move_issue"
            } = BlockedResourceRegistry.get_active_for_issue(issue_id)
   end
@@ -1998,15 +1999,15 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
-    SymphonyElixir.Observability.Logger.emit(:warning, :typed_tool_failure_policy_blocked, %{
-      component: "agent.dynamic_tool_failure_policy",
+    SymphonyElixir.Observability.Logger.emit(:warning, DynamicToolEventContract.typed_tool_failure_policy_blocked_event(), %{
+      component: DynamicToolEventContract.dynamic_tool_failure_policy_component(),
       issue_id: issue_id,
       run_id: "run-normal-exit-blocked",
       resource_kind: "tracker_issue",
       resource_id: issue_id,
       tool_name: "linear_move_issue",
       error_code: "review_handoff_blocked_after_retries",
-      original_error_code: "review_handoff_not_ready",
+      original_error_code: "transition_readiness_not_ready",
       retryable: false
     })
 

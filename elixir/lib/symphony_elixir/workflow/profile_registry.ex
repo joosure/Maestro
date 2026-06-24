@@ -4,32 +4,34 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
 
   Repository workflow config may select one of the compiled profile kind/version
   pairs, but it cannot register profile modules at runtime.
+
+  This registry owns the workflow-platform profile resolution mechanism. It may
+  list platform-owned modules under `Workflow.Profiles`; concrete extension
+  profiles must enter through `Workflow.Extension.Contributions` or a future
+  manifest projection, not through direct aliases here.
   """
 
-  alias SymphonyElixir.Workflow.Profiles.{
-    CodingPrDelivery,
-    RequirementAnalysis,
-    RequirementRefinement,
-    ReviewRouting,
-    Triage
-  }
+  alias SymphonyElixir.Workflow.Extension.Contributions
+  alias SymphonyElixir.Workflow.Profiles.{RequirementAnalysis, RequirementRefinement, ReviewRouting, Triage}
 
   alias SymphonyElixir.Workflow.Profile.{Config, Defaults, Resolved}
   alias SymphonyElixir.Workflow.RoutePolicy.Keys
 
-  @profile_modules [
-    CodingPrDelivery,
+  @platform_profile_modules [
     RequirementAnalysis,
     RequirementRefinement,
     ReviewRouting,
     Triage
   ]
-  @default_profile_module CodingPrDelivery
 
   @type resolved_profile :: Resolved.t()
 
   @spec default_profile_module() :: module()
-  def default_profile_module, do: @default_profile_module
+  def default_profile_module do
+    profiles()
+    |> Enum.find(&extension_owned_profile?/1)
+    |> Kernel.||(Triage)
+  end
 
   @spec default_version(String.t()) :: {:ok, pos_integer()} | {:error, term()}
   def default_version(kind) when is_binary(kind) do
@@ -73,7 +75,10 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
   end
 
   @spec profiles() :: [module()]
-  def profiles, do: @profile_modules
+  def profiles do
+    (@platform_profile_modules ++ Contributions.list!(:profiles))
+    |> Enum.uniq()
+  end
 
   @spec normalize_config(map() | nil) :: map()
   def normalize_config(profile_config) when is_map(profile_config) do
@@ -217,15 +222,19 @@ defmodule SymphonyElixir.Workflow.ProfileRegistry do
   end
 
   defp profiles_by_key do
-    Map.new(@profile_modules, fn profile_module ->
+    Map.new(profiles(), fn profile_module ->
       {{profile_module.kind(), profile_module.version()}, profile_module}
     end)
   end
 
   defp default_versions do
-    Map.new(@profile_modules, fn profile_module ->
+    Map.new(profiles(), fn profile_module ->
       {profile_module.kind(), profile_module.version()}
     end)
+  end
+
+  defp extension_owned_profile?(profile_module) when is_atom(profile_module) do
+    profile_module in Contributions.list!(:profiles)
   end
 
   defp map_value(map, key) when is_map(map) and is_binary(key) do

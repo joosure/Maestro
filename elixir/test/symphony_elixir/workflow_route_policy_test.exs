@@ -1,18 +1,19 @@
 defmodule SymphonyElixir.WorkflowRoutePolicyTest do
   use ExUnit.Case, async: true
 
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Profile, as: CodingPrDelivery
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.Profile.Config, as: ProfileConfig
   alias SymphonyElixir.Workflow.ProfileRegistry
-  alias SymphonyElixir.Workflow.RoutePolicy, as: WorkflowRoutePolicy
 
   alias SymphonyElixir.Workflow.Profiles.{
-    CodingPrDelivery,
     RequirementAnalysis,
     RequirementRefinement,
     ReviewRouting,
     Triage
   }
+
+  alias SymphonyElixir.Workflow.RoutePolicy, as: WorkflowRoutePolicy
 
   test "normalize_action accepts the canonical action vocabulary" do
     assert WorkflowRoutePolicy.normalize_action("dispatch") == :dispatch

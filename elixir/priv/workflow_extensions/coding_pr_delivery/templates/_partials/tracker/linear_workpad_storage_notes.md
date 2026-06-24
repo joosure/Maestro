@@ -1,0 +1,8 @@
+- Each active issue has at most one persistent workpad.
+- The workpad stable identity is the typed-tool returned `workpad.id` / `workpad_id`.
+- Agents must read workpad identity through `tracker.issue_snapshot`.
+- Agents must update workpad only through `tracker.upsert_workpad`.
+- Agents must not identify workpads by title, Markdown shape, comment body, or provider UI text.
+- The workpad is the human-readable execution log; backend readiness is based on structured typed-tool evidence, not Markdown parsing.
+- Linear stores the workpad as a Linear issue comment.
+- Prefer Linear attachments/links for change proposal references when available; use the workpad for progress and handoff notes.

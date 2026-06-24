@@ -6,7 +6,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlan do
   alias SymphonyElixir.Agent.DynamicTool.{Context, Inventory, MetadataContract}
   alias SymphonyElixir.Config
   alias SymphonyElixir.Workflow.Capabilities
-  alias SymphonyElixir.Workflow.CapabilityNames
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
 
   @default_exposure :workflow_required
   @operator_only_key MetadataContract.operator_only()
@@ -36,9 +36,8 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlan do
     with {:ok, settings} <- workflow_settings(opts),
          {:ok, required_capabilities, _profile_context} <-
            required_capabilities(settings, Keyword.get(opts, :issue)),
-         fallback_policy <- fallback_policy(opts),
          {:ok, resolved_tools} <-
-           Inventory.resolve_required(tool_context, required_capabilities, fallback_policy: fallback_policy) do
+           Inventory.resolve_required(tool_context, required_capabilities) do
       tool_names = Enum.map(resolved_tools, & &1.tool)
 
       {:ok,
@@ -64,14 +63,6 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlan do
 
   defp required_capabilities(settings, _issue), do: Capabilities.required_capabilities(settings)
 
-  defp fallback_policy(opts) do
-    Keyword.get(
-      opts,
-      :typed_workflow_tool_fallback_policy,
-      Application.get_env(:symphony_elixir, :typed_workflow_tool_fallback_policy, %{})
-    )
-  end
-
   defp restrict_to_diagnostics(tool_context) do
     tool_names =
       tool_context
@@ -89,7 +80,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlan do
 
     cond do
       Map.get(metadata, @operator_only_key) == true -> [name]
-      MetadataContract.field_value(metadata, @workflow_capability_key) == CapabilityNames.tracker_provider_diagnostics() -> [name]
+      MetadataContract.field_value(metadata, @workflow_capability_key) == TrackerCapabilities.provider_diagnostics() -> [name]
       true -> []
     end
   end
@@ -99,7 +90,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlan do
   defp put_diagnostics_plan(tool_context, tool_names) do
     Map.put(tool_context, :tool_plan, %{
       exposure: "diagnostics",
-      required_capabilities: [CapabilityNames.tracker_provider_diagnostics()],
+      required_capabilities: [TrackerCapabilities.provider_diagnostics()],
       tool_names: tool_names,
       resolved_tools: []
     })

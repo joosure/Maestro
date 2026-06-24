@@ -427,7 +427,7 @@ defmodule SymphonyElixir.TapdLiveE2ETest do
     probe_workspace = create_probe_workspace!(config.workspace_root)
 
     {:ok, tool_context} =
-      SymphonyElixir.Agent.DynamicTool.WorkflowPlan.from_opts(
+      SymphonyElixir.Workflow.DynamicToolPlan.from_opts(
         issue: issue,
         issue_id: issue.id,
         issue_identifier: issue.identifier

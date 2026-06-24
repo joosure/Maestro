@@ -13,11 +13,8 @@ defmodule SymphonyElixir.Config do
   alias SymphonyElixir.Tracker.Error, as: TrackerError
   alias SymphonyElixir.Workflow
   alias SymphonyElixir.Workflow.Capabilities, as: WorkflowCapabilities
-
-  alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Config,
-    as: ChangeProposalReconciliationConfig
-
   alias SymphonyElixir.Workflow.ExecutionProfileRegistry
+  alias SymphonyElixir.Workflow.Extension.Registry, as: WorkflowExtensionRegistry
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
   alias SymphonyElixir.Workflow.Prompt.Template, as: PromptTemplate
@@ -154,8 +151,7 @@ defmodule SymphonyElixir.Config do
              :ok <- AgentProvider.validate_config(settings.agent_provider),
              :ok <- RepoProvider.validate_config(settings.repo),
              :ok <- WorkflowLifecycle.validate_state_phase_map(settings.tracker),
-             :ok <-
-               ChangeProposalReconciliationConfig.validate_settings(settings, resolved_profile),
+             :ok <- validate_workflow_extensions(settings, resolved_profile),
              :ok <-
                ExecutionProfileRegistry.validate_selected_execution_profiles(
                  settings,
@@ -169,6 +165,21 @@ defmodule SymphonyElixir.Config do
              :ok <- TypedToolCapabilities.validate_required(settings) do
           :ok
         end
+    end
+  end
+
+  defp validate_workflow_extensions(settings, resolved_profile) when is_map(settings) do
+    with {:ok, entries} <- WorkflowExtensionRegistry.entries() do
+      Enum.reduce_while(entries, :ok, fn entry, :ok ->
+        if function_exported?(entry.module, :validate_settings, 2) do
+          case entry.module.validate_settings(settings, resolved_profile) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        else
+          {:cont, :ok}
+        end
+      end)
     end
   end
 

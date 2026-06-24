@@ -7,6 +7,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   Workpad text is never parsed as authority.
   """
 
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.EvidenceContract
   alias SymphonyElixir.Workflow.Profiles.CodingPrDelivery
   alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Contract, as: StateTransitionReadinessContract
@@ -18,12 +19,12 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   @review_handoff_gate "workflow.structured_execution_plan.review_handoff_required"
 
   @schema StructuredPlanContract.schema_id()
-  @status_key StateTransitionReadinessContract.status_key()
+  @status_key EvidenceContract.status_key()
   @reason_code_key StateTransitionReadinessContract.reason_code_key()
-  @repo_key StateTransitionReadinessContract.repo_key()
-  @change_proposal_key StateTransitionReadinessContract.change_proposal_key()
-  @head_sha_key StateTransitionReadinessContract.head_sha_key()
-  @published_head_sha_key StateTransitionReadinessContract.published_head_sha_key()
+  @repo_key EvidenceContract.repo_key()
+  @change_proposal_key EvidenceContract.change_proposal_key()
+  @head_sha_key EvidenceContract.head_sha_key()
+  @published_head_sha_key EvidenceContract.published_head_sha_key()
   @passed_status StateTransitionReadinessContract.passed_status()
   @missing_status StateTransitionReadinessContract.missing_status()
   @failed_status StateTransitionReadinessContract.failed_status()

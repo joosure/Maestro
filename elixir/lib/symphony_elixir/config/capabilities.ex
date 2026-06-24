@@ -7,22 +7,13 @@ defmodule SymphonyElixir.Config.Capabilities do
   registered or configured.
   """
 
-  alias SymphonyElixir.Agent.DynamicTool.MetadataContract
+  alias SymphonyElixir.Agent.DynamicTool.Metadata
   alias SymphonyElixir.AgentProvider
+  alias SymphonyElixir.Repo.Capabilities, as: RepoCapabilities
   alias SymphonyElixir.RepoProvider
+  alias SymphonyElixir.RepoProvider.Capabilities, as: RepoProviderCapabilities
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Workflow.Capabilities, as: WorkflowCapabilities
-  alias SymphonyElixir.Workflow.CapabilityNames
-
-  @repo_capabilities CapabilityNames.repo_core()
-
-  @repo_provider_capability_map %{
-    pr_create: CapabilityNames.repo_provider_change_proposal_create(),
-    pr_view: CapabilityNames.repo_provider_change_proposal_read(),
-    pr_reviews: CapabilityNames.repo_provider_review_read(),
-    pr_checks: CapabilityNames.repo_provider_check_read(),
-    pr_merge: CapabilityNames.repo_provider_merge()
-  }
 
   @spec available_capabilities(map()) :: MapSet.t(WorkflowCapabilities.capability())
   def available_capabilities(settings) when is_map(settings) do
@@ -48,7 +39,7 @@ defmodule SymphonyElixir.Config.Capabilities do
 
   defp repo_capabilities(settings) do
     case map_field(settings, :repo) do
-      repo when is_map(repo) -> @repo_capabilities
+      repo when is_map(repo) -> RepoCapabilities.core()
       _ -> []
     end
   end
@@ -57,7 +48,7 @@ defmodule SymphonyElixir.Config.Capabilities do
     settings
     |> map_field(:repo)
     |> RepoProvider.capabilities()
-    |> Enum.flat_map(&repo_provider_capability/1)
+    |> RepoProviderCapabilities.logical_capabilities()
   end
 
   defp repo_provider_typed_tool_capabilities(settings) do
@@ -92,15 +83,8 @@ defmodule SymphonyElixir.Config.Capabilities do
 
   defp module_capabilities(_module), do: []
 
-  defp repo_provider_capability(capability) do
-    case Map.fetch(@repo_provider_capability_map, capability) do
-      {:ok, logical_capability} -> [logical_capability]
-      :error -> []
-    end
-  end
-
   defp typed_tool_capability(tool) when is_map(tool) do
-    case MetadataContract.field_value(tool, MetadataContract.workflow_capability()) do
+    case Map.get(tool, Metadata.Contract.capability()) do
       capability when is_binary(capability) -> [capability]
       _capability -> []
     end

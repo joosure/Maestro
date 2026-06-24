@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Agent.Credential.Store do
 
   require Logger
 
-  alias SymphonyElixir.Agent.Credential.Lease
+  alias SymphonyElixir.Agent.Credential.{Lease, Ref}
 
   alias SymphonyElixir.Agent.Credential.Store.{
     AccountRecord,
@@ -110,7 +110,7 @@ defmodule SymphonyElixir.Agent.Credential.Store do
   @spec credential_ref(account()) :: String.t()
   def credential_ref(%{agent_provider_kind: provider_kind, id: id})
       when is_binary(provider_kind) and is_binary(id) do
-    "credential://#{provider_kind}/#{id}"
+    Ref.for_account(provider_kind, id)
   end
 
   @spec acquire(String.t(), String.t(), keyword()) :: {:ok, Lease.t()} | {:error, term()}

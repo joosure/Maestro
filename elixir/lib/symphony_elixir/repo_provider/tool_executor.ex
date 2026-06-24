@@ -3,23 +3,24 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
   Executes repo-provider typed workflow tools through the RepoProvider facade.
   """
 
-  alias SymphonyElixir.Agent.DynamicTool.{EventContract, MetadataContract, Serializer}
+  alias SymphonyElixir.Agent.DynamicTool.{EventContract, Metadata, Serializer}
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
   alias SymphonyElixir.RepoProvider
+  alias SymphonyElixir.RepoProvider.Capabilities, as: RepoProviderCapabilities
   alias SymphonyElixir.RepoProvider.ChangeProposalBody
   alias SymphonyElixir.RepoProvider.CheckRun
   alias SymphonyElixir.RepoProvider.Error
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @schema_version "1"
   @risk_flags ["external_network", "secret_access", "external_process", "privileged_api"]
-  @metadata_schema_version_key MetadataContract.schema_version()
-  @metadata_side_effect_key MetadataContract.side_effect()
-  @metadata_risk_flags_key MetadataContract.risk_flags()
-  @metadata_workflow_capability_key MetadataContract.workflow_capability()
-  @metadata_source_kind_key MetadataContract.source_kind()
-  @metadata_reason_key MetadataContract.reason()
-  @metadata_description_key MetadataContract.description()
-  @provider_capability_unavailable_reason MetadataContract.provider_capability_unavailable_reason()
+  @metadata_schema_version_key Metadata.Contract.schema_version()
+  @metadata_side_effect_key Metadata.Contract.side_effect()
+  @metadata_risk_flags_key Metadata.Contract.risk_flags()
+  @metadata_capability_key Metadata.Contract.capability()
+  @metadata_source_kind_key Metadata.Contract.source_kind()
+  @metadata_reason_key Metadata.Contract.reason()
+  @metadata_description_key Metadata.Contract.description()
+  @provider_capability_unavailable_reason Metadata.Contract.provider_capability_unavailable_reason()
 
   @change_proposal_modes ["upsert", "create", "update"]
   @default_change_proposal_mode "upsert"
@@ -43,15 +44,15 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
   @merge_tool "repo_merge_change_proposal"
   @close_tool "repo_close_change_proposal"
 
-  @snapshot_capability CapabilityNames.repo_change_proposal_snapshot()
-  @create_or_update_capability CapabilityNames.repo_create_or_update_change_proposal()
-  @discussion_capability CapabilityNames.repo_read_change_proposal_discussion()
-  @add_comment_capability CapabilityNames.repo_add_change_proposal_comment()
-  @submit_review_capability CapabilityNames.repo_submit_change_proposal_review()
-  @reply_review_comment_capability CapabilityNames.repo_reply_change_proposal_review_comment()
-  @checks_capability CapabilityNames.repo_read_change_proposal_checks()
-  @merge_capability CapabilityNames.repo_merge_change_proposal()
-  @close_capability CapabilityNames.repo_close_change_proposal()
+  @snapshot_capability RepoProviderCapabilities.change_proposal_snapshot()
+  @create_or_update_capability RepoProviderCapabilities.create_or_update_change_proposal()
+  @discussion_capability RepoProviderCapabilities.read_change_proposal_discussion()
+  @add_comment_capability RepoProviderCapabilities.add_change_proposal_comment()
+  @submit_review_capability RepoProviderCapabilities.submit_change_proposal_review()
+  @reply_review_comment_capability RepoProviderCapabilities.reply_change_proposal_review_comment()
+  @checks_capability RepoProviderCapabilities.read_change_proposal_checks()
+  @merge_capability RepoProviderCapabilities.merge_change_proposal()
+  @close_capability RepoProviderCapabilities.close_change_proposal()
 
   @tool_requirements %{
     @snapshot_tool => [:pr_view],
@@ -500,7 +501,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
       @metadata_schema_version_key => @schema_version,
       @metadata_side_effect_key => side_effect,
       @metadata_risk_flags_key => @risk_flags,
-      @metadata_workflow_capability_key => capability,
+      @metadata_capability_key => capability,
       @metadata_source_kind_key => RepoProvider.current_kind(repo)
     }
   end
@@ -1417,7 +1418,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
       %{
         "supported" => true,
         "tool" => tool,
-        @metadata_workflow_capability_key => capability,
+        @metadata_capability_key => capability,
         @metadata_description_key => description,
         "prefilledArguments" => response_arguments(args, extra_arguments),
         "requiredArguments" => required_arguments
@@ -1426,7 +1427,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
     else
       %{
         "supported" => false,
-        @metadata_workflow_capability_key => capability,
+        @metadata_capability_key => capability,
         @metadata_reason_key => @provider_capability_unavailable_reason,
         @metadata_description_key => description
       }
@@ -1437,7 +1438,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
     if supported?(repo, tool) do
       %{
         "tool" => tool,
-        @metadata_workflow_capability_key => capability,
+        @metadata_capability_key => capability,
         "prefilledArguments" => response_arguments(args, extra_arguments),
         "requiredArguments" => required_arguments
       }
@@ -1860,7 +1861,7 @@ defmodule SymphonyElixir.RepoProvider.ToolExecutor do
        "error" => %{
          "code" => EventContract.unsupported_tool(),
          "message" => "Unsupported repo-provider dynamic tool.",
-         EventContract.supported_tools_key() => supported_tool_names(repo)
+         Response.supported_tools_key() => supported_tool_names(repo)
        }
      }}
   end

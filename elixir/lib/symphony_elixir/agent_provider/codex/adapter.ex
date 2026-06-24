@@ -5,11 +5,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
 
   @behaviour SymphonyElixir.AgentProvider.Adapter
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.Credential, as: AgentCredential
   alias SymphonyElixir.Agent.Credential.{Lease, Material}
   alias SymphonyElixir.Agent.Credential.Store
-  alias SymphonyElixir.Observability.Redaction
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   alias SymphonyElixir.AgentProvider.Codex.{
     AppServer,
@@ -24,6 +23,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
   }
 
   alias SymphonyElixir.AgentProvider.{Config, Kinds, Session, TurnResult}
+  alias SymphonyElixir.Observability.Redaction
 
   @provider_kind Kinds.codex()
   @api_key_credential_kind CredentialEnv.api_key_credential_kind()
@@ -38,13 +38,13 @@ defmodule SymphonyElixir.AgentProvider.Codex.Adapter do
   @impl true
   def capabilities do
     [
-      CapabilityNames.agent_turn_run(),
-      CapabilityNames.agent_session_stateful(),
-      CapabilityNames.agent_events_streaming(),
-      CapabilityNames.agent_usage_metrics(),
-      CapabilityNames.agent_tools_dynamic(),
-      CapabilityNames.agent_runtime_remote_worker(),
-      CapabilityNames.agent_credentials_managed()
+      AgentCapabilities.turn_run(),
+      AgentCapabilities.session_stateful(),
+      AgentCapabilities.events_streaming(),
+      AgentCapabilities.usage_metrics(),
+      AgentCapabilities.tools_dynamic(),
+      AgentCapabilities.runtime_remote_worker(),
+      AgentCapabilities.credentials_managed()
     ]
   end
 

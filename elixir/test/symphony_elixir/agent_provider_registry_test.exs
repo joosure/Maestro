@@ -1103,9 +1103,9 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
     on_exit(fn -> File.rm_rf(workspace) end)
 
     bridge_env = %{
-      SymphonyElixir.Agent.DynamicTool.BridgeContract.base_url_env() => "http://127.0.0.1:19421/api/v1/agent-tools/dynamic",
-      SymphonyElixir.Agent.DynamicTool.BridgeContract.token_env() => "session-bridge-token",
-      SymphonyElixir.Agent.DynamicTool.BridgeContract.transport_env() => "local_http"
+      SymphonyElixir.Platform.DynamicToolBridgeContract.base_url_env() => "http://127.0.0.1:19421/api/v1/agent-tools/dynamic",
+      SymphonyElixir.Platform.DynamicToolBridgeContract.token_env() => "session-bridge-token",
+      SymphonyElixir.Platform.DynamicToolBridgeContract.transport_env() => "local_http"
     }
 
     assert :ok =
@@ -1388,9 +1388,9 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
     mcp_config = Jason.decode!(File.read!(Path.join([workspace, ".symphony", "claude", "mcp.json"])))
     mcp_env = get_in(mcp_config, ["mcpServers", "symphony-planned-tools", "env"])
-    assert mcp_env[SymphonyElixir.Agent.DynamicTool.BridgeContract.base_url_env()] == "http://127.0.0.1:4521/api/v1/agent-tools/dynamic"
-    assert mcp_env[SymphonyElixir.Agent.DynamicTool.BridgeContract.transport_env()] == "local_http"
-    assert is_binary(mcp_env[SymphonyElixir.Agent.DynamicTool.BridgeContract.token_env()])
+    assert mcp_env[SymphonyElixir.Platform.DynamicToolBridgeContract.base_url_env()] == "http://127.0.0.1:4521/api/v1/agent-tools/dynamic"
+    assert mcp_env[SymphonyElixir.Platform.DynamicToolBridgeContract.transport_env()] == "local_http"
+    assert is_binary(mcp_env[SymphonyElixir.Platform.DynamicToolBridgeContract.token_env()])
 
     runtime_mcp_source = File.read!(Path.join([workspace, ".symphony", "claude", "planned_tools_mcp.js"]))
     assert runtime_mcp_source =~ "repo_checkout"
@@ -1746,9 +1746,9 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
   defp dynamic_tool_context_for_test do
     %{
-      source_context: %{},
-      tool_environment: %{},
-      tool_specs: [
+      "source_context" => %{},
+      "tool_environment" => %{},
+      "tool_specs" => [
         %{
           "name" => "fake_dynamic_tool",
           "description" => "Fake dynamic tool used by provider integration tests.",
@@ -1760,19 +1760,19 @@ defmodule SymphonyElixir.AgentProviderRegistryTest do
 
   defp empty_dynamic_tool_context_for_test do
     %{
-      source_context: %{},
-      tool_environment: %{},
-      tool_specs: [],
-      tool_metadata: %{}
+      "source_context" => %{},
+      "tool_environment" => %{},
+      "tool_specs" => [],
+      "tool_metadata" => %{}
     }
   end
 
   defp ticket_lookup_tool_context_for_test do
     %{
-      source_context: %{},
-      tool_environment: %{},
-      tool_metadata: %{},
-      tool_specs: [
+      "source_context" => %{},
+      "tool_environment" => %{},
+      "tool_metadata" => %{},
+      "tool_specs" => [
         %{
           "name" => "ticket_lookup",
           "description" => "Execute a tracker-neutral dynamic tool spec.",

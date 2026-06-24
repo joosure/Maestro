@@ -1816,7 +1816,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     on_exit(fn ->
       Application.delete_env(:symphony_elixir, :tracker_adapters)
-      Application.delete_env(:symphony_elixir, :typed_workflow_tool_fallback_policy)
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -1837,14 +1836,13 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert {:error, {:typed_workflow_tool_resolution_failed, "coding_pr_delivery", 1, "tracker.issue_snapshot", :missing}} = Config.validate!()
   end
 
-  test "config requires explicit policy before raw tools can satisfy typed workflow capabilities" do
+  test "config rejects raw tools for typed workflow capabilities" do
     Application.put_env(:symphony_elixir, :tracker_adapters, %{
       "raw_fallback_tool_tracker" => RawFallbackToolTrackerAdapter
     })
 
     on_exit(fn ->
       Application.delete_env(:symphony_elixir, :tracker_adapters)
-      Application.delete_env(:symphony_elixir, :typed_workflow_tool_fallback_policy)
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -1864,21 +1862,15 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert {:error, {:typed_workflow_tool_resolution_failed, "coding_pr_delivery", 1, "tracker.issue_snapshot", :missing}} =
              Config.validate!()
-
-    Application.put_env(:symphony_elixir, :typed_workflow_tool_fallback_policy, %{
-      "tracker.issue_snapshot" => %{"tool" => "legacy_tracker_api", "reason" => "temporary migration"},
-      "tracker.move_issue" => %{"tool" => "legacy_tracker_api", "reason" => "temporary migration"},
-      "tracker.upsert_workpad" => %{"tool" => "legacy_tracker_api", "reason" => "temporary migration"}
-    })
-
-    assert :ok = Config.validate!()
   end
 
   test "config validates required typed repo workflow tools against captured dynamic tools" do
-    Application.put_env(:symphony_elixir, :dynamic_tool_sources, [
-      SymphonyElixir.Tracker.DynamicToolSource,
-      SymphonyElixir.Repo.DynamicToolSource
-    ])
+    Application.put_env(:symphony_elixir, :dynamic_tool_sources,
+      sources: [
+        SymphonyElixir.Tracker.DynamicToolSource,
+        SymphonyElixir.Repo.DynamicToolSource
+      ]
+    )
 
     on_exit(fn ->
       Application.delete_env(:symphony_elixir, :dynamic_tool_sources)
@@ -3289,16 +3281,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     prompt =
       SymphonyElixir.Workflow.Prompt.Builder.build_prompt(%{id: "issue-1"},
         tool_context: %{
-          tool_specs: [
+          "tool_specs" => [
             %{
               "name" => "linear_issue_snapshot",
               "description" => "Read issue snapshot.",
               "inputSchema" => %{"type" => "object"}
             }
           ],
-          tool_metadata: %{
+          "tool_metadata" => %{
             "linear_issue_snapshot" => %{
-              "workflowCapability" => "tracker.issue_snapshot",
+              "capability" => "tracker.issue_snapshot",
               "sideEffect" => "read_only",
               "sourceKind" => "linear",
               "schemaVersion" => "1"
@@ -3307,7 +3299,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
         }
       )
 
-    assert prompt =~ "## Typed Workflow Tool Inventory"
+    assert prompt =~ "## Typed Tool Inventory"
     assert prompt =~ "`tracker.issue_snapshot`"
     assert prompt =~ "`linear_issue_snapshot`"
   end
@@ -3319,16 +3311,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       SymphonyElixir.Workflow.Prompt.Builder.build_prompt(%{id: "issue-1"},
         agent_provider_kind: "claude_code",
         tool_context: %{
-          tool_specs: [
+          "tool_specs" => [
             %{
               "name" => "linear_issue_snapshot",
               "description" => "Read issue snapshot.",
               "inputSchema" => %{"type" => "object"}
             }
           ],
-          tool_metadata: %{
+          "tool_metadata" => %{
             "linear_issue_snapshot" => %{
-              "workflowCapability" => "tracker.issue_snapshot",
+              "capability" => "tracker.issue_snapshot",
               "sideEffect" => "read_only",
               "sourceKind" => "linear",
               "schemaVersion" => "1"
@@ -3341,36 +3333,33 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert prompt =~ "`linear_issue_snapshot`"
   end
 
-  test "workflow prompt renders explicit typed tool operator migration fallback policy" do
+  test "workflow prompt does not render raw tools as typed inventory" do
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ runtime.tool_inventory }}")
 
     prompt =
       SymphonyElixir.Workflow.Prompt.Builder.build_prompt(%{id: "issue-1"},
         tool_context: %{
-          tool_specs: [
+          "tool_specs" => [
             %{
               "name" => "legacy_tracker_api",
               "description" => "Execute legacy tracker API.",
               "inputSchema" => %{"type" => "object"}
             }
           ],
-          tool_metadata: %{
+          "tool_metadata" => %{
             "legacy_tracker_api" => %{
               "sideEffect" => "destructive",
               "sourceKind" => "legacy_tracker",
               "schemaVersion" => "1"
             }
           }
-        },
-        typed_workflow_tool_fallback_policy: %{
-          "tracker.issue_snapshot" => %{"tool" => "legacy_tracker_api", "reason" => "temporary migration"}
         }
       )
 
-    assert prompt =~ "## Typed Workflow Tool Inventory"
-    assert prompt =~ "`tracker.issue_snapshot`"
-    assert prompt =~ "`legacy_tracker_api`"
-    assert prompt =~ "explicit operator migration fallback permitted: temporary migration"
+    assert prompt =~ "## Typed Tool Inventory"
+    assert prompt =~ "No typed tools are advertised"
+    refute prompt =~ "`tracker.issue_snapshot`"
+    refute prompt =~ "`legacy_tracker_api`"
   end
 
   test "remote workspace lifecycle uses ssh host aliases from worker config" do

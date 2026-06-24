@@ -59,8 +59,13 @@ defmodule SymphonyElixir.Orchestrator.Runtime do
     %{
       workflow: Map.get(settings, :workflow),
       tracker: %{
+        kind: settings |> Map.get(:tracker) |> tracker_kind(),
         lifecycle: settings |> Map.get(:tracker) |> TrackerConfig.lifecycle()
       }
     }
   end
+
+  defp tracker_kind(%{kind: kind}) when is_binary(kind), do: kind
+  defp tracker_kind(%{"kind" => kind}) when is_binary(kind), do: kind
+  defp tracker_kind(_tracker), do: nil
 end

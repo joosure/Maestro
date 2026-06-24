@@ -6,6 +6,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ToolExecutorTest do
   alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.DynamicToolSource
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.Tool.Aliases, as: ToolAliases
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.ToolExecutor
 
   @plan_id "plan-test-1"
@@ -188,48 +189,152 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ToolExecutorTest do
              )
   end
 
-  test "provider-facing aliases preserve canonical workflow capability ids", %{store: store} do
+  test "provider-facing aliases are normalized at the Dynamic Tool source boundary", %{store: store} do
     assert {:ok, _plan} = Store.create(plan([agent_item("agent.plan")]), server: store)
 
-    alias_spec = ToolExecutor.tool_specs(provider_aliases: ["linear"]) |> Enum.find(&(&1["name"] == "linear_plan_update_item"))
-    render_alias_spec = ToolExecutor.tool_specs(provider_aliases: ["linear"]) |> Enum.find(&(&1["name"] == "linear_plan_render_workpad"))
+    context =
+      DynamicTool.capture_context(
+        dynamic_tool_source: DynamicToolSource,
+        server: store,
+        workflow_settings: workflow_settings("linear")
+      )
 
-    assert alias_spec["workflowCapability"] == CapabilityNames.workflow_plan_update_item()
-    assert render_alias_spec["workflowCapability"] == CapabilityNames.workflow_plan_render_workpad()
+    tool_specs = DynamicTool.Context.tool_specs(context)
+    tool_metadata = DynamicTool.Context.tool_metadata(context)
+    alias_spec = Enum.find(tool_specs, &(&1["name"] == "linear_plan_update_item"))
+    render_alias_spec = Enum.find(tool_specs, &(&1["name"] == "linear_plan_render_workpad"))
+
+    assert tool_metadata[alias_spec["name"]]["capability"] == CapabilityNames.workflow_plan_update_item()
+    assert tool_metadata[render_alias_spec["name"]]["capability"] == CapabilityNames.workflow_plan_render_workpad()
+
+    assert {:ok, ToolAliases.update_item_tool()} ==
+             ToolAliases.canonical_name("linear_plan_update_item", [%{provider_key: "linear"}])
 
     assert {:success, %{"data" => %{"changed_items" => [%{"item_id" => "agent.plan", "status" => "in_progress"}]}}} =
-             ToolExecutor.execute(
+             DynamicTool.execute(
+               context,
                "linear_plan_update_item",
-               %{"plan_id" => @plan_id, "item_id" => "agent.plan", "status" => "in_progress", "plan_revision" => 1},
-               server: store
+               %{"plan_id" => @plan_id, "item_id" => "agent.plan", "status" => "in_progress", "plan_revision" => 1}
              )
 
     assert {:success, %{"data" => %{"rendered_workpad" => %{"mode" => "preview"}}}} =
-             ToolExecutor.execute(
+             DynamicTool.execute(
+               context,
                "linear_plan_render_workpad",
-               %{"plan_id" => @plan_id, "plan_revision" => 2, "mode" => "preview"},
-               server: store
+               %{"plan_id" => @plan_id, "plan_revision" => 2, "mode" => "preview"}
+             )
+
+    assert {:failure, %{"error" => %{"code" => "unsupported_tool"}}} =
+             ToolExecutor.execute("linear_plan_update_item", %{}, server: store)
+  end
+
+  test "provider-facing aliases are derived from runtime provider context", %{store: store} do
+    assert {:ok, _plan} = Store.create(plan([agent_item("agent.plan")]), server: store)
+
+    context =
+      DynamicTool.capture_context(
+        dynamic_tool_source: DynamicToolSource,
+        server: store,
+        workflow_settings: workflow_settings("jira")
+      )
+
+    assert context |> DynamicTool.Context.tool_specs() |> Enum.any?(&(&1["name"] == "jira_plan_update_item"))
+
+    assert {:ok, ToolAliases.update_item_tool()} ==
+             ToolAliases.canonical_name("jira_plan_update_item", [%{provider_key: "jira"}])
+
+    assert {:success, %{"data" => %{"changed_items" => [%{"item_id" => "agent.plan", "status" => "in_progress"}]}}} =
+             DynamicTool.execute(
+               context,
+               "jira_plan_update_item",
+               %{"plan_id" => @plan_id, "item_id" => "agent.plan", "status" => "in_progress", "plan_revision" => 1}
              )
   end
 
-  test "explicit planning-only source exposes plan tools without repo or tracker mutation", %{store: store} do
+  test "provider-facing aliases can be derived from source provider contexts", %{store: store} do
+    assert {:ok, _plan} = Store.create(plan([agent_item("agent.plan")]), server: store)
+
+    context =
+      DynamicTool.capture_context(
+        dynamic_tool_source: DynamicToolSource,
+        server: store,
+        workflow_settings: workflow_settings(nil),
+        provider_contexts: [%{"provider_key" => "jira"}]
+      )
+
+    assert context |> DynamicTool.Context.tool_specs() |> Enum.any?(&(&1["name"] == "jira_plan_snapshot"))
+
+    assert {:success, %{"data" => %{"plan" => %{"plan_id" => @plan_id}}}} =
+             DynamicTool.execute(context, "jira_plan_snapshot", %{"plan_id" => @plan_id})
+  end
+
+  test "tool aliases consume normalized provider contexts only" do
+    assert :error == ToolAliases.canonical_name("jira_plan_update_item", [%{"provider_key" => "jira"}])
+
+    assert [] ==
+             ToolAliases.provider_alias_specs(ToolExecutor.tool_specs(), [
+               %{"provider_key" => "jira"}
+             ])
+  end
+
+  test "tool executor source remains provider-neutral" do
+    source =
+      Path.expand("../../../../lib/symphony_elixir/workflow/structured_execution_plan/tool_executor.ex", __DIR__)
+      |> File.read!()
+
+    refute source =~ "linear_plan_"
+    refute source =~ "tapd_plan_"
+  end
+
+  test "tool alias core does not hard-code provider aliases" do
+    source =
+      Path.expand("../../../../lib/symphony_elixir/workflow/structured_execution_plan/tool/aliases.ex", __DIR__)
+      |> File.read!()
+
+    refute source =~ "\"linear\""
+    refute source =~ "\"tapd\""
+    refute source =~ "linear_plan"
+    refute source =~ "tapd_plan"
+  end
+
+  test "structured plan source stays disabled until workflow profile enables it", %{store: store} do
+    context =
+      DynamicTool.capture_context(
+        dynamic_tool_source: DynamicToolSource,
+        server: store,
+        workflow_settings: workflow_settings("linear", false)
+      )
+
+    assert DynamicTool.Context.tool_specs(context) == []
+
+    assert {:failure, %{"error" => %{"code" => "unsupported_tool"}}} =
+             DynamicTool.execute(context, "workflow_plan_snapshot", %{"plan_id" => @plan_id})
+  end
+
+  test "explicit planning-only source exposes canonical and provider-facing plan tools without repo or tracker mutation", %{
+    store: store
+  } do
     assert {:ok, _plan} = Store.create(plan([agent_item("agent.plan")]), server: store)
 
     context =
       DynamicTool.capture_context(
         dynamic_tool_sources: [
-          {DynamicToolSource, %{server: store}}
+          {DynamicToolSource, %{server: store, workflow_settings: workflow_settings("linear")}}
         ]
       )
 
-    names = Enum.map(context.tool_specs, &Map.fetch!(&1, "name"))
+    names = context |> DynamicTool.Context.tool_specs() |> Enum.map(&Map.fetch!(&1, "name"))
 
     assert Enum.sort(names) ==
              Enum.sort([
                "workflow_plan_snapshot",
                "workflow_plan_upsert",
                "workflow_plan_update_item",
-               "workflow_plan_render_workpad"
+               "workflow_plan_render_workpad",
+               "linear_plan_snapshot",
+               "linear_plan_upsert",
+               "linear_plan_update_item",
+               "linear_plan_render_workpad"
              ])
 
     refute "repo_commit" in names
@@ -257,6 +362,21 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ToolExecutorTest do
       "created_at" => @created_at,
       "updated_at" => @created_at,
       "revision" => 1
+    }
+  end
+
+  defp workflow_settings(tracker_kind, enabled? \\ true) do
+    %{
+      workflow: %{
+        profile: %{
+          kind: "coding_pr_delivery",
+          version: 1,
+          options: %{
+            "structured_execution_plan" => %{"enabled" => enabled?}
+          }
+        }
+      },
+      tracker: %{kind: tracker_kind}
     }
   end
 

@@ -9,16 +9,15 @@ defmodule SymphonyElixir.AgentProvider.Smoke do
   providers.
   """
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.DynamicTool.Context, as: DynamicToolContext
   alias SymphonyElixir.AgentProvider
   alias SymphonyElixir.AgentProvider.{Config, Error, Session, TurnResult}
   alias SymphonyElixir.Observability.Redaction
   alias SymphonyElixir.Smoke.ResultStatus
   alias SymphonyElixir.Workflow
-  alias SymphonyElixir.Workflow.CapabilityNames
-  alias SymphonyElixir.Workflow.Templates
-
-  @turn_capability CapabilityNames.agent_turn_run()
+  alias SymphonyElixir.Workflow.Template, as: Templates
+  @turn_capability AgentCapabilities.turn_run()
   @default_prompt """
   This is a Symphony agent-provider smoke check in a temporary empty workspace.
   Reply with one short sentence confirming the provider turn completed.

@@ -1,9 +1,9 @@
 defmodule SymphonyElixir.AgentProvider.Capabilities do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.AgentProvider.Config
   alias SymphonyElixir.AgentProvider.ConfigResolver
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @spec adapter_capabilities(module()) :: [String.t()]
   def adapter_capabilities(adapter) when is_atom(adapter) do
@@ -25,7 +25,7 @@ defmodule SymphonyElixir.AgentProvider.Capabilities do
   def stateful_config?(%Config{} = config) do
     config
     |> config_capabilities()
-    |> Enum.member?(CapabilityNames.agent_session_stateful())
+    |> Enum.member?(AgentCapabilities.session_stateful())
   end
 
   @spec session_type(Config.t()) :: String.t()

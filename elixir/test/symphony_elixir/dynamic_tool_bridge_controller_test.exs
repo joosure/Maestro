@@ -4,9 +4,10 @@ defmodule SymphonyElixir.Agent.DynamicTool.BridgeControllerTest do
   import Phoenix.ConnTest
   import Plug.Conn, only: [put_req_header: 3]
 
-  alias SymphonyElixir.Agent.DynamicTool.{BridgeContract, Context}
+  alias SymphonyElixir.Agent.DynamicTool.Context
   alias SymphonyElixir.Agent.Runtime.DynamicToolBridge
   alias SymphonyElixir.Observability.EventStore
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract, as: BridgeContract
 
   @endpoint SymphonyElixirWeb.Endpoint
 
@@ -22,7 +23,9 @@ defmodule SymphonyElixir.Agent.DynamicTool.BridgeControllerTest do
         %{
           "name" => "fake_http_tool",
           "description" => "Fake HTTP bridge tool.",
-          "inputSchema" => %{"type" => "object", "additionalProperties" => true}
+          "inputSchema" => %{"type" => "object", "additionalProperties" => true},
+          "capability" => "test.fake_http",
+          "sideEffect" => "read_only"
         }
       ]
     end
@@ -120,7 +123,8 @@ defmodule SymphonyElixir.Agent.DynamicTool.BridgeControllerTest do
       assert event["issue_id"] == "issue-http-bridge"
       assert event["issue_identifier"] == "HTTP-42"
       assert event["agent_provider_kind"] == "codex"
-      assert event["dynamic_tool_usage_kind"] == "raw"
+      assert event["dynamic_tool_usage_kind"] == "typed"
+      assert event["dynamic_tool_capability"] == "test.fake_http"
     after
       DynamicToolBridge.stop(runtime)
     end

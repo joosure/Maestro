@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   alias SymphonyElixir.Agent.DynamicTool
   alias SymphonyElixir.Agent.DynamicTool.Bridge
+  alias SymphonyElixir.Agent.DynamicTool.EventContract
+  alias SymphonyElixir.Agent.DynamicTool.Policy
   alias SymphonyElixir.Agent.DynamicTool.TypedToolFailurePolicy
   alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store, as: ReadinessStore
@@ -64,47 +66,48 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   test "captured Linear tool context preserves typed workflow metadata" do
     context = DynamicTool.capture_context()
+    tool_metadata = DynamicTool.Context.tool_metadata(context)
 
-    assert context.tool_metadata["linear_issue_snapshot"]["workflowCapability"] ==
+    assert tool_metadata["linear_issue_snapshot"]["capability"] ==
              "tracker.issue_snapshot"
 
-    assert context.tool_metadata["linear_issue_snapshot"]["sourceKind"] == "linear"
-    assert context.tool_metadata["linear_issue_snapshot"]["sideEffect"] == "read_only"
+    assert tool_metadata["linear_issue_snapshot"]["sourceKind"] == "linear"
+    assert tool_metadata["linear_issue_snapshot"]["sideEffect"] == "read_only"
 
-    assert context.tool_metadata["linear_move_issue"]["workflowCapability"] ==
+    assert tool_metadata["linear_move_issue"]["capability"] ==
              "tracker.move_issue"
 
-    assert context.tool_metadata["linear_move_issue"]["sideEffect"] == "write"
+    assert tool_metadata["linear_move_issue"]["sideEffect"] == "write"
 
-    assert context.tool_metadata["linear_upsert_comment"]["workflowCapability"] ==
+    assert tool_metadata["linear_upsert_comment"]["capability"] ==
              "tracker.upsert_comment"
 
-    assert context.tool_metadata["linear_prepare_file_upload"]["workflowCapability"] ==
+    assert tool_metadata["linear_prepare_file_upload"]["capability"] ==
              "tracker.prepare_file_upload"
 
-    assert context.tool_metadata["linear_provider_diagnostics"]["sideEffect"] == "read_only"
+    assert tool_metadata["linear_provider_diagnostics"]["sideEffect"] == "read_only"
 
-    assert context.tool_metadata["repo_create_or_update_change_proposal"]["workflowCapability"] ==
+    assert tool_metadata["repo_create_or_update_change_proposal"]["capability"] ==
              "repo.create_or_update_change_proposal"
 
-    assert context.tool_metadata["repo_create_or_update_change_proposal"]["sourceKind"] ==
+    assert tool_metadata["repo_create_or_update_change_proposal"]["sourceKind"] ==
              "github"
 
-    assert context.tool_metadata["repo_read_change_proposal_checks"]["sideEffect"] == "read_only"
+    assert tool_metadata["repo_read_change_proposal_checks"]["sideEffect"] == "read_only"
 
-    assert context.tool_metadata["repo_add_change_proposal_comment"]["workflowCapability"] ==
+    assert tool_metadata["repo_add_change_proposal_comment"]["capability"] ==
              "repo.add_change_proposal_comment"
 
-    assert context.tool_metadata["repo_submit_change_proposal_review"]["workflowCapability"] ==
+    assert tool_metadata["repo_submit_change_proposal_review"]["capability"] ==
              "repo.submit_change_proposal_review"
 
-    assert context.tool_metadata["repo_reply_change_proposal_review_comment"][
-             "workflowCapability"
+    assert tool_metadata["repo_reply_change_proposal_review_comment"][
+             "capability"
            ] == "repo.reply_change_proposal_review_comment"
   end
 
-  test "captured tool context carries trusted workflow settings" do
-    workflow_settings = %{
+  test "captured tool context carries trusted adoption settings" do
+    adoption_settings = %{
       workflow: %{
         profile: %{
           "kind" => "coding_pr_delivery",
@@ -122,11 +125,11 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
       }
     }
 
-    captured_context = DynamicTool.capture_context(workflow_settings: workflow_settings)
-    normalized_context = DynamicTool.capture_context(tool_context: %{tool_specs: []}, workflow_settings: workflow_settings)
+    captured_context = DynamicTool.capture_context(adoption_settings: adoption_settings)
+    normalized_context = DynamicTool.capture_context(tool_context: %{"tool_specs" => []}, adoption_settings: adoption_settings)
 
-    assert captured_context.workflow_settings == workflow_settings
-    assert normalized_context.workflow_settings == workflow_settings
+    assert captured_context.adoption_settings == adoption_settings
+    assert normalized_context.adoption_settings == adoption_settings
   end
 
   test "captured TAPD tool context preserves the session snapshot across workflow changes" do
@@ -152,11 +155,13 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
       DynamicTool.tool_specs(tool_context: captured_context)
       |> Enum.map(&Map.fetch!(&1, "name"))
 
+    tool_metadata = DynamicTool.Context.tool_metadata(captured_context)
+
     refute "tapd_api" in names
     assert "tapd_issue_snapshot" in names
     assert "tapd_move_issue" in names
     assert "tapd_upsert_workpad" in names
-    assert "tapd_attach_change_proposal" in names
+    assert "tapd_attach_external_reference" in names
     assert "tapd_upsert_comment" in names
     assert "tapd_create_follow_up_story" in names
     assert "tapd_read_story_relations" in names
@@ -165,42 +170,42 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert "tapd_save_story_dependency" in names
     assert "tapd_provider_diagnostics" in names
 
-    assert captured_context.tool_metadata["tapd_issue_snapshot"]["workflowCapability"] ==
+    assert tool_metadata["tapd_issue_snapshot"]["capability"] ==
              "tracker.issue_snapshot"
 
-    assert captured_context.tool_metadata["tapd_issue_snapshot"]["sourceKind"] == "tapd"
+    assert tool_metadata["tapd_issue_snapshot"]["sourceKind"] == "tapd"
 
-    assert captured_context.tool_metadata["tapd_move_issue"]["workflowCapability"] ==
+    assert tool_metadata["tapd_move_issue"]["capability"] ==
              "tracker.move_issue"
 
-    assert captured_context.tool_metadata["tapd_upsert_workpad"]["workflowCapability"] ==
+    assert tool_metadata["tapd_upsert_workpad"]["capability"] ==
              "tracker.upsert_workpad"
 
-    assert captured_context.tool_metadata["tapd_attach_change_proposal"]["workflowCapability"] ==
-             "tracker.attach_change_proposal"
+    assert tool_metadata["tapd_attach_external_reference"]["capability"] ==
+             "tracker.attach_external_reference"
 
-    assert captured_context.tool_metadata["tapd_upsert_comment"]["workflowCapability"] ==
+    assert tool_metadata["tapd_upsert_comment"]["capability"] ==
              "tracker.upsert_comment"
 
-    assert captured_context.tool_metadata["tapd_create_follow_up_story"]["workflowCapability"] ==
+    assert tool_metadata["tapd_create_follow_up_story"]["capability"] ==
              "tracker.create_follow_up_issue"
 
-    assert captured_context.tool_metadata["tapd_read_story_relations"]["workflowCapability"] ==
+    assert tool_metadata["tapd_read_story_relations"]["capability"] ==
              "tracker.read_issue_relations"
 
-    assert captured_context.tool_metadata["tapd_add_story_relation"]["workflowCapability"] ==
+    assert tool_metadata["tapd_add_story_relation"]["capability"] ==
              "tracker.add_issue_relation"
 
-    assert captured_context.tool_metadata["tapd_read_story_dependencies"]["workflowCapability"] ==
+    assert tool_metadata["tapd_read_story_dependencies"]["capability"] ==
              "tracker.read_issue_dependencies"
 
-    assert captured_context.tool_metadata["tapd_save_story_dependency"]["workflowCapability"] ==
+    assert tool_metadata["tapd_save_story_dependency"]["capability"] ==
              "tracker.save_issue_dependency"
 
-    assert captured_context.tool_metadata["tapd_provider_diagnostics"]["workflowCapability"] ==
+    assert tool_metadata["tapd_provider_diagnostics"]["capability"] ==
              "tracker.provider_diagnostics"
 
-    assert captured_context.tool_metadata["tapd_provider_diagnostics"]["sideEffect"] ==
+    assert tool_metadata["tapd_provider_diagnostics"]["sideEffect"] ==
              "read_only"
 
     write_workflow_file!(Workflow.workflow_file_path())
@@ -241,23 +246,24 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     end)
 
     tool_context = %{
-      source: SymphonyElixir.Tracker.DynamicToolSource,
-      source_context: %{kind: "invalid_dynamic_result"},
-      tool_specs: [
+      "source" => SymphonyElixir.Tracker.DynamicToolSource,
+      "source_context" => %{kind: "invalid_dynamic_result"},
+      "tool_specs" => [
         %{
           "name" => "invalid_result_tool",
           "description" => "Returns an invalid tracker result shape.",
           "inputSchema" => %{"type" => "object"}
         }
       ],
-      tool_metadata: %{
+      "tool_metadata" => %{
         "invalid_result_tool" => %{
+          "capability" => "test.invalid_result",
           "schemaVersion" => "1",
           "sideEffect" => "read_only",
           "riskFlags" => []
         }
       },
-      tool_environment: %{}
+      "tool_environment" => %{}
     }
 
     response = Bridge.execute("invalid_result_tool", %{}, tool_context: tool_context)
@@ -305,7 +311,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     refute log =~ "top-secret-token"
   end
 
-  test "dynamic tool audit events classify typed raw and fallback usage" do
+  test "dynamic tool audit events classify typed calls and rejected raw attempts" do
     previous_adapters = Application.get_env(:symphony_elixir, :tracker_adapters)
 
     Application.put_env(:symphony_elixir, :tracker_adapters, %{
@@ -327,16 +333,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
     capture_log(fn ->
       Bridge.execute("typed_probe", %{}, tool_context: context)
-
-      Bridge.execute("raw_probe", %{},
-        tool_context: context,
-        typed_workflow_tool_fallback_policy: %{
-          "tracker.issue_snapshot" => %{
-            "tool" => "raw_probe",
-            "reason" => "temporary provider migration"
-          }
-        }
-      )
+      Bridge.execute("raw_probe", %{}, tool_context: context)
     end)
 
     events = EventStore.recent_events(limit: 20)
@@ -344,29 +341,30 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     typed_event =
       Enum.find(events, &(&1["event"] == "tool_call_failed" and &1["tool_name"] == "typed_probe"))
 
-    fallback_event =
-      Enum.find(events, &(&1["event"] == "tool_call_failed" and &1["tool_name"] == "raw_probe"))
+    raw_event =
+      Enum.find(events, &(&1["event"] == "tool_call_rejected" and &1["tool_name"] == "raw_probe"))
 
     assert typed_event["dynamic_tool_usage_kind"] == "typed"
-    assert typed_event["dynamic_tool_workflow_capability"] == "tracker.issue_snapshot"
+    assert typed_event["dynamic_tool_capability"] == "tracker.issue_snapshot"
     assert typed_event["dynamic_tool_side_effect"] == "read_only"
 
     assert typed_event["dynamic_tool_failure_reason"] ==
              "Dynamic tool execution returned an invalid result."
 
-    assert fallback_event["dynamic_tool_usage_kind"] == "fallback"
-    assert fallback_event["dynamic_tool_workflow_capability"] == "tracker.issue_snapshot"
-    assert fallback_event["dynamic_tool_fallback_reason"] == "temporary provider migration"
+    assert raw_event["dynamic_tool_usage_kind"] == "raw"
+    assert raw_event["dynamic_tool_failure_reason"] == "untyped_dynamic_tool"
+    assert raw_event["dynamic_tool_rejection_reason"] == "untyped_dynamic_tool"
+    refute Map.has_key?(raw_event, "dynamic_tool_capability")
 
     metrics = EventStore.dynamic_tool_usage_metrics()
 
     assert metrics["total_calls"] == 2
     assert metrics["typed_calls"] == 1
-    assert metrics["fallback_calls"] == 1
-    assert metrics["raw_calls"] == 0
+    assert metrics["raw_calls"] == 1
 
     assert metrics["failure_reasons"] == %{
-             "Dynamic tool execution returned an invalid result." => 2
+             "Dynamic tool execution returned an invalid result." => 1,
+             "untyped_dynamic_tool" => 1
            }
   end
 
@@ -575,7 +573,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
       Bridge.execute(
         "linear_issue_snapshot",
         %{"issue_id" => "DEMO-16"},
-        dynamic_tool_policy: %{allowed_side_effects: ["read_only"]},
+        dynamic_tool_policy: Policy.Config.new!(allowed_side_effects: ["read_only"]),
         linear_client: fn query, variables, opts ->
           send(test_pid, {:linear_client_called, query, variables, opts})
           {:ok, linear_issue_snapshot_response()}
@@ -678,6 +676,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   test "typed linear issue move blocks review handoff until structured evidence is complete" do
     test_pid = self()
+    EventStore.reset()
 
     response =
       Bridge.execute(
@@ -703,11 +702,28 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert snapshot_query =~ "attachments"
 
     assert response["success"] == false
-    assert get_in(response["payload"], ["error", "code"]) == "review_handoff_not_ready"
+    assert get_in(response["payload"], ["error", "code"]) == "transition_readiness_not_ready"
 
     missing = get_in(response["payload"], ["error", "details", "missing_evidence"])
 
     assert Enum.any?(missing, &(Map.get(&1, "code") == "workpad_record_missing"))
+
+    failed_event =
+      EventStore.recent_events(limit: 20)
+      |> Enum.find(&(&1["event"] == "tool_call_failed" and &1["tool_name"] == "linear_move_issue"))
+
+    assert failed_event["readiness_error_code"] == "transition_readiness_not_ready"
+    assert failed_event["readiness_target_state"] == "In Review"
+    assert failed_event["readiness_failed_check_count"] >= 1
+    assert "workpad_record_missing" in failed_event["readiness_reason_codes"]
+    assert "workpad_recorded" in failed_event["readiness_failed_check_keys"]
+
+    assert Enum.any?(failed_event["readiness_remediation_actions"], fn action ->
+             action["reason_code"] == "workpad_record_missing" and
+               action["check"] == "workpad_recorded" and
+               action["action"] =~ "Write the final handoff record" and
+               "tracker.upsert_workpad" in action["capabilities"]
+           end)
   end
 
   test "typed gate failures become non-retryable blocker payload after repeated attempts in the same run" do
@@ -739,14 +755,14 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     third = execute.("DEMO-16")
     different_issue = execute.("DEMO-17")
 
-    assert get_in(first, ["payload", "error", "code"]) == "review_handoff_not_ready"
-    assert get_in(second, ["payload", "error", "code"]) == "review_handoff_not_ready"
+    assert get_in(first, ["payload", "error", "code"]) == "transition_readiness_not_ready"
+    assert get_in(second, ["payload", "error", "code"]) == "transition_readiness_not_ready"
     assert get_in(third, ["payload", "error", "code"]) == "review_handoff_blocked_after_retries"
     assert get_in(third, ["payload", "error", "retryable"]) == false
 
     details = get_in(third, ["payload", "error", "details"])
 
-    assert details["original_code"] == "review_handoff_not_ready"
+    assert details["original_code"] == "transition_readiness_not_ready"
     assert details["failure_count"] == 3
     assert details["failure_threshold"] == 3
     assert details["run_id"] == "run-review-handoff-retry"
@@ -756,7 +772,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert is_list(details["remediation_actions"])
 
     assert Enum.any?(EventStore.recent_events(limit: 20), fn event ->
-             event["event"] == "typed_tool_failure_policy_blocked" and
+             event["event"] == EventContract.typed_tool_failure_policy_blocked() and
                event["issue_id"] == "DEMO-16" and
                event["run_id"] == "run-review-handoff-retry" and
                event["resource_kind"] == "tracker_issue" and
@@ -766,13 +782,13 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
                event["retryable"] == false
            end)
 
-    assert get_in(different_issue, ["payload", "error", "code"]) == "review_handoff_not_ready"
+    assert get_in(different_issue, ["payload", "error", "code"]) == "transition_readiness_not_ready"
   end
 
   test "typed failure policy can scope repeated failures by non-issue resources" do
     payload = %{
       "error" => %{
-        "code" => "review_handoff_not_ready",
+        "code" => "transition_readiness_not_ready",
         "details" => %{
           "missing_evidence" => [%{"code" => "repo_branch_missing"}],
           "remediation_actions" => ["create the working branch"]
@@ -780,7 +796,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
       }
     }
 
-    context = %{runtime_metadata: %{"run_id" => "run-non-issue-resource"}}
+    context = DynamicTool.Context.normalize(%{"runtime_metadata" => %{"run_id" => "run-non-issue-resource"}})
 
     first = TypedToolFailurePolicy.apply({:failure, payload}, context, "repo_probe", %{"branch" => "feature/a"}, [])
     second = TypedToolFailurePolicy.apply({:failure, payload}, context, "repo_probe", %{"branch" => "feature/a"}, [])
@@ -792,17 +808,17 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert {:failure, third_payload} = third
     assert {:failure, other_payload} = other_branch
 
-    assert get_in(first_payload, ["error", "code"]) == "review_handoff_not_ready"
-    assert get_in(second_payload, ["error", "code"]) == "review_handoff_not_ready"
+    assert get_in(first_payload, ["error", "code"]) == "transition_readiness_not_ready"
+    assert get_in(second_payload, ["error", "code"]) == "transition_readiness_not_ready"
     assert get_in(third_payload, ["error", "code"]) == "review_handoff_blocked_after_retries"
     assert get_in(third_payload, ["error", "details", "resource"]) == %{"kind" => "repo_branch", "id" => "feature/a"}
-    assert get_in(other_payload, ["error", "code"]) == "review_handoff_not_ready"
+    assert get_in(other_payload, ["error", "code"]) == "transition_readiness_not_ready"
   end
 
   test "typed failure policy skips retry classification when resource identity is missing" do
     payload = %{
       "error" => %{
-        "code" => "review_handoff_not_ready",
+        "code" => "transition_readiness_not_ready",
         "details" => %{
           "missing_evidence" => [%{"code" => "resource_missing"}],
           "remediation_actions" => ["provide a resource identity"]
@@ -810,7 +826,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
       }
     }
 
-    context = %{runtime_metadata: %{"run_id" => "run-unscoped-resource"}}
+    context = DynamicTool.Context.normalize(%{"runtime_metadata" => %{"run_id" => "run-unscoped-resource"}})
 
     results =
       for _index <- 1..4 do
@@ -818,7 +834,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
       end
 
     assert Enum.all?(results, fn
-             {:failure, result_payload} -> get_in(result_payload, ["error", "code"]) == "review_handoff_not_ready"
+             {:failure, result_payload} -> get_in(result_payload, ["error", "code"]) == "transition_readiness_not_ready"
              _result -> false
            end)
 
@@ -826,7 +842,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
              event["event"] == "typed_tool_failure_policy_skipped_unscoped" and
                event["reason"] == "missing_resource_identity" and
                event["tool_name"] == "unscoped_probe" and
-               event["error_code"] == "review_handoff_not_ready"
+               event["error_code"] == "transition_readiness_not_ready"
            end)
   end
 
@@ -1010,13 +1026,13 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
     assert get_in(response["payload"], ["data", "comment", "created"]) == true
   end
 
-  test "typed linear change proposal attachment uses GitHub PR attachment mutation" do
+  test "typed linear external reference uses GitHub PR attachment mutation for GitHub PR URLs" do
     test_pid = self()
     pr_url = "https://github.com/example-user/sample-repo/pull/17"
 
     response =
       Bridge.execute(
-        "linear_attach_change_proposal",
+        "linear_attach_external_reference",
         %{"issue_id" => "DEMO-16", "url" => pr_url, "title" => "DEMO-16 fix"},
         linear_client: fn query, variables, opts ->
           send(test_pid, {:linear_client_called, query, variables, opts})
@@ -1048,7 +1064,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
       Bridge.execute(
         "linear_move_issue",
         %{"issue_id" => "DEMO-16", "state_name" => "In Review"},
-        dynamic_tool_policy: %{allowed_side_effects: ["read_only"]},
+        dynamic_tool_policy: Policy.Config.new!(allowed_side_effects: ["read_only"]),
         linear_client: fn _query, _variables, _opts ->
           flunk("linear client should not be called when side-effect policy rejects the typed write tool")
         end
@@ -1058,6 +1074,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
     assert response["payload"] == %{
              "error" => %{
+               "code" => "dynamic_tool_side_effect_denied",
                "message" => "Dynamic tool side-effect class is not allowed by policy.",
                "tool" => "linear_move_issue",
                "sideEffect" => "write",
@@ -1071,7 +1088,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
       "linear_issue_snapshot",
       "linear_move_issue",
       "linear_upsert_workpad",
-      "linear_attach_change_proposal",
+      "linear_attach_external_reference",
       "linear_upsert_comment",
       "linear_prepare_file_upload",
       "linear_provider_diagnostics"
@@ -1106,10 +1123,10 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
 
   defp invalid_result_tool_context do
     %{
-      source: SymphonyElixir.Tracker.DynamicToolSource,
-      source_context: %{kind: "invalid_dynamic_result"},
-      source_kind: "invalid_dynamic_result",
-      tool_specs: [
+      "source" => SymphonyElixir.Tracker.DynamicToolSource,
+      "source_context" => %{kind: "invalid_dynamic_result"},
+      "source_kind" => "invalid_dynamic_result",
+      "tool_specs" => [
         %{
           "name" => "typed_probe",
           "description" => "Typed probe.",
@@ -1117,13 +1134,13 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
         },
         %{
           "name" => "raw_probe",
-          "description" => "Raw fallback probe.",
+          "description" => "Raw probe.",
           "inputSchema" => %{"type" => "object"}
         }
       ],
-      tool_metadata: %{
+      "tool_metadata" => %{
         "typed_probe" => %{
-          "workflowCapability" => "tracker.issue_snapshot",
+          "capability" => "tracker.issue_snapshot",
           "sideEffect" => "read_only",
           "sourceKind" => "linear",
           "schemaVersion" => "1"
@@ -1134,7 +1151,7 @@ defmodule SymphonyElixir.Agent.DynamicToolTest do
           "schemaVersion" => "1"
         }
       },
-      tool_environment: %{}
+      "tool_environment" => %{}
     }
   end
 

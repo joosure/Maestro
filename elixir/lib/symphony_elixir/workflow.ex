@@ -4,8 +4,7 @@ defmodule SymphonyElixir.Workflow do
   """
 
   alias SymphonyElixir.Workflow.Runtime.Store, as: WorkflowStore
-  alias SymphonyElixir.Workflow.Templates
-
+  alias SymphonyElixir.Workflow.Template, as: Templates
   @workflow_file_name "WORKFLOW.md"
   @partial_include_pattern ~r/^\s*<!--\s*symphony-include:\s*([^>]+?)\s*-->\s*$/
   @max_partial_depth 8
@@ -140,7 +139,7 @@ defmodule SymphonyElixir.Workflow do
         {:error, {:workflow_partial_include_invalid, partial_ref}}
 
       String.starts_with?(partial_ref, "_partials/") ->
-        {:ok, Templates.root() |> Path.join(partial_ref) |> Path.expand()}
+        {:ok, workflow_path |> Templates.root_for() |> Path.join(partial_ref) |> Path.expand()}
 
       true ->
         {:ok, workflow_path |> Path.dirname() |> Path.join(partial_ref) |> Path.expand()}
@@ -161,9 +160,7 @@ defmodule SymphonyElixir.Workflow do
   end
 
   defp ensure_partial_path_allowed(partial_path) do
-    partials_root = Templates.root() |> Path.join("_partials") |> Path.expand()
-
-    if String.starts_with?(partial_path, partials_root <> "/") do
+    if Templates.partial_allowed?(partial_path) do
       :ok
     else
       {:error, {:workflow_partial_include_outside_partials, partial_path}}

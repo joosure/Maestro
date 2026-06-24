@@ -1,11 +1,16 @@
 defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapterTest do
   use ExUnit.Case, async: true
 
+  alias SymphonyElixir.Agent.ExecutionPlan.Tool.Contract, as: AgentToolContract
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapter
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapter.ErrorCodes
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderSessionEvent
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderSessionEvent.Contract, as: ProviderSessionEventContract
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderSessionEvent.Values, as: ProviderSessionEventValues
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store
 
-  @provider_gate "workflow.structured_execution_plan.provider_adapters.enabled"
+  @provider_gate Contract.provider_adapters_enabled_gate_key()
   @plan_id "plan-provider-adapter-1"
   @run_id "run-provider-adapter-1"
   @issue_id "TES-86"
@@ -23,16 +28,24 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapterTest do
     assert {:ok,
             %{
               "status" => "skipped",
-              "reason" => "provider_adapters_gate_disabled",
+              "reason" => reason,
               "plan_changed" => false
             }} =
              ProviderAdapter.ingest_event(@plan_id, provider_event(), 1, server: store)
+
+    assert reason == ErrorCodes.provider_adapters_gate_disabled()
 
     assert {:ok, %{"revision" => 1} = stored_plan} = Store.fetch(@plan_id, server: store)
     refute Map.has_key?(stored_plan, "extensions")
   end
 
   test "provider-native complete records only non-authoritative correlation metadata", %{store: store} do
+    authority_key = ProviderSessionEventContract.authority_key()
+    tasks_key = ProviderSessionEventContract.tasks_key()
+    provider_task_id_key = ProviderSessionEventContract.provider_task_id_key()
+    requested_status_key = ProviderSessionEventContract.requested_status_key()
+    warnings_key = ProviderSessionEventContract.warnings_key()
+
     assert {:ok, _plan} = Store.create(plan([backend_item("repo.push")]), server: store)
 
     assert {:ok,
@@ -40,20 +53,22 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapterTest do
               "status" => "recorded",
               "plan_revision" => 2,
               "provider_session_event" => %{
-                "authority" => "non_authoritative",
-                "tasks" => [
+                ^authority_key => authority,
+                ^tasks_key => [
                   %{
-                    "provider_task_id" => "codex-step-1",
-                    "requested_status" => "complete"
+                    ^provider_task_id_key => "codex-step-1",
+                    ^requested_status_key => requested_status
                   } = task
                 ],
-                "warnings" => warnings
+                ^warnings_key => warnings
               }
             }} =
              ProviderAdapter.ingest_event(@plan_id, provider_event(), 1, enabled_opts(store))
 
+    assert authority == ProviderSessionEventValues.authority()
+    assert requested_status == ProviderSessionEventValues.complete_status()
     refute Map.has_key?(task, "item_id")
-    assert "provider_native_complete_does_not_satisfy_evidence" in warnings
+    assert ProviderSessionEventValues.complete_does_not_satisfy_evidence_warning() in warnings
 
     assert {:ok, stored_plan} = Store.fetch(@plan_id, server: store)
     assert [%{"status" => "pending", "evidence_refs" => []}] = stored_plan["items"]
@@ -67,6 +82,9 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapterTest do
   end
 
   test "hook candidate observation is redacted and non-authoritative", %{store: store} do
+    hook_observation_key = ProviderSessionEventContract.hook_observation_key()
+    trust_class_key = ProviderSessionEventContract.trust_class_key()
+
     assert {:ok, _plan} = Store.create(plan([backend_item("repo.push")]), server: store)
 
     redacted_key_1 = "author" <> "ization"
@@ -78,7 +96,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapterTest do
 
     event = %{
       "provider_kind" => "claude_code",
-      "surface" => "hook_observation",
+      "surface" => ProviderSessionEventValues.hook_observation_surface(),
       "event_id" => "claude-hook-1",
       "observed_at" => "2026-05-20T00:00:01Z",
       "hook" => %{"hook_name" => "Stop", "phase" => "after_turn", "status" => "completed"},
@@ -90,11 +108,12 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapterTest do
       }
     }
 
-    assert {:ok, %{"provider_session_event" => %{"hook_observation" => hook, "trust_class" => "agent_declared"}}} =
+    assert {:ok, %{"provider_session_event" => %{^hook_observation_key => hook, ^trust_class_key => trust_class}}} =
              ProviderAdapter.ingest_event(@plan_id, event, 1, enabled_opts(store))
 
+    assert trust_class == ProviderSessionEventValues.default_trust_class()
     assert hook["hook_name"] == "Stop"
-    assert hook["status"] == "complete"
+    assert hook["status"] == ProviderSessionEventValues.complete_status()
     assert hook["summary"] =~ "[REDACTED]"
     refute hook["summary"] =~ redacted_value_1
     refute hook["summary"] =~ redacted_value_2
@@ -102,20 +121,24 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapterTest do
   end
 
   test "task completed guard returns bounded missing evidence reason", %{store: store} do
+    evidence_kinds_key = AgentToolContract.evidence_kinds_key()
+
     assert {:ok, _plan} = Store.create(plan([backend_item("repo.push")]), server: store)
 
     assert {:error,
             %{
-              code: "structured_plan_missing_required_evidence",
+              code: code,
               status: "blocked",
               missing_items: [
                 %{
                   "item_id" => "repo.push",
                   "status" => "pending",
-                  "evidence_kinds" => ["repo_push"]
+                  ^evidence_kinds_key => ["repo_push"]
                 }
               ]
             }} = ProviderAdapter.task_completed_guard(@plan_id, enabled_opts(store))
+
+    assert code == ErrorCodes.structured_plan_missing_required_evidence()
   end
 
   test "MCP plan update delegates to backend revision and evidence checks", %{store: store} do
@@ -162,7 +185,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderAdapterTest do
   defp provider_event do
     %{
       "provider_kind" => "codex",
-      "surface" => "provider_session_tasks",
+      "surface" => ProviderSessionEventValues.provider_session_tasks_surface(),
       "event_id" => "codex-plan-event-1",
       "run_id" => @run_id,
       "observed_at" => "2026-05-20T00:00:01Z",

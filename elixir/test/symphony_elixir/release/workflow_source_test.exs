@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Release.WorkflowSourceTest do
   alias SymphonyElixir.Release.WorkflowSource
   alias SymphonyElixir.RepoProvider.Kinds, as: RepoProviderKinds
   alias SymphonyElixir.Tracker.Kinds, as: TrackerKinds
-  alias SymphonyElixir.Workflow.TemplateRegistry
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
 
   test "exposes the workflow source environment contract" do
     assert WorkflowSource.workflow_path_env() == "SYMPHONY_WORKFLOW_PATH"

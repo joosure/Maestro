@@ -5,7 +5,10 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
 
   @behaviour SymphonyElixir.Workflow.Profile
 
-  alias SymphonyElixir.Workflow.CapabilityNames, as: Capabilities
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
+  alias SymphonyElixir.Repo.Capabilities, as: RepoCapabilities
+  alias SymphonyElixir.RepoProvider.Capabilities, as: RepoProviderCapabilities
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
 
@@ -90,49 +93,49 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
   }
 
   @required_capabilities [
-    Capabilities.tracker_issue_read(),
-    Capabilities.tracker_comment_read(),
-    Capabilities.tracker_comment_write(),
-    Capabilities.tracker_state_update(),
-    Capabilities.repo_checkout(),
-    Capabilities.repo_diff(),
-    Capabilities.repo_commit(),
-    Capabilities.repo_push(),
-    Capabilities.agent_turn_run()
+    TrackerCapabilities.issue_read(),
+    TrackerCapabilities.comment_read(),
+    TrackerCapabilities.comment_write(),
+    TrackerCapabilities.state_update(),
+    RepoCapabilities.checkout(),
+    RepoCapabilities.diff(),
+    RepoCapabilities.commit(),
+    RepoCapabilities.push(),
+    AgentCapabilities.turn_run()
   ]
 
   @change_proposal_capabilities [
-    Capabilities.repo_provider_change_proposal_create(),
-    Capabilities.repo_provider_change_proposal_read(),
-    Capabilities.repo_provider_review_read(),
-    Capabilities.repo_provider_check_read()
+    RepoProviderCapabilities.change_proposal_create(),
+    RepoProviderCapabilities.change_proposal_read(),
+    RepoProviderCapabilities.review_read(),
+    RepoProviderCapabilities.check_read()
   ]
 
   @typed_tracker_capabilities [
-    Capabilities.tracker_issue_snapshot(),
-    Capabilities.tracker_move_issue(),
-    Capabilities.tracker_upsert_workpad()
+    TrackerCapabilities.issue_snapshot(),
+    TrackerCapabilities.move_issue(),
+    TrackerCapabilities.upsert_workpad()
   ]
 
   @typed_change_proposal_capabilities [
-    Capabilities.tracker_attach_change_proposal()
+    TrackerCapabilities.attach_external_reference()
   ]
 
   @typed_repo_capabilities [
-    Capabilities.repo_change_proposal_snapshot(),
-    Capabilities.repo_create_or_update_change_proposal(),
-    Capabilities.repo_read_change_proposal_discussion(),
-    Capabilities.repo_add_change_proposal_comment(),
-    Capabilities.repo_reply_change_proposal_review_comment(),
-    Capabilities.repo_read_change_proposal_checks()
+    RepoProviderCapabilities.change_proposal_snapshot(),
+    RepoProviderCapabilities.create_or_update_change_proposal(),
+    RepoProviderCapabilities.read_change_proposal_discussion(),
+    RepoProviderCapabilities.add_change_proposal_comment(),
+    RepoProviderCapabilities.reply_change_proposal_review_comment(),
+    RepoProviderCapabilities.read_change_proposal_checks()
   ]
 
   @typed_repo_land_capabilities [
-    Capabilities.repo_merge_change_proposal()
+    RepoProviderCapabilities.merge_change_proposal()
   ]
 
   @profile_owned_execution_profile_capabilities [
-    Capabilities.repo_provider_merge()
+    RepoProviderCapabilities.merge()
   ]
 
   @optional_capabilities (@change_proposal_capabilities ++
@@ -140,16 +143,16 @@ defmodule SymphonyElixir.Workflow.Profiles.CodingPrDelivery do
                             @typed_repo_land_capabilities ++
                             [
                               @profile_owned_execution_profile_capabilities,
-                              Capabilities.repo_provider_review_write(),
-                              Capabilities.tracker_relation_read(),
-                              Capabilities.tracker_relation_write(),
-                              Capabilities.tracker_upsert_comment(),
-                              Capabilities.tracker_create_follow_up_issue(),
-                              Capabilities.tracker_read_issue_relations(),
-                              Capabilities.tracker_add_issue_relation(),
-                              Capabilities.tracker_read_issue_dependencies(),
-                              Capabilities.tracker_save_issue_dependency(),
-                              Capabilities.repo_submit_change_proposal_review()
+                              RepoProviderCapabilities.review_write(),
+                              TrackerCapabilities.relation_read(),
+                              TrackerCapabilities.relation_write(),
+                              TrackerCapabilities.upsert_comment(),
+                              TrackerCapabilities.create_follow_up_issue(),
+                              TrackerCapabilities.read_issue_relations(),
+                              TrackerCapabilities.add_issue_relation(),
+                              TrackerCapabilities.read_issue_dependencies(),
+                              TrackerCapabilities.save_issue_dependency(),
+                              RepoProviderCapabilities.submit_change_proposal_review()
                             ])
                          |> List.flatten()
 

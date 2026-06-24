@@ -1,7 +1,7 @@
 defmodule SymphonyElixir.Observability.StatusDashboard.Drilldown do
   @moduledoc false
 
-  alias SymphonyElixir.Observability.EventStore
+  alias SymphonyElixir.Observability.{EventContract, EventStore}
 
   @terminal_drilldown_issue_limit 3
   @terminal_drilldown_recent_event_limit 3
@@ -60,7 +60,7 @@ defmodule SymphonyElixir.Observability.StatusDashboard.Drilldown do
   defp maybe_summary_line(_label, [], _max_width, _opts), do: []
 
   defp maybe_summary_line(label, events, max_width, opts) when is_list(events) do
-    summary = Enum.map_join(events, " -> ", &(Map.get(&1, "event") || "unknown"))
+    summary = Enum.map_join(events, " -> ", &(Map.get(&1, EventContract.event_key()) || EventContract.unknown_event()))
 
     ["│    " <> colorize(truncate_plain("#{label}: #{summary}", max_width, opts), opts.ansi_gray, opts)]
   end

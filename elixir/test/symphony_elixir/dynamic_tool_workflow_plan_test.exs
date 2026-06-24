@@ -1,18 +1,18 @@
-defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
+defmodule SymphonyElixir.Workflow.DynamicToolPlanTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
   alias SymphonyElixir.Agent.DynamicTool
   alias SymphonyElixir.Agent.DynamicTool.Bridge
-  alias SymphonyElixir.Agent.DynamicTool.BridgeRegistry
+  alias SymphonyElixir.Agent.DynamicTool.Bridge.Registry
   alias SymphonyElixir.Agent.DynamicTool.Context
-  alias SymphonyElixir.Agent.DynamicTool.WorkflowPlan
   alias SymphonyElixir.AgentProvider.OpenCode.Tooling, as: OpenCodeTooling
   alias SymphonyElixir.Observability.EventStore
+  alias SymphonyElixir.Workflow.DynamicToolPlan, as: WorkflowPlan
 
   setup do
-    ensure_named_process!(BridgeRegistry)
+    ensure_named_process!(Registry)
     ensure_named_process!(EventStore)
     :ok
   end
@@ -30,7 +30,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
     assert "linear_issue_snapshot" in names
     assert "linear_move_issue" in names
     assert "linear_upsert_workpad" in names
-    assert "linear_attach_change_proposal" in names
+    assert "linear_attach_external_reference" in names
     assert "repo_checkout" in names
     assert "repo_diff" in names
     assert "repo_commit" in names
@@ -65,29 +65,17 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
     refute "repo_close_change_proposal" in names
   end
 
-  test "permits operator migration fallback only when required typed tool is missing and policy names it" do
+  test "rejects workflow-required exposure when a required typed tool is missing" do
     context =
       full_tool_context()
       |> remove_tool("linear_issue_snapshot")
 
-    assert {:ok, context} =
+    assert {:error, %{reason: :missing_typed_tool, capability: "tracker.issue_snapshot"}} =
              WorkflowPlan.from_opts(
                workflow_settings: workflow_settings(),
                issue: %{state: "In Progress", lifecycle_phase: "in_progress"},
-               tool_context: context,
-               typed_workflow_tool_fallback_policy: %{
-                 "tracker.issue_snapshot" => %{
-                   "tool" => "legacy_tracker_api",
-                   "reason" => "temporary provider migration"
-                 }
-               }
+               tool_context: context
              )
-
-    names = tool_names(context)
-
-    assert "legacy_tracker_api" in names
-    refute "linear_issue_snapshot" in names
-    assert context.tool_plan.exposure == "workflow_required"
   end
 
   test "registered bridge token reuses the restricted context for execution" do
@@ -149,7 +137,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
     assert "tapd_issue_snapshot" in names
     assert "tapd_move_issue" in names
     assert "tapd_upsert_workpad" in names
-    assert "tapd_attach_change_proposal" in names
+    assert "tapd_attach_external_reference" in names
     assert "repo_create_or_update_change_proposal" in names
     refute "tapd_api" in names
     refute "tapd_provider_diagnostics" in names
@@ -340,7 +328,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
       tool_spec("linear_issue_snapshot"),
       tool_spec("linear_move_issue"),
       tool_spec("linear_upsert_workpad"),
-      tool_spec("linear_attach_change_proposal"),
+      tool_spec("linear_attach_external_reference"),
       tool_spec("tapd_create_follow_up_story"),
       tool_spec("tapd_read_story_relations"),
       tool_spec("tapd_add_story_relation"),
@@ -369,7 +357,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
       "linear_issue_snapshot" => typed_metadata("tracker.issue_snapshot", "read_only", "linear"),
       "linear_move_issue" => typed_metadata("tracker.move_issue", "write", "linear"),
       "linear_upsert_workpad" => typed_metadata("tracker.upsert_workpad", "write", "linear"),
-      "linear_attach_change_proposal" => typed_metadata("tracker.attach_change_proposal", "write", "linear"),
+      "linear_attach_external_reference" => typed_metadata("tracker.attach_external_reference", "write", "linear"),
       "tapd_create_follow_up_story" => typed_metadata("tracker.create_follow_up_issue", "write", "tapd"),
       "tapd_read_story_relations" => typed_metadata("tracker.read_issue_relations", "read_only", "tapd"),
       "tapd_add_story_relation" => typed_metadata("tracker.add_issue_relation", "write", "tapd"),
@@ -390,8 +378,8 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
     }
 
     %{
-      source: SymphonyElixir.Agent.DynamicTool.CompositeSource,
-      source_context: %{
+      "source" => SymphonyElixir.Agent.DynamicTool.CompositeSource,
+      "source_context" => %{
         tool_specs: tool_specs,
         routes:
           Map.new(tool_specs, fn %{"name" => name} ->
@@ -399,10 +387,10 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
           end),
         sources: [%{source: __MODULE__, source_context: %{}, tool_specs: tool_specs}]
       },
-      source_kind: "composite",
-      tool_specs: tool_specs,
-      tool_metadata: metadata,
-      tool_environment: %{}
+      "source_kind" => "composite",
+      "tool_specs" => tool_specs,
+      "tool_metadata" => metadata,
+      "tool_environment" => %{}
     }
   end
 
@@ -411,7 +399,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
       tool_spec("tapd_issue_snapshot"),
       tool_spec("tapd_move_issue"),
       tool_spec("tapd_upsert_workpad"),
-      tool_spec("tapd_attach_change_proposal"),
+      tool_spec("tapd_attach_external_reference"),
       tool_spec("tapd_provider_diagnostics"),
       tool_spec("tapd_create_follow_up_story"),
       tool_spec("tapd_read_story_relations"),
@@ -436,7 +424,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
       "tapd_issue_snapshot" => typed_metadata("tracker.issue_snapshot", "read_only", "tapd"),
       "tapd_move_issue" => typed_metadata("tracker.move_issue", "write", "tapd"),
       "tapd_upsert_workpad" => typed_metadata("tracker.upsert_workpad", "write", "tapd"),
-      "tapd_attach_change_proposal" => typed_metadata("tracker.attach_change_proposal", "write", "tapd"),
+      "tapd_attach_external_reference" => typed_metadata("tracker.attach_external_reference", "write", "tapd"),
       "tapd_provider_diagnostics" => typed_metadata("tracker.provider_diagnostics", "read_only", "tapd"),
       "tapd_create_follow_up_story" => typed_metadata("tracker.create_follow_up_issue", "write", "tapd"),
       "tapd_read_story_relations" => typed_metadata("tracker.read_issue_relations", "read_only", "tapd"),
@@ -458,8 +446,8 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
     }
 
     %{
-      source: SymphonyElixir.Agent.DynamicTool.CompositeSource,
-      source_context: %{
+      "source" => SymphonyElixir.Agent.DynamicTool.CompositeSource,
+      "source_context" => %{
         tool_specs: tool_specs,
         routes:
           Map.new(tool_specs, fn %{"name" => name} ->
@@ -467,10 +455,10 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
           end),
         sources: [%{source: __MODULE__, source_context: %{}, tool_specs: tool_specs}]
       },
-      source_kind: "composite",
-      tool_specs: tool_specs,
-      tool_metadata: metadata,
-      tool_environment: %{}
+      "source_kind" => "composite",
+      "tool_specs" => tool_specs,
+      "tool_metadata" => metadata,
+      "tool_environment" => %{}
     }
   end
 
@@ -479,7 +467,7 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
 
   defp typed_metadata(capability, side_effect, source_kind) do
     %{
-      "workflowCapability" => capability,
+      "capability" => capability,
       "sideEffect" => side_effect,
       "sourceKind" => source_kind,
       "schemaVersion" => "1"
@@ -495,15 +483,15 @@ defmodule SymphonyElixir.Agent.DynamicTool.WorkflowPlanTest do
   defp remove_tool(context, name) do
     context
     |> update_in(
-      [:tool_specs],
+      ["tool_specs"],
       &Enum.reject(&1, fn tool_spec -> Map.get(tool_spec, "name") == name end)
     )
     |> update_in(
-      [:source_context, :tool_specs],
+      ["source_context", :tool_specs],
       &Enum.reject(&1, fn tool_spec -> Map.get(tool_spec, "name") == name end)
     )
-    |> update_in([:source_context, :routes], &Map.delete(&1, name))
-    |> update_in([:tool_metadata], &Map.delete(&1, name))
+    |> update_in(["source_context", :routes], &Map.delete(&1, name))
+    |> update_in(["tool_metadata"], &Map.delete(&1, name))
   end
 
   defp ensure_named_process!(module) do

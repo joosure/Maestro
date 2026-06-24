@@ -11,7 +11,7 @@ defmodule SymphonyElixir.LinearGitHubLinkageLiveTest do
 
   @run_env "SYMPHONY_RUN_LINEAR_GITHUB_LINKAGE_LIVE"
   @default_team_key "TES"
-  @default_change_proposal_url "https://github.com/acme/widgets/pull/53"
+  @default_change_proposal_url "https://github.com/zuoke/batt/pull/53"
   @tracker_endpoint "https://api.linear.app/graphql"
 
   @live_skip_reason if(System.get_env(@run_env) != "1",
@@ -112,7 +112,7 @@ defmodule SymphonyElixir.LinearGitHubLinkageLiveTest do
   """
 
   @tag skip: @live_skip_reason
-  test "attaches a GitHub change proposal URL to a Linear issue through typed tools" do
+  test "attaches a GitHub PR URL as an external reference through typed tracker tools" do
     api_key = required_live_env!("LINEAR_API_KEY")
     team_key = live_env("SYMPHONY_LIVE_LINEAR_TEAM_KEY", @default_team_key)
     change_proposal_url = live_env("SYMPHONY_LINEAR_LINKAGE_PR_URL", @default_change_proposal_url)
@@ -132,14 +132,15 @@ defmodule SymphonyElixir.LinearGitHubLinkageLiveTest do
       attached =
         execute_success!(
           context,
-          "linear_attach_change_proposal",
+          "linear_attach_external_reference",
           %{
             "issue_id" => issue["id"],
             "url" => change_proposal_url,
             "title" => "Symphony GitHub linkage live probe",
-            "repo_provider_kind" => "github",
-            "repository" => github_repository(change_proposal_url),
-            "change_proposal_id" => github_pr_number(change_proposal_url)
+            "reference_kind" => "change_proposal",
+            "provider_kind" => "github",
+            "external_id" => github_pr_number(change_proposal_url),
+            "metadata" => %{"repository" => github_repository(change_proposal_url)}
           }
         )
 

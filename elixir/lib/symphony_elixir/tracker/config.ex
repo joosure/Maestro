@@ -75,6 +75,24 @@ defmodule SymphonyElixir.Tracker.Config do
   @spec state_phase_map(t()) :: map() | nil
   def state_phase_map(tracker), do: lifecycle(tracker) |> nested_value("state_phase_map") |> optional_map_value()
 
+  @spec raw_state_by_route_key(t()) :: map() | nil
+  def raw_state_by_route_key(tracker), do: lifecycle(tracker) |> nested_value("raw_state_by_route_key") |> optional_map_value()
+
+  @spec policy_by_route_key(t()) :: map() | nil
+  def policy_by_route_key(tracker), do: lifecycle(tracker) |> nested_value("policy_by_route_key") |> optional_map_value()
+
+  @spec workflows_by_type(t()) :: map() | nil
+  def workflows_by_type(tracker), do: lifecycle(tracker) |> nested_value("workflows_by_type") |> optional_map_value()
+
+  @spec workflow_raw_state_by_route_key(map()) :: map() | nil
+  def workflow_raw_state_by_route_key(workflow) when is_map(workflow) do
+    workflow
+    |> nested_value("raw_state_by_route_key")
+    |> optional_map_value()
+  end
+
+  def workflow_raw_state_by_route_key(_workflow), do: nil
+
   defp field(map, key) when is_map(map) and is_atom(key) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end

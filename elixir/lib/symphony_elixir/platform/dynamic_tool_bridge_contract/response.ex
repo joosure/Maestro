@@ -12,6 +12,9 @@ defmodule SymphonyElixir.Platform.DynamicToolBridgeContract.Response do
   @error_key "error"
   @code_key "code"
   @message_key "message"
+  @reason_key "reason"
+  @result_key "result"
+  @supported_tools_key "supportedTools"
 
   @type envelope :: %{required(String.t()) => boolean() | map()}
 
@@ -29,6 +32,15 @@ defmodule SymphonyElixir.Platform.DynamicToolBridgeContract.Response do
 
   @spec message_key() :: String.t()
   def message_key, do: @message_key
+
+  @spec reason_key() :: String.t()
+  def reason_key, do: @reason_key
+
+  @spec result_key() :: String.t()
+  def result_key, do: @result_key
+
+  @spec supported_tools_key() :: String.t()
+  def supported_tools_key, do: @supported_tools_key
 
   @spec success(map() | list() | String.t() | number() | boolean() | nil) :: envelope()
   def success(payload), do: %{@success_key => true, @payload_key => payload}

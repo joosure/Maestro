@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Agent.Quota.Poller do
 
   require Logger
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.Credential.Store, as: CredentialStore
   alias SymphonyElixir.Agent.Quota.Snapshot
   alias SymphonyElixir.AgentProvider
@@ -13,10 +14,9 @@ defmodule SymphonyElixir.Agent.Quota.Poller do
   alias SymphonyElixir.Config
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
   alias SymphonyElixir.Observability.OperationStatus
-  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @quota_capability CapabilityNames.agent_quota_probe()
-  @credential_capability CapabilityNames.agent_credentials_managed()
+  @quota_capability AgentCapabilities.quota_probe()
+  @credential_capability AgentCapabilities.credentials_managed()
   @startup_delay_ms 5_000
   @idle_reschedule_ms 300_000
 

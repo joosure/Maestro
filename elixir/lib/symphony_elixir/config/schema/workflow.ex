@@ -47,12 +47,7 @@ defmodule SymphonyElixir.Config.Schema.Workflow do
         add_error(changeset, :reconciliation, "must be a map")
 
       true ->
-        validate_optional_map_field(
-          changeset,
-          reconciliation,
-          "change_proposal",
-          :"reconciliation.change_proposal"
-        )
+        changeset
     end
   end
 

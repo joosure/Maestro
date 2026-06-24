@@ -11,7 +11,7 @@ defmodule SymphonyElixir.CLI do
   alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
   alias SymphonyElixir.RepoProvider.Error, as: RepoProviderError
   alias SymphonyElixir.Tracker.Error, as: TrackerError
-  alias SymphonyElixir.Workflow.Templates, as: WorkflowTemplates
+  alias SymphonyElixir.Workflow.Template, as: WorkflowTemplates
   alias SymphonyWorkerDaemon.CLI, as: WorkerDaemonCLI
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails

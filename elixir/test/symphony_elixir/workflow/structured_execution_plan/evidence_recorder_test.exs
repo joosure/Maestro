@@ -1,6 +1,9 @@
 defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorderTest do
   use ExUnit.Case, async: true
 
+  alias SymphonyElixir.Agent.DynamicTool.Metadata
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceBinding
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorder
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store
@@ -10,6 +13,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorderTest d
   @issue_id "TES-79"
   @profile %{"kind" => "coding_pr_delivery", "version" => 1}
   @created_at "2026-05-20T00:00:00Z"
+  @enabled_gates %{Contract.enabled_gate_key() => true}
 
   setup do
     store = start_supervised!({Store, name: nil})
@@ -30,6 +34,38 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorderTest d
     assert [ref] = item_refs(plan, "repo.commit")
     assert ref["evidence_kind"] == "repo_commit"
     assert ref["payload"]["head_sha"] == "abc123"
+  end
+
+  test "recording is controlled by the canonical structured plan gate", %{store: store} do
+    create_plan!(store, [item("repo.commit", "repo_commit", ["head_sha"])])
+
+    EvidenceRecorder.record_typed_tool_result(
+      "repo",
+      %{"repository" => "openai/symphony"},
+      "repo_commit",
+      %{"run_id" => @run_id, "issue_id" => @issue_id},
+      {:success,
+       %{
+         "data" => %{
+           "action" => "committed",
+           "headSha" => "abc123",
+           "status" => %{"branch" => "feature/demo", "clean" => true, "headSha" => "abc123"}
+         }
+       }},
+      structured_execution_plan: %{enabled: true, plan_id: @plan_id, server: store}
+    )
+
+    assert {:ok, plan_after_private_flag} = Store.fetch(@plan_id, server: store)
+    assert item_status(plan_after_private_flag, "repo.commit") == "pending"
+
+    record_tool!(store, "repo_commit", %{
+      "action" => "committed",
+      "headSha" => "abc123",
+      "status" => %{"branch" => "feature/demo", "clean" => true, "headSha" => "abc123"}
+    })
+
+    assert {:ok, plan_after_gate} = Store.fetch(@plan_id, server: store)
+    assert item_status(plan_after_gate, "repo.commit") == "complete"
   end
 
   test "repo_push completes only when published head matches pushed head", %{store: store} do
@@ -75,90 +111,25 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorderTest d
     assert get_in(item_refs(plan, "validation.diff"), [Access.at(0), "payload", "check"]) == true
   end
 
-  test "change proposal creation requires a provider-native URL", %{store: store} do
-    create_plan!(store, [item("repo.change_proposal", "repo_create_or_update_change_proposal", ["url", "number"])])
+  test "tracker evidence recording uses workflow capability metadata instead of tracker tool names", %{store: store} do
+    create_plan!(store, [item("tracker.handoff", "tracker_upsert_workpad", ["workpad_id"], kind: "handoff_record")])
 
     record_tool!(
       store,
-      "repo_create_or_update_change_proposal",
-      %{
-        "action" => "created",
-        "changeProposal" => %{
-          "provider" => "github",
-          "repository" => "openai/symphony",
-          "number" => 122,
-          "url" => "https://github.com/openai/symphony/compare/main...feature/demo"
-        }
-      },
-      source_kind: "repo_provider",
-      source_context: %{"kind" => "github"}
-    )
-
-    assert {:ok, plan_after_compare_url} = Store.fetch(@plan_id, server: store)
-    assert item_status(plan_after_compare_url, "repo.change_proposal") == "pending"
-
-    record_tool!(
-      store,
-      "repo_create_or_update_change_proposal",
-      %{
-        "action" => "created",
-        "changeProposal" => %{
-          "provider" => "github",
-          "repository" => "openai/symphony",
-          "number" => 122,
-          "url" => "https://github.com/openai/symphony/pull/122"
-        }
-      },
-      source_kind: "repo_provider",
-      source_context: %{"kind" => "github"},
-      observed_at: "2026-05-20T00:00:02Z",
-      updated_at: "2026-05-20T00:00:02Z"
-    )
-
-    assert {:ok, plan_after_pr_url} = Store.fetch(@plan_id, server: store)
-    assert item_status(plan_after_pr_url, "repo.change_proposal") == "complete"
-  end
-
-  test "checks and discussion evidence update matching items", %{store: store} do
-    create_plan!(store, [
-      item("repo.checks", "repo_read_change_proposal_checks", ["status"], kind: "validation"),
-      item("repo.feedback", "repo_read_change_proposal_discussion", ["status"], kind: "validation")
-    ])
-
-    record_tool!(
-      store,
-      "repo_read_change_proposal_checks",
-      %{"checks" => %{"runs" => [%{"bucket" => "passed"}], "headSha" => "abc123"}},
-      source_kind: "repo_provider"
-    )
-
-    record_tool!(
-      store,
-      "repo_read_change_proposal_discussion",
-      %{"discussion" => %{"summary" => %{"actionableFeedbackCount" => 0}}},
-      source_kind: "repo_provider",
-      observed_at: "2026-05-20T00:00:02Z",
-      updated_at: "2026-05-20T00:00:02Z"
+      "jira_upsert_workpad",
+      %{"comment" => %{"id" => "jira:issue:TES-79:workpad", "updated" => true}},
+      source_kind: "tracker",
+      source_context: %{kind: "jira"},
+      tool_context: tool_context("jira_upsert_workpad", TrackerCapabilities.upsert_workpad())
     )
 
     assert {:ok, plan} = Store.fetch(@plan_id, server: store)
-    assert item_status(plan, "repo.checks") == "complete"
-    assert item_status(plan, "repo.feedback") == "complete"
-  end
-
-  test "checks evidence binding keeps empty provider checks unavailable" do
-    assert {:ok, [ref]} =
-             EvidenceBinding.bind_typed_tool_result(
-               "repo_provider",
-               %{"repository" => "openai/symphony"},
-               "repo_read_change_proposal_checks",
-               %{"run_id" => @run_id, "issue_id" => @issue_id},
-               {:success, %{"data" => %{"checks" => %{"runs" => [], "summary" => %{}}}}},
-               observed_at: "2026-05-20T00:00:02Z"
-             )
-
-    assert ref["payload"]["status"] == "unavailable"
-    assert ref["payload"]["run_count"] == 0
+    assert item_status(plan, "tracker.handoff") == "complete"
+    assert [ref] = item_refs(plan, "tracker.handoff")
+    assert ref["evidence_kind"] == "tracker_upsert_workpad"
+    assert ref["producer"] == "jira_upsert_workpad"
+    assert ref["payload"]["tracker_kind"] == "tracker"
+    assert ref["payload"]["workpad_id"] == "jira:issue:TES-79:workpad"
   end
 
   test "replayed tool results are idempotent", %{store: store} do
@@ -231,16 +202,6 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorderTest d
         status: "complete",
         evidence_refs: [evidence_ref("repo_diff", %{"check" => true, "head_sha" => "old123"})]
       ),
-      item("repo.checks", "repo_read_change_proposal_checks", ["status"],
-        kind: "validation",
-        status: "complete",
-        evidence_refs: [evidence_ref("repo_read_change_proposal_checks", %{"status" => "passed", "head_sha" => "old123"})]
-      ),
-      item("repo.feedback", "repo_read_change_proposal_discussion", ["status"],
-        kind: "validation",
-        status: "complete",
-        evidence_refs: [evidence_ref("repo_read_change_proposal_discussion", %{"status" => "clear"})]
-      ),
       item("tracker.handoff", "tracker_upsert_workpad", ["workpad_id"],
         kind: "handoff_record",
         status: "complete",
@@ -263,8 +224,6 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorderTest d
     assert {:ok, plan} = Store.fetch(@plan_id, server: store)
     assert item_status(plan, "repo.commit") == "complete"
     assert item_status(plan, "validation.diff") == "in_progress"
-    assert item_status(plan, "repo.checks") == "in_progress"
-    assert item_status(plan, "repo.feedback") == "in_progress"
     assert item_status(plan, "tracker.handoff") == "in_progress"
   end
 
@@ -300,8 +259,20 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorderTest d
       {:success, %{"data" => data}},
       observed_at: observed_at,
       updated_at: updated_at,
-      structured_execution_plan: %{enabled: true, plan_id: @plan_id, server: store}
+      gates: @enabled_gates,
+      structured_execution_plan: %{plan_id: @plan_id, server: store},
+      tool_context: Keyword.get(opts, :tool_context)
     )
+  end
+
+  defp tool_context(tool, capability) do
+    %{
+      tool_metadata: %{
+        tool => %{
+          Metadata.Contract.capability() => capability
+        }
+      }
+    }
   end
 
   defp create_plan!(store, items) do

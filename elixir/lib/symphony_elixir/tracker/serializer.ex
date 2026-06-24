@@ -3,11 +3,14 @@ defmodule SymphonyElixir.Tracker.Serializer do
   Tracker serializer entrypoint for dynamic tool payloads.
   """
 
-  alias SymphonyElixir.Agent.DynamicTool.Serializer
+  alias SymphonyElixir.Agent.DynamicTool.{ErrorProjector, Serializer}
   alias SymphonyElixir.Tracker.Error
 
   @spec error_payload(Error.t()) :: map()
-  def error_payload(%Error{} = error), do: Serializer.error_payload(error)
+  def error_payload(%Error{} = error) do
+    {:ok, payload} = ErrorProjector.project(error)
+    payload
+  end
 
   @spec public_error_details(map() | nil) :: map() | nil
   def public_error_details(details), do: Serializer.public_error_details(details)

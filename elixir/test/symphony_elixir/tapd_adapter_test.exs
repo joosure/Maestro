@@ -31,7 +31,7 @@ defmodule SymphonyElixir.TapdAdapterTest do
     assert "tapd_issue_snapshot" in names
     assert "tapd_move_issue" in names
     assert "tapd_upsert_workpad" in names
-    assert "tapd_attach_change_proposal" in names
+    assert "tapd_attach_external_reference" in names
     assert "tapd_upsert_comment" in names
     assert "tapd_create_follow_up_story" in names
     assert "tapd_read_story_relations" in names
@@ -45,7 +45,7 @@ defmodule SymphonyElixir.TapdAdapterTest do
                "tracker.issue_snapshot",
                "tracker.move_issue",
                "tracker.upsert_workpad",
-               "tracker.attach_change_proposal",
+               "tracker.attach_external_reference",
                "tracker.upsert_comment",
                "tracker.create_follow_up_issue",
                "tracker.read_issue_relations",
@@ -58,7 +58,7 @@ defmodule SymphonyElixir.TapdAdapterTest do
            )
 
     assert %{
-             "workflowCapability" => "tracker.provider_diagnostics",
+             "capability" => "tracker.provider_diagnostics",
              "sideEffect" => "read_only"
            } = Enum.find(ToolExecutor.tool_specs(), &(&1["name"] == "tapd_provider_diagnostics"))
 
@@ -722,7 +722,7 @@ defmodule SymphonyElixir.TapdAdapterTest do
     assert_received {:tapd_typed_request, %{method: "GET", url: "https://api.tapd.cn/stories"}}
 
     assert response["success"] == false
-    assert get_in(response, ["payload", "error", "code"]) == "review_handoff_not_ready"
+    assert get_in(response, ["payload", "error", "code"]) == "transition_readiness_not_ready"
 
     missing = get_in(response, ["payload", "error", "details", "missing_evidence"])
 
@@ -812,7 +812,7 @@ defmodule SymphonyElixir.TapdAdapterTest do
              CommentCodec.encode_description("### Plan\n\n- [x] recovered")
   end
 
-  test "tapd_attach_change_proposal stores PR links in the canonical workpad comment" do
+  test "tapd_attach_external_reference stores external links in the canonical workpad comment" do
     write_workflow_file!(Workflow.workflow_file_path(), tapd_typed_tool_workflow_config())
     register_tapd_workpad!("1153000000000000001", "1153000000000000999")
 
@@ -820,11 +820,15 @@ defmodule SymphonyElixir.TapdAdapterTest do
 
     response =
       Bridge.execute(
-        "tapd_attach_change_proposal",
+        "tapd_attach_external_reference",
         %{
           "issue_id" => "1153000000000000001",
           "url" => "https://github.com/acme/widgets/pull/42",
-          "title" => "Typed TAPD PR"
+          "title" => "Typed TAPD external reference",
+          "reference_kind" => "change_proposal",
+          "provider_kind" => "github",
+          "external_id" => "42",
+          "metadata" => %{"repository" => "acme/widgets"}
         },
         request_fun: tapd_typed_tool_request_fun(test_pid)
       )
@@ -846,8 +850,9 @@ defmodule SymphonyElixir.TapdAdapterTest do
                        }
                      }}
 
-    assert encoded_description =~ "Typed TAPD PR"
+    assert encoded_description =~ "Typed TAPD external reference"
     assert encoded_description =~ "https://github.com/acme/widgets/pull/42"
+    assert encoded_description =~ "External Reference"
   end
 
   test "tapd_upsert_comment creates and updates non-workpad comments" do

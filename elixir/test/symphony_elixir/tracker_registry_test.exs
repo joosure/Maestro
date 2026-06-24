@@ -3,8 +3,9 @@ defmodule SymphonyElixir.TrackerRegistryTest do
 
   alias SymphonyElixir.Agent.DynamicTool
   alias SymphonyElixir.Agent.DynamicTool.Bridge
-  alias SymphonyElixir.Agent.DynamicTool.BridgeContract
+  alias SymphonyElixir.Agent.DynamicTool.Policy
   alias SymphonyElixir.Agent.Runtime.DynamicToolBridge
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract, as: BridgeContract
   alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.ProjectRef
 
@@ -16,6 +17,7 @@ defmodule SymphonyElixir.TrackerRegistryTest do
     @tool_spec %{
       "name" => "fake_tracker_tool",
       "description" => "Fake tracker tool used by registry tests.",
+      "capability" => "test.fake_tracker_tool",
       "schemaVersion" => "1",
       "sideEffect" => "write",
       "riskFlags" => ["test_only"],
@@ -164,6 +166,7 @@ defmodule SymphonyElixir.TrackerRegistryTest do
              "success" => false,
              "payload" => %{
                "error" => %{
+                 "code" => "dynamic_tool_side_effect_denied",
                  "message" => "Dynamic tool side-effect class is not allowed by policy.",
                  "tool" => "fake_tracker_tool",
                  "sideEffect" => "write",
@@ -171,7 +174,7 @@ defmodule SymphonyElixir.TrackerRegistryTest do
                }
              }
            } =
-             Bridge.execute("fake_tracker_tool", %{}, dynamic_tool_policy: %{allowed_side_effects: ["read_only"]})
+             Bridge.execute("fake_tracker_tool", %{}, dynamic_tool_policy: Policy.Config.new!(allowed_side_effects: ["read_only"]))
 
     refute_received {:fake_tracker_tool_called, "fake_tracker_tool", %{}}
 

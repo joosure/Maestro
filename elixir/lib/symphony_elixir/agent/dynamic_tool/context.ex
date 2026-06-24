@@ -1,183 +1,95 @@
 defmodule SymphonyElixir.Agent.DynamicTool.Context do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.DynamicTool.{Policy, Source, Spec}
+  alias SymphonyElixir.Agent.DynamicTool.CompositeSource
+  alias SymphonyElixir.Agent.DynamicTool.CompositeSource.Context, as: CompositeSourceContext
+  alias SymphonyElixir.Agent.DynamicTool.Context.RuntimeMetadata
+  alias SymphonyElixir.Agent.DynamicTool.Context.ToolPlan
+  alias SymphonyElixir.Agent.DynamicTool.{Metadata, Source, ToolSpec}
 
-  @type t :: %{
-          optional(:runtime_metadata) => map(),
-          optional(:workflow_settings) => map(),
+  @empty_source Source.composite_source()
+
+  defstruct source: @empty_source,
+            source_context: CompositeSourceContext.empty(),
+            source_kind: CompositeSource.kind(),
+            tool_specs: [],
+            tool_metadata: %{},
+            tool_environment: %{},
+            runtime_metadata: RuntimeMetadata.empty(),
+            adoption_settings: %{},
+            tool_plan: nil
+
+  @type t :: %__MODULE__{
           source: module(),
           source_context: term(),
           source_kind: String.t() | nil,
-          tool_specs: [map()],
-          tool_metadata: map(),
-          tool_environment: map()
+          tool_specs: [ToolSpec.t()],
+          tool_metadata: %{String.t() => Metadata.t()},
+          tool_environment: map(),
+          runtime_metadata: RuntimeMetadata.t(),
+          adoption_settings: map(),
+          tool_plan: ToolPlan.t() | nil
         }
-
-  @empty_source Module.concat(["SymphonyElixir", "Agent", "DynamicTool", "CompositeSource"])
 
   @spec empty() :: t()
   def empty do
-    %{
-      source: @empty_source,
-      source_context: %{sources: [], tool_specs: [], routes: %{}},
-      source_kind: "composite",
-      tool_specs: [],
-      tool_metadata: %{},
-      tool_environment: %{},
-      runtime_metadata: %{},
-      workflow_settings: %{}
-    }
+    %__MODULE__{}
   end
 
   @spec capture(keyword()) :: t()
-  def capture(opts \\ []) when is_list(opts) do
-    source = Source.from_opts(opts)
-    source_context = Keyword.get_lazy(opts, :dynamic_tool_source_context, fn -> Source.default_context(source, opts) end)
-    tool_specs = Source.tools(source, source_context, opts)
+  defdelegate capture(opts \\ []), to: __MODULE__.Capture
 
-    %{
-      source: source,
-      source_context: source_context,
-      source_kind: Source.kind(source, source_context),
-      tool_specs: Spec.normalize_many(tool_specs),
-      tool_metadata: Policy.metadata_many(tool_specs),
-      tool_environment: Source.environment(source, source_context, opts)
-    }
-    |> put_workflow_settings(opts)
-  end
+  @spec capture_strict(keyword()) :: {:ok, t()} | :error
+  defdelegate capture_strict(opts \\ []), to: __MODULE__.Capture
 
   @spec from_opts(keyword()) :: t()
-  def from_opts(opts) when is_list(opts) do
-    case Keyword.get(opts, :tool_context) do
-      %{tool_specs: tool_specs} = context when is_list(tool_specs) ->
-        normalize_context(context, opts)
+  defdelegate from_opts(opts), to: __MODULE__.Normalizer
 
-      _context ->
-        capture(opts)
-    end
-  end
+  @spec from_opts_strict(keyword()) :: {:ok, t()} | :error
+  defdelegate from_opts_strict(opts), to: __MODULE__.Normalizer
+
+  @spec normalize(term()) :: t()
+  defdelegate normalize(context), to: __MODULE__.Normalizer
+
+  @spec normalize_strict(term()) :: {:ok, t()} | :error
+  defdelegate normalize_strict(context), to: __MODULE__.Normalizer
 
   @spec source(t()) :: module()
-  def source(%{source: source}) when is_atom(source), do: source
-  def source(_context), do: Source.default()
+  defdelegate source(context), to: __MODULE__.Query
 
   @spec source_context(t()) :: term()
-  def source_context(%{source_context: source_context}), do: source_context
-  def source_context(_context), do: Source.default_context(Source.default(), [])
+  defdelegate source_context(context), to: __MODULE__.Query
 
   @spec source_kind(t()) :: String.t() | nil
-  def source_kind(%{source_kind: source_kind}) when is_binary(source_kind), do: source_kind
-
-  def source_kind(context) when is_map(context) do
-    source = source(context)
-    Source.kind(source, source_context(context))
-  end
-
-  def source_kind(_context), do: nil
+  defdelegate source_kind(context), to: __MODULE__.Query
 
   @spec tool_specs(t()) :: [map()]
-  def tool_specs(%{tool_specs: tool_specs}) when is_list(tool_specs), do: Spec.normalize_many(tool_specs)
-  def tool_specs(_context), do: []
+  defdelegate tool_specs(context), to: __MODULE__.Query
 
   @spec tool_spec(t(), String.t()) :: map() | nil
-  def tool_spec(context, name) when is_binary(name) do
-    Enum.find(tool_specs(context), fn
-      %{"name" => ^name} -> true
-      %{name: ^name} -> true
-      _tool -> false
-    end)
-  end
+  defdelegate tool_spec(context, name), to: __MODULE__.Query
+
+  @spec tool_spec_record(t(), String.t()) :: ToolSpec.t() | nil
+  defdelegate tool_spec_record(context, name), to: __MODULE__.Query
 
   @spec tool_enabled?(t(), String.t()) :: boolean()
-  def tool_enabled?(context, name) when is_binary(name), do: not is_nil(tool_spec(context, name))
+  defdelegate tool_enabled?(context, name), to: __MODULE__.Query
+
+  @spec tool_metadata(t()) :: map()
+  defdelegate tool_metadata(context), to: __MODULE__.Query
+
+  @spec metadata_for(t(), String.t()) :: Metadata.t()
+  defdelegate metadata_for(context, tool), to: __MODULE__.Query
+
+  @spec tool_plan_exposure(t()) :: String.t() | nil
+  defdelegate tool_plan_exposure(context), to: __MODULE__.Query
+
+  @spec runtime_metadata(t()) :: RuntimeMetadata.t()
+  defdelegate runtime_metadata(context), to: __MODULE__.Query
+
+  @spec runtime_metadata_value(t(), atom() | String.t()) :: term()
+  defdelegate runtime_metadata_value(context, field), to: __MODULE__.Query
 
   @spec restrict_tools(t(), [String.t()]) :: t()
-  def restrict_tools(context, tool_names) when is_map(context) and is_list(tool_names) do
-    allowed_names =
-      tool_names
-      |> Enum.filter(&is_binary/1)
-      |> MapSet.new()
-
-    tool_specs = context |> tool_specs() |> filter_tool_specs(allowed_names)
-    tool_metadata = Map.take(context.tool_metadata, MapSet.to_list(allowed_names))
-
-    context
-    |> Map.put(:tool_specs, tool_specs)
-    |> Map.put(:tool_metadata, tool_metadata)
-    |> Map.update(:source_context, nil, &restrict_source_context(&1, allowed_names))
-  end
-
-  def restrict_tools(context, _tool_names), do: context
-
-  defp normalize_context(%{tool_specs: tool_specs} = context, opts) do
-    source = Map.get(context, :source) || Source.from_opts(opts)
-    source_context = Map.get(context, :source_context) || Source.default_context(source, opts)
-
-    context
-    |> Map.put(:source, source)
-    |> Map.put(:source_context, source_context)
-    |> Map.put_new(:source_kind, Source.kind(source, source_context))
-    |> Map.put(:tool_specs, Spec.normalize_many(tool_specs))
-    |> Map.put_new(:tool_metadata, Policy.metadata_many(tool_specs))
-    |> Map.put_new(:tool_environment, %{})
-    |> Map.put_new(:runtime_metadata, %{})
-    |> put_workflow_settings(opts)
-  end
-
-  defp put_workflow_settings(context, opts) when is_map(context) and is_list(opts) do
-    workflow_settings =
-      Map.get(context, :workflow_settings) ||
-        Map.get(context, "workflow_settings") ||
-        Keyword.get(opts, :workflow_settings)
-
-    if is_map(workflow_settings) do
-      Map.put(context, :workflow_settings, workflow_settings)
-    else
-      context
-    end
-  end
-
-  defp filter_tool_specs(tool_specs, allowed_names) when is_list(tool_specs) do
-    Enum.filter(tool_specs, fn tool_spec ->
-      case tool_name(tool_spec) do
-        name when is_binary(name) -> MapSet.member?(allowed_names, name)
-        _name -> false
-      end
-    end)
-  end
-
-  defp restrict_source_context(%{tool_specs: tool_specs} = source_context, allowed_names) do
-    source_context
-    |> Map.put(:tool_specs, filter_tool_specs(tool_specs, allowed_names))
-    |> restrict_routes(allowed_names)
-    |> restrict_sources(allowed_names)
-  end
-
-  defp restrict_source_context(source_context, _allowed_names), do: source_context
-
-  defp restrict_routes(%{routes: routes} = source_context, allowed_names) when is_map(routes) do
-    Map.put(source_context, :routes, Map.take(routes, MapSet.to_list(allowed_names)))
-  end
-
-  defp restrict_routes(source_context, _allowed_names), do: source_context
-
-  defp restrict_sources(%{sources: sources} = source_context, allowed_names) when is_list(sources) do
-    sources =
-      Enum.map(sources, fn
-        %{tool_specs: tool_specs} = source ->
-          Map.put(source, :tool_specs, filter_tool_specs(tool_specs, allowed_names))
-
-        source ->
-          source
-      end)
-
-    Map.put(source_context, :sources, sources)
-  end
-
-  defp restrict_sources(source_context, _allowed_names), do: source_context
-
-  defp tool_name(%{"name" => name}) when is_binary(name), do: name
-  defp tool_name(%{name: name}) when is_binary(name), do: name
-  defp tool_name(_tool_spec), do: nil
+  defdelegate restrict_tools(context, tool_names), to: __MODULE__.Restrictor
 end

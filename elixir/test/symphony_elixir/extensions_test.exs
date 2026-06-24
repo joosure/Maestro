@@ -583,7 +583,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                "linear_issue_snapshot",
                "linear_move_issue",
                "linear_upsert_workpad",
-               "linear_attach_change_proposal",
+               "linear_attach_external_reference",
                "linear_upsert_comment",
                "linear_prepare_file_upload",
                "linear_provider_diagnostics"
@@ -937,7 +937,7 @@ defmodule SymphonyElixir.ExtensionsTest do
         session_id: "thread-http",
         tool_name: "repo_read_change_proposal_discussion",
         dynamic_tool_usage_kind: "typed",
-        dynamic_tool_workflow_capability: "repo.read_change_proposal_discussion"
+        dynamic_tool_capability: "repo.read_change_proposal_discussion"
       })
 
       SymphonyElixir.Observability.Logger.emit(:info, :tool_call_succeeded, %{
@@ -948,10 +948,10 @@ defmodule SymphonyElixir.ExtensionsTest do
         session_id: "thread-http",
         tool_name: "repo_change_proposal_snapshot",
         dynamic_tool_usage_kind: "typed",
-        dynamic_tool_workflow_capability: "repo.change_proposal_snapshot",
+        dynamic_tool_capability: "repo.change_proposal_snapshot",
         dynamic_tool_provider_capability_unavailable: [
           %{
-            "workflowCapability" => "repo.submit_change_proposal_review",
+            "capability" => "repo.submit_change_proposal_review",
             "reason" => "provider_capability_not_available",
             "description" => "formal PR reviews"
           }
@@ -976,8 +976,8 @@ defmodule SymphonyElixir.ExtensionsTest do
         run_id: "run-other",
         session_id: "thread-other",
         tool_name: "legacy_tracker_api",
-        dynamic_tool_usage_kind: "fallback",
-        dynamic_tool_failure_reason: "operator_migration"
+        dynamic_tool_usage_kind: "raw",
+        dynamic_tool_failure_reason: "raw_tool_attempt"
       })
     end)
 
@@ -998,8 +998,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert state_metrics["total_calls"] == 4
     assert state_metrics["typed_tool_hits"] == 2
-    assert state_metrics["raw_tool_attempts"] == 1
-    assert state_metrics["fallback_count"] == 1
+    assert state_metrics["raw_tool_attempts"] == 2
     assert state_metrics["unsupported_tool_count"] == 1
     assert state_metrics["provider_capability_unavailable_count"] == 1
     assert state_metrics["operator_status"] == "critical"
@@ -1013,7 +1012,6 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert issue_metrics["total_calls"] == 3
     assert issue_metrics["typed_tool_hits"] == 2
     assert issue_metrics["raw_tool_attempts"] == 1
-    assert issue_metrics["fallback_count"] == 0
     assert issue_metrics["unsupported_tool_count"] == 1
     assert issue_metrics["operator_status"] == "critical"
 
@@ -1039,7 +1037,7 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   test "phoenix observability api prefers provider-neutral agent projection" do
-    orchestrator_name = __MODULE__.AgentProjectionObservabilityApiOrchestrator
+    orchestrator_name = __MODULE__.AgentPlanProjectionObservabilityApiOrchestrator
 
     snapshot =
       static_snapshot()
@@ -1305,10 +1303,10 @@ defmodule SymphonyElixir.ExtensionsTest do
         session_id: "thread-http",
         tool_name: "repo_change_proposal_snapshot",
         dynamic_tool_usage_kind: "typed",
-        dynamic_tool_workflow_capability: "repo.change_proposal_snapshot",
+        dynamic_tool_capability: "repo.change_proposal_snapshot",
         dynamic_tool_provider_capability_unavailable: [
           %{
-            "workflowCapability" => "repo.submit_change_proposal_review",
+            "capability" => "repo.submit_change_proposal_review",
             "reason" => "provider_capability_not_available",
             "description" => "formal PR reviews"
           }

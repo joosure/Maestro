@@ -49,7 +49,8 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
           {:error, :invalid_tapd_comment_author}
 
         true ->
-          with :ok <- validate_workflow_profile_config(tracker),
+          with :ok <- validate_global_state_phase_map(tracker),
+               :ok <- validate_workflow_profile_config(tracker),
                :ok <- validate_global_raw_state_by_route_key_config(tracker),
                :ok <- validate_workflows_by_type_config(tracker, platform) do
             :ok
@@ -57,6 +58,21 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
       end
 
     normalize_validate_config_result(result)
+  end
+
+  # ── Global state phase map validation ───────────────────────────
+
+  defp validate_global_state_phase_map(tracker) when is_map(tracker) do
+    workflow_tracker = %{
+      active_states: List.wrap(TrackerConfig.active_states(tracker)),
+      terminal_states: List.wrap(TrackerConfig.terminal_states(tracker)),
+      state_phase_map: TrackerConfig.state_phase_map(tracker) || %{}
+    }
+
+    case WorkflowLifecycle.validate_state_phase_map(workflow_tracker) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:invalid_tapd_state_phase_map, reason}}
+    end
   end
 
   # ── Workflow profile validation ─────────────────────────────────
@@ -306,6 +322,32 @@ defmodule SymphonyElixir.Tracker.Tapd.ConfigValidator do
 
   defp validate_config_error(:missing_tapd_terminal_states) do
     config_error(:missing_tapd_terminal_states, :invalid_configuration, "TAPD terminal states are required.")
+  end
+
+  defp validate_config_error({:invalid_tapd_state_phase_map, {:invalid_tracker_state_phase_map, {:missing_mapping, state}}}) do
+    config_error(
+      {:invalid_tapd_state_phase_map, {:missing_mapping, state}},
+      :invalid_configuration,
+      "TAPD active/terminal state '#{state}' is missing its mapping in state_phase_map. " <>
+      "Please add a mapping under tracker.lifecycle.state_phase_map, e.g. '#{state}: in_progress'."
+    )
+  end
+
+  defp validate_config_error({:invalid_tapd_state_phase_map, {:invalid_tracker_state_phase_map, {:invalid_phase, state, phase}}}) do
+    config_error(
+      {:invalid_tapd_state_phase_map, {:invalid_phase, state, phase}},
+      :invalid_configuration,
+      "TAPD state '#{state}' is mapped to an invalid phase '#{phase}'. " <>
+      "Please check tracker.lifecycle.state_phase_map."
+    )
+  end
+
+  defp validate_config_error({:invalid_tapd_state_phase_map, :missing_tracker_state_phase_map}) do
+    config_error(
+      :missing_tracker_state_phase_map,
+      :invalid_configuration,
+      "TAPD state_phase_map is required when active/terminal states are defined."
+    )
   end
 
   defp validate_config_error(reason)

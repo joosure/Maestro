@@ -1,9 +1,8 @@
 defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest do
   use ExUnit.Case, async: false
 
-  alias SymphonyElixir.Agent.DynamicTool.EvidencePayload
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.ReviewHandoff.ToolContract
   alias SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorder
-  alias SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDelivery.ReviewHandoffToolContract
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store
 
   setup do
@@ -15,17 +14,19 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest 
     EvidenceRecorder.record_typed_tool_result(
       "linear",
       %{},
-      ReviewHandoffToolContract.linear_upsert_workpad_tool(),
+      ToolContract.linear_upsert_workpad_tool(),
       %{"issue_id" => "issue-1"},
       {:success,
-       %{}
-       |> EvidencePayload.attach(
-         EvidencePayload.workpad(%{
-           "id" => "linear:issue:issue-1:workpad",
-           "updated" => true,
-           "created" => false
-         })
-       )}
+       %{
+         "data" => %{
+           "comment" => %{
+             "id" => "linear:issue:issue-1:workpad",
+             "updated" => true,
+             "created" => false,
+             "sections" => %{"implementation" => true}
+           }
+         }
+       }}
     )
 
     workpad = get_in(Store.snapshot("issue-1"), ["observations", "workpad"])
@@ -40,17 +41,16 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest 
     EvidenceRecorder.record_typed_tool_result(
       "tapd",
       %{},
-      ReviewHandoffToolContract.tapd_upsert_workpad_tool(),
+      ToolContract.tapd_upsert_workpad_tool(),
       %{"issue_id" => "issue-1"},
       {:success,
-       %{"comment" => %{"id" => "provider-native-comment"}}
-       |> EvidencePayload.attach(
-         EvidencePayload.workpad(%{
+       %{
+         "comment" => %{
            "id" => "tapd:issue:issue-1:workpad",
            "updated" => true,
            "created" => false
-         })
-       )}
+         }
+       }}
     )
 
     workpad = get_in(Store.snapshot("issue-1"), ["observations", "workpad"])
@@ -61,20 +61,18 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest 
     assert is_binary(workpad["updated_at"])
   end
 
-  test "records tracker change proposal links from canonical typed-tool evidence" do
+  test "records tracker change proposal links from extension-owned tool result inference" do
     EvidenceRecorder.record_typed_tool_result(
       "tapd",
       %{},
-      "tapd_attach_change_proposal",
-      %{"issue_id" => "issue-1"},
+      "tapd_attach_external_reference",
+      %{"issue_id" => "issue-1", "reference_kind" => "change_proposal", "provider_kind" => "cnb", "metadata" => %{"repository" => "org/repo"}},
       {:success,
-       %{}
-       |> EvidencePayload.attach(
-         EvidencePayload.tracker_change_proposal(
-           %{"id" => "tapd-workpad:comment-1", "url" => "https://example.test/pulls/1"},
-           %{"repo_provider_kind" => "cnb", "repository" => "org/repo"}
-         )
-       )}
+       %{
+         "data" => %{
+           "attachment" => %{"id" => "tapd-workpad:comment-1", "url" => "https://example.test/pulls/1"}
+         }
+       }}
     )
 
     change_proposal = get_in(Store.snapshot("issue-1"), ["observations", "change_proposal"])
@@ -88,11 +86,28 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest 
     assert change_proposal["linked_to_tracker"] == true
   end
 
+  test "does not record non-change-proposal external references as review handoff evidence" do
+    EvidenceRecorder.record_typed_tool_result(
+      "tapd",
+      %{},
+      "tapd_attach_external_reference",
+      %{"issue_id" => "issue-1", "reference_kind" => "design_doc", "provider_kind" => "docs", "external_id" => "architecture"},
+      {:success,
+       %{
+         "data" => %{
+           "attachment" => %{"id" => "tapd-workpad:comment-1", "url" => "https://docs.example.test/architecture"}
+         }
+       }}
+    )
+
+    refute get_in(Store.snapshot("issue-1"), ["observations", "change_proposal"])
+  end
+
   test "records unavailable change-proposal checks when no check runs are found without trusted policy" do
     EvidenceRecorder.record_typed_tool_result(
       "repo_provider",
       %{},
-      ReviewHandoffToolContract.repo_read_change_proposal_checks_tool(),
+      ToolContract.repo_read_change_proposal_checks_tool(),
       %{"issue_id" => "issue-1"},
       {:success,
        %{
@@ -116,7 +131,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest 
     EvidenceRecorder.record_typed_tool_result(
       "repo_provider",
       %{},
-      ReviewHandoffToolContract.repo_read_change_proposal_checks_tool(),
+      ToolContract.repo_read_change_proposal_checks_tool(),
       %{"issue_id" => "issue-1"},
       {:success,
        %{
@@ -128,7 +143,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest 
            }
          }
        }},
-      tool_context: %{workflow_settings: no_change_proposal_checks_workflow_settings()}
+      tool_context: %{adoption_settings: no_change_proposal_checks_workflow_settings()}
     )
 
     checks = get_in(Store.snapshot("issue-1"), ["observations", "checks"])
@@ -141,7 +156,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest 
     EvidenceRecorder.record_typed_tool_result(
       "repo_provider",
       %{},
-      ReviewHandoffToolContract.repo_read_change_proposal_checks_tool(),
+      ToolContract.repo_read_change_proposal_checks_tool(),
       %{"issue_id" => "issue-1"},
       {:success,
        %{
@@ -193,8 +208,8 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorderTest 
 
   defp no_change_proposal_checks_workflow_settings do
     %{
-      workflow: %{
-        profile: %{
+      "workflow" => %{
+        "profile" => %{
           "kind" => "coding_pr_delivery",
           "version" => 1,
           "options" => %{

@@ -2,8 +2,7 @@ defmodule SymphonyElixir.Release.WorkflowSource do
   @moduledoc false
 
   alias SymphonyElixir.Platform.Env
-  alias SymphonyElixir.Workflow.TemplateRegistry
-
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
   @workflow_path_env "SYMPHONY_WORKFLOW_PATH"
   @template_env "SYMPHONY_TEMPLATE"
 

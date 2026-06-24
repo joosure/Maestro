@@ -1,8 +1,8 @@
 defmodule SymphonyElixir.Workflow.StateTransitionReadiness.FacadeTest do
   use ExUnit.Case, async: true
 
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.ReviewHandoff
   alias SymphonyElixir.Workflow.StateTransitionReadiness
-  alias SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDelivery.ReviewHandoff
 
   defmodule MatchingPolicyA do
     def policy_id, do: "matching.a.v1"

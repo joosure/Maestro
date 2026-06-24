@@ -9,15 +9,22 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
   alias SymphonyElixir.Tracker.Tapd.WorkflowConfig, as: TapdWorkflowConfig
   alias SymphonyElixir.Workflow
   alias SymphonyElixir.Workflow.Capabilities, as: WorkflowCapabilities
-  alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Config, as: ReconciliationConfig
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Manifest, as: CodingPrDeliveryManifest
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.Config, as: ReconciliationConfig
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.TemplateCatalog, as: CodingPrDeliveryTemplateCatalog
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.TemplateCatalog.Assets, as: CodingPrDeliveryTemplateAssets
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.TemplateCatalog.Contract, as: CodingPrDeliveryTemplateContract
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.ProfileRegistry
   alias SymphonyElixir.Workflow.Profiles.Triage
   alias SymphonyElixir.Workflow.RoutePolicy
   alias SymphonyElixir.Workflow.RouteRef
-  alias SymphonyElixir.Workflow.TemplateRegistry
-  alias SymphonyElixir.Workflow.Templates
-
+  alias SymphonyElixir.Workflow.Template, as: Templates
+  alias SymphonyElixir.Workflow.Template.Assets, as: TemplateAssets
+  alias SymphonyElixir.Workflow.Template.Entry, as: TemplateEntry
+  alias SymphonyElixir.Workflow.Template.PathRules, as: TemplatePathRules
+  alias SymphonyElixir.Workflow.Template.Registry, as: TemplateRegistry
   @partial_include_pattern ~r/^\s*<!--\s*symphony-include:\s*([^>]+?)\s*-->\s*$/
   @allowed_prompt_roots ~w(issue repo runtime workflow)
   @partial_dependency_phrases [
@@ -47,6 +54,134 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
     "pass the proposal description as a single string argument",
     "do not split Markdown sections into extra tool arguments"
   ]
+
+  test "template path rules centralize extension, partial, and reserved segment vocabulary" do
+    assert TemplatePathRules.markdown_extension() == ".md"
+    assert TemplatePathRules.partials_dir() == "_partials"
+    assert TemplatePathRules.platform_asset_dir() == "workflow_templates"
+    assert TemplatePathRules.forbidden_relative_segments() == [".", ".."]
+
+    assert TemplatePathRules.strip_markdown_extension("linear/github/codex.md") == "linear/github/codex"
+    assert TemplatePathRules.ensure_markdown_extension("linear/github/codex") == "linear/github/codex.md"
+    assert TemplatePathRules.ensure_markdown_extension("linear/github/codex.md") == "linear/github/codex.md"
+
+    assert TemplatePathRules.markdown_path?("linear/github/codex.md")
+    refute TemplatePathRules.markdown_path?("linear/github/codex.txt")
+    assert TemplatePathRules.contains_forbidden_relative_segment?(["linear", "..", "codex.md"])
+    refute TemplatePathRules.contains_forbidden_relative_segment?(["linear", "github", "codex.md"])
+    assert TemplatePathRules.documentation_basename?("README.md")
+    assert TemplatePathRules.documentation_basename?("README.zh-CN.md")
+    refute TemplatePathRules.documentation_basename?("codex.md")
+  end
+
+  test "template entry constructor is the public contribution boundary" do
+    asset_root = Templates.app_priv_root!("workflow_templates")
+
+    entry =
+      Templates.entry!(
+        template_alias: "memory/no_repo/mock.md",
+        asset_root: asset_root,
+        profile_kind: Triage.kind(),
+        profile_version: Triage.version(),
+        tracker_kind: TrackerKinds.memory(),
+        repo_provider_kind: RepoProviderKinds.memory(),
+        agent_provider_kind: AgentProviderKinds.mock()
+      )
+
+    assert %TemplateEntry{} = entry
+    assert entry.template_alias == "memory/no_repo/mock"
+    assert entry.asset_root == Path.expand(asset_root)
+    assert entry.asset_path == Path.expand(Path.join(asset_root, "memory/no_repo/mock.md"))
+
+    assert_raise ArgumentError, ~r/unsupported field/, fn ->
+      Templates.entry!(
+        template_alias: "memory/no_repo/mock",
+        asset_root: asset_root,
+        profile_kind: Triage.kind(),
+        profile_version: Triage.version(),
+        tracker_kind: TrackerKinds.memory(),
+        repo_provider_kind: RepoProviderKinds.memory(),
+        agent_provider_kind: AgentProviderKinds.mock(),
+        columns: []
+      )
+    end
+  end
+
+  test "coding PR delivery contributes public template entries" do
+    entries = CodingPrDeliveryTemplateCatalog.entries()
+
+    assert length(entries) == length(CodingPrDeliveryTemplateContract.entries())
+    assert Enum.all?(entries, &match?(%TemplateEntry{}, &1))
+    assert Enum.all?(entries, &File.regular?(&1.asset_path))
+  end
+
+  test "coding PR delivery extension metadata comes from the bundled manifest projection" do
+    assert CodingPrDelivery.id() == CodingPrDeliveryManifest.id()
+    assert CodingPrDelivery.version() == CodingPrDeliveryManifest.version()
+  end
+
+  test "coding PR delivery template catalog supports external asset roots and credential policy injection" do
+    asset_root = Path.join(System.tmp_dir!(), "symphony-external-coding-pr-delivery-templates")
+
+    entries =
+      CodingPrDeliveryTemplateCatalog.entries(
+        asset_root: asset_root,
+        credential_ref_fn: fn provider_kind, account_id -> "external-credential://#{provider_kind}/#{account_id}" end
+      )
+
+    assert Enum.all?(entries, &(&1.asset_root == Path.expand(asset_root)))
+    assert Enum.all?(entries, &String.starts_with?(&1.asset_path, Path.expand(asset_root)))
+
+    assert Enum.any?(entries, fn entry ->
+             entry.agent_provider_kind == AgentProviderKinds.codebuddy_code() and
+               entry.credential_ref == "external-credential://#{AgentProviderKinds.codebuddy_code()}/default"
+           end)
+
+    assert Enum.all?(entries, fn entry ->
+             entry.agent_provider_kind != AgentProviderKinds.codebuddy_code() or is_binary(entry.credential_ref)
+           end)
+  end
+
+  test "coding PR delivery template catalog errors use bounded diagnostics" do
+    assert_raise ArgumentError, ~r/options must be a keyword list/, fn ->
+      CodingPrDeliveryTemplateCatalog.entries([:not_keyword])
+    end
+
+    assert_raise ArgumentError, ~r/asset_root must be a non-empty string.*value_type=map/, fn ->
+      CodingPrDeliveryTemplateCatalog.entries(asset_root: %{secret: "not leaked"})
+    end
+
+    assert_raise ArgumentError, ~r/credential_ref_fn must be a function\/2 or nil.*value_type=map/, fn ->
+      CodingPrDeliveryTemplateCatalog.entries(credential_ref_fn: %{secret: "not leaked"})
+    end
+  end
+
+  test "template asset roots resolve from the OTP application priv directory" do
+    relative_root = CodingPrDeliveryTemplateAssets.relative_root()
+
+    assert TemplateAssets.app_priv_root!(relative_root) ==
+             :symphony_elixir
+             |> :code.priv_dir()
+             |> to_string()
+             |> Path.join(relative_root)
+             |> Path.expand()
+
+    assert File.dir?(TemplateAssets.app_priv_root!(relative_root))
+  end
+
+  test "template asset roots reject paths outside the OTP application priv directory" do
+    assert_raise ArgumentError, ~r/must be non-empty/, fn ->
+      TemplateAssets.app_priv_root!(" ")
+    end
+
+    assert_raise ArgumentError, ~r/must be relative/, fn ->
+      TemplateAssets.app_priv_root!("/tmp/templates")
+    end
+
+    assert_raise ArgumentError, ~r/must stay under the application priv directory/, fn ->
+      TemplateAssets.app_priv_root!("workflow_extensions/../templates")
+    end
+  end
 
   test "workflow and automation docs define the template skill runtime boundary" do
     workflow_readme = Templates.root() |> Path.join("README.md") |> File.read!()
@@ -110,10 +245,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
     assert Path.basename(opencode_path) == "opencode.md"
 
     assert {:error, "Workflow template alias must point to a workflow template"} =
-             Templates.resolve("README.zh-CN")
-
-    assert {:error, "Workflow template alias must point to a workflow template"} =
-             Templates.resolve("README.zh-CN")
+             Templates.resolve("README")
 
     for template_alias <- Templates.aliases() do
       assert {:ok, _path} = Templates.resolve(template_alias)
@@ -148,6 +280,8 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
   test "bundled workflow template registry matches front matter structure" do
     for entry <- TemplateRegistry.entries() do
       assert {:ok, path} = Templates.resolve(entry.template_alias)
+      assert path == Path.expand(entry.asset_path)
+      assert Templates.root_for(path) == Path.expand(entry.asset_root)
       assert {:ok, %{config: config}} = Workflow.load(path)
 
       assert get_in(config, ["workflow", "profile", "kind"]) == entry.profile_kind
@@ -369,13 +503,13 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
 
     assert violations == []
 
-    refute File.exists?(Path.join(Templates.root(), "_partials/workpad_contract.md"))
+    refute Enum.any?(Templates.roots(), &File.exists?(Path.join(&1, "_partials/workpad_contract.md")))
 
     for partial_ref <- [
           "_partials/tracker/linear_workpad_storage_notes.md",
           "_partials/tracker/tapd_workpad_contract.md"
         ] do
-      partial = Templates.root() |> Path.join(partial_ref) |> File.read!()
+      partial = partial_ref |> partial_ref_path!() |> File.read!()
 
       assert partial =~
                "The workpad stable identity is the typed-tool returned `workpad.id` / `workpad_id`"
@@ -506,7 +640,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
       assert template =~ "unresolvedFeedbackSummary.unresolvedItems"
       assert template =~ "nextResponseActions"
       assert template =~ "tracker.upsert_workpad"
-      assert template =~ "tracker.attach_change_proposal"
+      assert template =~ "tracker.attach_external_reference"
 
       assert template =~
                "If it is missing, stop as blocked and record the missing typed tracker capability"
@@ -648,7 +782,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
     end
   end
 
-  test "only TAPD CNB templates opt into change-proposal reconciliation" do
+  test "only TAPD CNB templates opt into Coding PR Delivery reconciliation" do
     enabled_aliases =
       Templates.aliases()
       |> Enum.filter(fn template_alias ->
@@ -688,7 +822,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
       assert reconciliation_config.failed_checks_confirmation_count == 2
       assert reconciliation_config.max_processed_candidate_issues_per_cycle == 25
 
-      assert prompt =~ "backend change-proposal reconciliation moves the story"
+      assert prompt =~ "Coding PR Delivery reconciliation moves the story"
     end
   end
 
@@ -698,7 +832,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
     assert skill =~ "`tracker.issue_snapshot`"
     assert skill =~ "`tracker.move_issue`"
     assert skill =~ "`tracker.upsert_workpad`"
-    assert skill =~ "`tracker.attach_change_proposal`"
+    assert skill =~ "`tracker.attach_external_reference`"
     assert skill =~ "`tracker.create_follow_up_issue`"
     assert skill =~ "`tracker.add_issue_relation`"
     assert skill =~ "`tracker.save_issue_dependency`"
@@ -833,7 +967,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
       not String.starts_with?(partial_ref, "_partials/") ->
         ["#{location} includes outside _partials/: #{partial_ref}"]
 
-      not File.regular?(Path.join(Templates.root(), partial_ref)) ->
+      is_nil(partial_ref_path(partial_ref)) ->
         ["#{location} includes a missing partial: #{partial_ref}"]
 
       true ->
@@ -842,9 +976,8 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
   end
 
   defp partial_paths do
-    Templates.root()
-    |> Path.join("_partials/**/*.md")
-    |> Path.wildcard()
+    Templates.partial_roots()
+    |> Enum.flat_map(&(Path.join(&1, "**/*.md") |> Path.wildcard()))
     |> Enum.sort()
   end
 
@@ -909,9 +1042,7 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
   end
 
   defp linear_github_template_paths do
-    "../../priv/workflow_templates/linear/github/*.md"
-    |> Path.expand(__DIR__)
-    |> Path.wildcard()
+    template_paths_by_alias_prefix("linear/github/")
   end
 
   defp effective_template_workflow!(settings, tracker_kind, profile_module) do
@@ -978,9 +1109,25 @@ defmodule SymphonyElixir.WorkflowTemplatesTest do
   end
 
   defp tapd_template_paths do
-    "../../priv/workflow_templates/tapd/**/*.md"
-    |> Path.expand(__DIR__)
-    |> Path.wildcard()
+    template_paths_by_alias_prefix("tapd/")
+  end
+
+  defp template_paths_by_alias_prefix(prefix) do
+    TemplateRegistry.entries()
+    |> Enum.filter(&String.starts_with?(&1.template_alias, prefix))
+    |> Enum.map(& &1.asset_path)
+    |> Enum.sort()
+  end
+
+  defp partial_ref_path(partial_ref) do
+    Templates.roots()
+    |> Enum.map(&Path.join(&1, partial_ref))
+    |> Enum.find(&File.regular?/1)
+  end
+
+  defp partial_ref_path!(partial_ref) do
+    partial_ref_path(partial_ref) ||
+      flunk("missing workflow partial #{partial_ref}")
   end
 
   defp tapd_cnb_opencode_template_alias do

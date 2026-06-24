@@ -1,32 +1,31 @@
 defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.DynamicTool.EvidencePayload
-  alias SymphonyElixir.Agent.DynamicTool.MetadataContract
+  alias SymphonyElixir.Agent.DynamicTool.Metadata
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Tracker
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
   alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Tapd.Client
   alias SymphonyElixir.Tracker.Tapd.Client.Paths
   alias SymphonyElixir.Tracker.Tapd.Client.Response
   alias SymphonyElixir.Tracker.WorkpadRegistry
-  alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.Effective
   alias SymphonyElixir.Workflow.StateTransitionReadiness
 
   @source_kind Kinds.tapd()
   @schema_version "1"
   @risk_flags ["external_network", "secret_access", "privileged_api"]
-  @metadata_schema_version_key MetadataContract.schema_version()
-  @metadata_side_effect_key MetadataContract.side_effect()
-  @metadata_risk_flags_key MetadataContract.risk_flags()
-  @metadata_workflow_capability_key MetadataContract.workflow_capability()
-  @metadata_source_kind_key MetadataContract.source_kind()
+  @metadata_schema_version_key Metadata.Contract.schema_version()
+  @metadata_side_effect_key Metadata.Contract.side_effect()
+  @metadata_risk_flags_key Metadata.Contract.risk_flags()
+  @metadata_capability_key Metadata.Contract.capability()
+  @metadata_source_kind_key Metadata.Contract.source_kind()
 
   @issue_snapshot_tool "tapd_issue_snapshot"
   @move_issue_tool "tapd_move_issue"
   @upsert_workpad_tool "tapd_upsert_workpad"
-  @attach_change_proposal_tool "tapd_attach_change_proposal"
+  @attach_external_reference_tool "tapd_attach_external_reference"
   @upsert_comment_tool "tapd_upsert_comment"
   @create_follow_up_story_tool "tapd_create_follow_up_story"
   @read_story_relations_tool "tapd_read_story_relations"
@@ -35,17 +34,17 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   @save_story_dependency_tool "tapd_save_story_dependency"
   @provider_diagnostics_tool "tapd_provider_diagnostics"
 
-  @issue_snapshot_capability CapabilityNames.tracker_issue_snapshot()
-  @move_issue_capability CapabilityNames.tracker_move_issue()
-  @upsert_workpad_capability CapabilityNames.tracker_upsert_workpad()
-  @attach_change_proposal_capability CapabilityNames.tracker_attach_change_proposal()
-  @upsert_comment_capability CapabilityNames.tracker_upsert_comment()
-  @create_follow_up_issue_capability CapabilityNames.tracker_create_follow_up_issue()
-  @read_issue_relations_capability CapabilityNames.tracker_read_issue_relations()
-  @add_issue_relation_capability CapabilityNames.tracker_add_issue_relation()
-  @read_issue_dependencies_capability CapabilityNames.tracker_read_issue_dependencies()
-  @save_issue_dependency_capability CapabilityNames.tracker_save_issue_dependency()
-  @provider_diagnostics_capability CapabilityNames.tracker_provider_diagnostics()
+  @issue_snapshot_capability TrackerCapabilities.issue_snapshot()
+  @move_issue_capability TrackerCapabilities.move_issue()
+  @upsert_workpad_capability TrackerCapabilities.upsert_workpad()
+  @attach_external_reference_capability TrackerCapabilities.attach_external_reference()
+  @upsert_comment_capability TrackerCapabilities.upsert_comment()
+  @create_follow_up_issue_capability TrackerCapabilities.create_follow_up_issue()
+  @read_issue_relations_capability TrackerCapabilities.read_issue_relations()
+  @add_issue_relation_capability TrackerCapabilities.add_issue_relation()
+  @read_issue_dependencies_capability TrackerCapabilities.read_issue_dependencies()
+  @save_issue_dependency_capability TrackerCapabilities.save_issue_dependency()
+  @provider_diagnostics_capability TrackerCapabilities.provider_diagnostics()
 
   @default_comment_limit 50
   @spec tool_specs() :: [map()]
@@ -103,9 +102,9 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
         }
       ),
       tool_spec(
-        @attach_change_proposal_tool,
-        @attach_change_proposal_capability,
-        "Attach a repository-backed change proposal URL to a TAPD Story through the canonical workpad comment.",
+        @attach_external_reference_tool,
+        @attach_external_reference_capability,
+        "Attach an external reference URL to a TAPD Story through the canonical workpad comment without interpreting it as workflow business state.",
         "write",
         %{
           "type" => "object",
@@ -113,11 +112,12 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
           "required" => ["issue_id", "url"],
           "properties" => %{
             "issue_id" => %{"type" => "string", "description" => "Full TAPD Story id or TAPD-<id> identifier."},
-            "url" => %{"type" => "string", "description" => "Absolute change proposal URL."},
-            "title" => %{"type" => ["string", "null"], "description" => "Optional attachment title."},
-            "repo_provider_kind" => %{"type" => ["string", "null"], "description" => "Optional repo provider kind."},
-            "repository" => %{"type" => ["string", "null"], "description" => "Optional provider repository handle."},
-            "change_proposal_id" => %{"type" => ["string", "number", "integer", "null"], "description" => "Optional provider change proposal id."}
+            "url" => %{"type" => "string", "description" => "Absolute external reference URL."},
+            "title" => %{"type" => ["string", "null"], "description" => "Optional reference title."},
+            "reference_kind" => %{"type" => ["string", "null"], "description" => "Optional caller-owned reference kind."},
+            "provider_kind" => %{"type" => ["string", "null"], "description" => "Optional external provider kind."},
+            "external_id" => %{"type" => ["string", "number", "integer", "null"], "description" => "Optional external provider object id."},
+            "metadata" => %{"type" => ["object", "null"], "additionalProperties" => true, "description" => "Optional caller-owned JSON metadata."}
           }
         }
       ),
@@ -244,7 +244,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   def execute(tracker, @issue_snapshot_tool, arguments, opts), do: issue_snapshot(tracker, arguments, opts)
   def execute(tracker, @move_issue_tool, arguments, opts), do: move_issue(tracker, arguments, opts)
   def execute(tracker, @upsert_workpad_tool, arguments, opts), do: upsert_workpad(tracker, arguments, opts)
-  def execute(tracker, @attach_change_proposal_tool, arguments, opts), do: attach_change_proposal(tracker, arguments, opts)
+  def execute(tracker, @attach_external_reference_tool, arguments, opts), do: attach_external_reference(tracker, arguments, opts)
   def execute(tracker, @upsert_comment_tool, arguments, opts), do: upsert_comment(tracker, arguments, opts)
   def execute(tracker, @create_follow_up_story_tool, arguments, opts), do: create_follow_up_story(tracker, arguments, opts)
   def execute(tracker, @read_story_relations_tool, arguments, opts), do: read_story_relations(tracker, arguments, opts)
@@ -262,7 +262,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
       @metadata_schema_version_key => @schema_version,
       @metadata_side_effect_key => side_effect,
       @metadata_risk_flags_key => @risk_flags,
-      @metadata_workflow_capability_key => capability,
+      @metadata_capability_key => capability,
       @metadata_source_kind_key => @source_kind
     }
   end
@@ -285,10 +285,10 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
     with {:ok, args} <- move_issue_args(arguments),
          {:ok, issue} <- fetch_issue(tracker, args.issue_id, opts),
          workflow <- workflow(issue),
-         review_handoff_target? <- StateTransitionReadiness.governed_target?(workflow, args.state_name),
+         readiness_governed_target? <- StateTransitionReadiness.governed_target?(workflow, args.state_name),
          :ok <- expected_current_state(issue, args.expected_current_state),
          {:ok, target_status} <- resolve_target_status(issue, args.state_name),
-         :ok <- maybe_validate_review_handoff(review_handoff_target?, workflow, issue, args, opts),
+         :ok <- maybe_validate_transition_readiness(readiness_governed_target?, workflow, issue, args, opts),
          {:ok, moved_issue} <- maybe_commit_story_move(tracker, issue, target_status, opts) do
       {:success, success_payload(%{"issue" => moved_issue})}
     else
@@ -300,30 +300,31 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
     with {:ok, args} <- upsert_workpad_args(arguments),
          :ok <- validate_workpad_mode(args.mode),
          {:ok, comment} <- upsert_workpad_comment(tracker, args, opts) do
-      {:success, success_payload(%{"comment" => comment}, EvidencePayload.workpad(comment))}
+      {:success, success_payload(%{"comment" => comment})}
     else
       {:error, reason} -> typed_failure(reason)
     end
   end
 
-  defp attach_change_proposal(tracker, arguments, opts) do
-    with {:ok, args} <- attach_change_proposal_args(arguments),
+  defp attach_external_reference(tracker, arguments, opts) do
+    with {:ok, args} <- attach_external_reference_args(arguments),
          :ok <- validate_url(args.url),
          {:ok, comments} <- fetch_comments(tracker, args.issue_id, args.comment_limit, opts),
-         {:ok, comment} <- upsert_change_proposal_link(tracker, comments, args, opts) do
+         {:ok, comment} <- upsert_external_reference_link(tracker, comments, args, opts) do
       attachment = %{
         "id" => "tapd-workpad:" <> Map.fetch!(comment, "id"),
-        "title" => args.title || "Change proposal",
+        "title" => args.title || "External reference",
         "url" => args.url,
         "storage" => "workpad_comment",
         "commentId" => Map.fetch!(comment, "id")
       }
 
       {:success,
-       success_payload(
-         %{"attachment" => attachment, "issue" => minimal_issue_payload(args.issue_id)},
-         EvidencePayload.tracker_change_proposal(attachment, args)
-       )}
+       success_payload(%{
+         "attachment" => attachment,
+         "externalReference" => external_reference_payload(args, attachment),
+         "issue" => minimal_issue_payload(args.issue_id)
+       })}
     else
       {:error, reason} -> typed_failure(reason)
     end
@@ -546,17 +547,17 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
     end
   end
 
-  defp upsert_change_proposal_link(tracker, comments, args, opts) do
+  defp upsert_external_reference_link(tracker, comments, args, opts) do
     case registry_workpad_comment(comments, args.issue_id) do
       %{"body" => body, "provider_ref" => %{"id" => provider_id}} ->
-        updated_body = append_change_proposal(body, args)
+        updated_body = append_external_reference(body, args)
 
         with {:ok, comment} <- update_comment(tracker, provider_id, updated_body, opts) do
           {:ok, register_workpad_comment(args, comment)}
         end
 
       _workpad ->
-        body = change_proposal_section(args)
+        body = external_reference_section(args)
 
         with {:ok, comment} <- create_comment(tracker, args.issue_id, body, opts) do
           {:ok, register_workpad_comment(args, comment)}
@@ -680,7 +681,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
 
   defp upsert_workpad_args(_arguments), do: {:error, {:invalid_arguments, "Expected an object with issue_id and body."}}
 
-  defp attach_change_proposal_args(arguments) when is_map(arguments) do
+  defp attach_external_reference_args(arguments) when is_map(arguments) do
     with {:ok, issue_id} <- required_string(arguments, "issue_id"),
          {:ok, url} <- required_string(arguments, "url"),
          {:ok, title} <- optional_nullable_string(arguments, "title"),
@@ -691,14 +692,15 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
          url: url,
          title: title,
          comment_limit: comment_limit,
-         repo_provider_kind: nullable_string(arguments, "repo_provider_kind"),
-         repository: nullable_string(arguments, "repository"),
-         change_proposal_id: optional_value(arguments, "change_proposal_id")
+         reference_kind: nullable_string(arguments, "reference_kind"),
+         provider_kind: nullable_string(arguments, "provider_kind"),
+         external_id: optional_value(arguments, "external_id"),
+         metadata: optional_map(arguments, "metadata")
        }}
     end
   end
 
-  defp attach_change_proposal_args(_arguments), do: {:error, {:invalid_arguments, "Expected an object with issue_id and url."}}
+  defp attach_external_reference_args(_arguments), do: {:error, {:invalid_arguments, "Expected an object with issue_id and url."}}
 
   defp upsert_comment_args(arguments) when is_map(arguments) do
     with {:ok, body} <- required_string(arguments, "body"),
@@ -822,17 +824,17 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
     commit_story_move(tracker, issue, target_status, opts)
   end
 
-  defp maybe_validate_review_handoff(false, _workflow, _issue, _args, _opts), do: :ok
+  defp maybe_validate_transition_readiness(false, _workflow, _issue, _args, _opts), do: :ok
 
-  defp maybe_validate_review_handoff(true, workflow, issue, args, opts) do
+  defp maybe_validate_transition_readiness(true, workflow, issue, args, opts) do
     StateTransitionReadiness.validate(
       workflow,
       issue,
-      review_handoff_readiness_opts(args, opts)
+      transition_readiness_opts(args, opts)
     )
   end
 
-  defp review_handoff_readiness_opts(args, opts) do
+  defp transition_readiness_opts(args, opts) do
     [
       target_state_name: args.state_name,
       issue_key: args.issue_id,
@@ -1176,18 +1178,30 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   defp unwrap_comment_data(%{} = data), do: data
   defp unwrap_comment_data(other), do: other
 
-  defp append_change_proposal(body, args) do
+  defp append_external_reference(body, args) do
     body
     |> to_string()
     |> String.trim_trailing()
-    |> Kernel.<>("\n\n" <> change_proposal_section(args))
+    |> Kernel.<>("\n\n" <> external_reference_section(args))
   end
 
-  defp change_proposal_section(args) do
-    title = args.title || "Change proposal"
+  defp external_reference_section(args) do
+    title = args.title || "External reference"
 
     "- [#{title}](#{args.url})"
-    |> then(&("### Change Proposal\n\n" <> &1))
+    |> then(&("### External Reference\n\n" <> &1))
+  end
+
+  defp external_reference_payload(args, attachment) do
+    %{
+      "id" => Map.get(attachment, "id") || Map.get(args, :external_id),
+      "url" => Map.get(attachment, "url") || Map.fetch!(args, :url),
+      "title" => Map.get(attachment, "title") || Map.get(args, :title),
+      "referenceKind" => Map.get(args, :reference_kind),
+      "providerKind" => Map.get(args, :provider_kind),
+      "externalId" => Map.get(args, :external_id),
+      "metadata" => Map.get(args, :metadata) || %{}
+    }
   end
 
   defp validate_workpad_mode("replace"), do: :ok
@@ -1197,7 +1211,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   defp validate_url(url) when is_binary(url) do
     case URI.parse(url) do
       %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) -> :ok
-      _uri -> {:error, {:invalid_arguments, "Change proposal URL must be an absolute http(s) URL."}}
+      _uri -> {:error, {:invalid_arguments, "External reference URL must be an absolute http(s) URL."}}
     end
   end
 
@@ -1229,6 +1243,13 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   end
 
   defp optional_nullable_string(arguments, key), do: {:ok, nullable_string(arguments, key)}
+
+  defp optional_map(arguments, key) do
+    case optional_value(arguments, key) do
+      value when is_map(value) -> value
+      _value -> %{}
+    end
+  end
 
   defp nullable_string(arguments, key) do
     arguments
@@ -1311,18 +1332,21 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
     end
   end
 
-  defp success_payload(payload, evidence \\ nil)
-  defp success_payload(payload, evidence) when is_map(payload), do: EvidencePayload.attach(payload, evidence)
+  defp success_payload(payload) when is_map(payload), do: payload
 
-  defp typed_failure({:review_handoff_not_ready, details}) when is_map(details) do
+  defp typed_failure({reason, details}) when is_atom(reason) and is_map(details) and is_map_key(details, "policy_id") do
     {:failure,
      %{
        "error" => %{
-         "code" => "review_handoff_not_ready",
-         "message" => "Review handoff is not ready. Structured readiness evidence is incomplete.",
-         "details" => details
+         "code" => StateTransitionReadiness.typed_tool_not_ready_error_code(),
+         "message" => "The requested workflow transition is not ready. Structured readiness evidence is incomplete.",
+         "details" => Map.put_new(details, "policy_error_code", Atom.to_string(reason))
        }
      }}
+  end
+
+  defp typed_failure({reason, details}) when is_atom(reason) and is_map(details) and is_map_key(details, :policy_id) do
+    typed_failure({reason, stringify_keys(details)})
   end
 
   defp typed_failure(reason) do
@@ -1366,6 +1390,13 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools do
   end
 
   defp string_key_map(_value), do: %{}
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
+      {key, value} -> {key, value}
+    end)
+  end
 
   defp drop_nil_values(map) when is_map(map) do
     Map.reject(map, fn {_key, value} -> is_nil(value) end)

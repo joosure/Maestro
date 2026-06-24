@@ -78,18 +78,20 @@ The Claude Code adapter prepares provider-owned tooling under
   `planned_tool_mcp_server/tool_registry.ex`, `protocol.ex`, `handlers.ex`,
   `bridge_client.ex`, and `template.ex` own the generated Node helper internals.
 - Dynamic Tool bridge path, token, transport, and environment names come from
-  `SymphonyElixir.Agent.DynamicTool.BridgeContract`.
+  `SymphonyElixir.Platform.DynamicToolBridgeContract`.
 - Provider startup merges captured Dynamic Tool source environment, bridge
   runtime environment, and explicit provider `env`; explicit provider values
   win.
 
 Workspace preparation is not a tool-selection authority. It may write MCP
 directories, an empty MCP config, or MCP files derived from an explicitly
-supplied workflow-planned `tool_context`, but it must not inspect issue state,
-workflow route, or source-advertised tools to decide exposure. Local session
-startup rewrites the runtime MCP config and helper source from the
-session-restricted context; if preparation and startup differ, startup is the
-execution authority.
+supplied workflow-planned `tool_context`, but that context must be either an
+`Agent.DynamicTool.Context` record or a canonical string-key Dynamic Tool
+context map. Raw atom-key maps are not a provider boundary contract. Preparation
+must not inspect issue state, workflow route, or source-advertised tools to
+decide exposure. Local session startup rewrites the runtime MCP config and
+helper source from the session-restricted context; if preparation and startup
+differ, startup is the execution authority.
 
 The generated MCP helper must not contain resolved credentials. Runtime
 credential values belong in the provider process environment.

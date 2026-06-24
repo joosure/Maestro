@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor do
   """
 
   alias SymphonyElixir.Agent.DynamicTool.EventContract
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
   alias SymphonyElixir.Tracker.Tapd.ToolExecutor.TypedTools
 
   @spec tool_specs() :: [map()]
@@ -31,7 +32,7 @@ defmodule SymphonyElixir.Tracker.Tapd.ToolExecutor do
       "error" => %{
         "code" => EventContract.unsupported_tool(),
         "message" => "Unsupported TAPD dynamic tool.",
-        EventContract.supported_tools_key() => supported_tools
+        Response.supported_tools_key() => supported_tools
       }
     }
   end

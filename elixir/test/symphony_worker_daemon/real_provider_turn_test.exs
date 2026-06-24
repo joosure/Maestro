@@ -416,7 +416,7 @@ defmodule SymphonyWorkerDaemon.RealProviderTurnTest do
     )
   end
 
-  defp empty_tool_context, do: %{tool_specs: [], tool_metadata: %{}, tool_environment: %{}}
+  defp empty_tool_context, do: %{"tool_specs" => [], "tool_metadata" => %{}, "tool_environment" => %{}}
 
   defp restore_application_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
   defp restore_application_env(key, value), do: Application.put_env(:symphony_elixir, key, value)

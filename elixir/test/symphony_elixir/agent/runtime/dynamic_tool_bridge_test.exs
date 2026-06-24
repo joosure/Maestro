@@ -1,11 +1,13 @@
 defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridgeTest do
   use ExUnit.Case, async: false
 
-  alias SymphonyElixir.Agent.DynamicTool.{Bridge, BridgeContract, BridgeRegistry}
+  alias SymphonyElixir.Agent.DynamicTool.Bridge
+  alias SymphonyElixir.Agent.DynamicTool.Bridge.Registry
   alias SymphonyElixir.Agent.Runtime.{DynamicToolBridge, Target}
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract, as: BridgeContract
 
   setup do
-    ensure_named_process!(BridgeRegistry)
+    ensure_named_process!(Registry)
 
     previous_token = Application.get_env(:symphony_elixir, BridgeContract.token_config_key())
     Application.put_env(:symphony_elixir, BridgeContract.token_config_key(), "test-bridge-token")
@@ -173,20 +175,20 @@ defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridgeTest do
 
   defp tool_context do
     %{
-      source_context: %{},
-      tool_specs: [
+      "source_context" => %{},
+      "tool_specs" => [
         %{
           "name" => "fake_tool",
           "description" => "Fake dynamic tool.",
           "inputSchema" => %{"type" => "object"}
         }
       ],
-      tool_environment: %{}
+      "tool_environment" => %{}
     }
   end
 
   defp empty_tool_context do
-    %{source_context: %{}, tool_specs: [], tool_environment: %{}}
+    %{"source_context" => %{}, "tool_specs" => [], "tool_environment" => %{}}
   end
 
   defp ensure_named_process!(module) do

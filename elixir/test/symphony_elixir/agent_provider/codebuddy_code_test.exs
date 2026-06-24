@@ -524,9 +524,9 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     settings = Settings.from_options(%{"mcp" => %{"enabled" => true}})
 
     bridge_env = %{
-      SymphonyElixir.Agent.DynamicTool.BridgeContract.base_url_env() => "http://127.0.0.1:4521/api/v1/agent-tools/dynamic",
-      SymphonyElixir.Agent.DynamicTool.BridgeContract.token_env() => "session-bridge-token",
-      SymphonyElixir.Agent.DynamicTool.BridgeContract.transport_env() => "local_http"
+      SymphonyElixir.Platform.DynamicToolBridgeContract.base_url_env() => "http://127.0.0.1:4521/api/v1/agent-tools/dynamic",
+      SymphonyElixir.Platform.DynamicToolBridgeContract.token_env() => "session-bridge-token",
+      SymphonyElixir.Platform.DynamicToolBridgeContract.transport_env() => "local_http"
     }
 
     assert {:ok, runtime} =
@@ -1229,7 +1229,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
     assert File.exists?(settings_path)
 
     mcp_config = Jason.decode!(File.read!(mcp_config_path))
-    assert get_in(mcp_config, ["mcpServers", "symphony_dynamic_tools", "env", SymphonyElixir.Agent.DynamicTool.BridgeContract.transport_env()]) == "local_http"
+    assert get_in(mcp_config, ["mcpServers", "symphony_dynamic_tools", "env", SymphonyElixir.Platform.DynamicToolBridgeContract.transport_env()]) == "local_http"
     assert get_in(Jason.decode!(File.read!(settings_path)), ["permissions", "allow"]) == ["mcp__symphony_dynamic_tools"]
 
     assert File.read!(Path.join(workspace, "dynamic_tool_bridge_base_url.txt")) ==
@@ -1810,20 +1810,30 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCodeTest do
 
   defp dynamic_tool_context_for_test do
     %{
-      source_context: %{},
-      tool_specs: [
+      "source_context" => %{},
+      "tool_specs" => [
         %{
           "name" => "fake_dynamic_tool",
           "description" => "Fake dynamic tool.",
-          "inputSchema" => %{"type" => "object"}
+          "inputSchema" => %{"type" => "object"},
+          "capability" => "test.fake_dynamic_tool",
+          "schemaVersion" => "1",
+          "sideEffect" => "read_only"
         }
       ],
-      tool_metadata: %{},
-      tool_environment: %{}
+      "tool_metadata" => %{
+        "fake_dynamic_tool" => %{
+          "capability" => "test.fake_dynamic_tool",
+          "schemaVersion" => "1",
+          "sideEffect" => "read_only",
+          "sourceKind" => "test"
+        }
+      },
+      "tool_environment" => %{}
     }
   end
 
   defp empty_dynamic_tool_context_for_test do
-    %{source_context: %{}, tool_specs: [], tool_metadata: %{}, tool_environment: %{}}
+    %{"source_context" => %{}, "tool_specs" => [], "tool_metadata" => %{}, "tool_environment" => %{}}
   end
 end

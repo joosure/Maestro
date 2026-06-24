@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Tracker.SmokeTest do
   import ExUnit.CaptureIO
 
   alias Mix.Tasks.Tracker.Smoke, as: TrackerSmokeTask
-  alias SymphonyElixir.Workflow.TemplateRegistry
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
 
   setup do
     Mix.Task.reenable("tracker.smoke")

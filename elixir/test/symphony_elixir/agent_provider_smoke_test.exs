@@ -2,7 +2,7 @@ defmodule SymphonyElixir.AgentProviderSmokeTest do
   use ExUnit.Case, async: false
 
   alias SymphonyElixir.AgentProvider.{Config, Session, Smoke, TurnResult}
-  alias SymphonyElixir.Workflow.TemplateRegistry
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
 
   setup do
     previous_workflow_path = Application.fetch_env(:symphony_elixir, :workflow_file_path)

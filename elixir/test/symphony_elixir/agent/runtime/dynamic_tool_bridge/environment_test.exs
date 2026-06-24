@@ -6,7 +6,7 @@ defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridge.EnvironmentTest do
   test "context_env/1 returns captured dynamic tool source environment" do
     assert %{"DYNAMIC_TOOL_ENV" => "enabled"} =
              Environment.context_env(%{
-               tool_environment: %{"DYNAMIC_TOOL_ENV" => "enabled"}
+               "tool_environment" => %{"DYNAMIC_TOOL_ENV" => "enabled"}
              })
   end
 

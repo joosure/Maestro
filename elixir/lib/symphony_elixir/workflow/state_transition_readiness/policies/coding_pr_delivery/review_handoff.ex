@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   """
 
   alias SymphonyElixir.Workflow.Effective
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.EvidenceContract
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.Profiles.CodingPrDelivery
   alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
@@ -26,26 +27,27 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   @schema_key StateTransitionReadinessContract.schema_key()
   @policy_id_key StateTransitionReadinessContract.policy_id_key()
   @observations_key StateTransitionReadinessContract.observations_key()
-  @workpad_key StateTransitionReadinessContract.workpad_key()
-  @repo_key StateTransitionReadinessContract.repo_key()
-  @change_proposal_key StateTransitionReadinessContract.change_proposal_key()
-  @validation_key StateTransitionReadinessContract.validation_key()
-  @checks_key StateTransitionReadinessContract.checks_key()
-  @feedback_key StateTransitionReadinessContract.feedback_key()
-  @status_key StateTransitionReadinessContract.status_key()
-  @source_key StateTransitionReadinessContract.source_key()
-  @id_key StateTransitionReadinessContract.id_key()
-  @url_key StateTransitionReadinessContract.url_key()
-  @head_sha_key StateTransitionReadinessContract.head_sha_key()
-  @published_head_sha_key StateTransitionReadinessContract.published_head_sha_key()
-  @commits_key StateTransitionReadinessContract.commits_key()
-  @change_kind_key StateTransitionReadinessContract.change_kind_key()
-  @no_code_change_justification_key StateTransitionReadinessContract.no_code_change_justification_key()
-  @linked_to_tracker_key StateTransitionReadinessContract.linked_to_tracker_key()
-  @observed_at_key StateTransitionReadinessContract.observed_at_key()
-  @updated_at_key StateTransitionReadinessContract.updated_at_key()
-  @commands_key StateTransitionReadinessContract.commands_key()
-  @actionable_count_key StateTransitionReadinessContract.actionable_count_key()
+  @workpad_key EvidenceContract.workpad_key()
+  @repo_key EvidenceContract.repo_key()
+  @change_proposal_key EvidenceContract.change_proposal_key()
+  @validation_key EvidenceContract.validation_key()
+  @checks_key EvidenceContract.checks_key()
+  @feedback_key EvidenceContract.feedback_key()
+  @status_key EvidenceContract.status_key()
+  @source_key EvidenceContract.source_key()
+  @id_key EvidenceContract.id_key()
+  @url_key EvidenceContract.url_key()
+  @head_sha_key EvidenceContract.head_sha_key()
+  @published_head_sha_key EvidenceContract.published_head_sha_key()
+  @commits_key EvidenceContract.commits_key()
+  @change_kind_key EvidenceContract.change_kind_key()
+  @no_code_change_justification_key EvidenceContract.no_code_change_justification_key()
+  @linked_to_tracker_key EvidenceContract.linked_to_tracker_key()
+  @observed_at_key EvidenceContract.observed_at_key()
+  @updated_at_key EvidenceContract.updated_at_key()
+  @commands_key EvidenceContract.commands_key()
+  @workpad_id_key EvidenceContract.workpad_id_key()
+  @actionable_count_key EvidenceContract.actionable_count_key()
   @remediation_actions_key "remediation_actions"
   @target_state_key StateTransitionReadinessContract.target_state_key()
   @capability_gaps_key StateTransitionReadinessContract.capability_gaps_key()
@@ -68,8 +70,8 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
   @updated_status StateTransitionReadinessContract.updated_status()
   @tracker_observed_source StateTransitionReadinessContract.tracker_observed_source()
   @typed_tool_observed_source StateTransitionReadinessContract.typed_tool_observed_source()
-  @code_change_kind StateTransitionReadinessContract.code_change_kind()
-  @no_code_change_kind StateTransitionReadinessContract.no_code_change_kind()
+  @code_change_kind EvidenceContract.code_change_kind()
+  @no_code_change_kind EvidenceContract.no_code_change_kind()
   @review_handoff_not_ready_error ReviewHandoffContract.not_ready_error()
   @change_proposal_path_markers ["/pull/", "/pulls/", "/merge_requests/", "/-/merge_requests/"]
   @passing_change_proposal_statuses ReviewHandoffContract.passing_change_proposal_statuses()
@@ -575,7 +577,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Policies.CodingPrDeli
     Map.get(workpad, @source_key) in [@typed_tool_observed_source, @tracker_observed_source] and
       Map.get(workpad, @status_key) in @passing_workpad_statuses and
       not is_nil(workpad_recorded_at(workpad)) and
-      (present?(Map.get(workpad, StateTransitionReadinessContract.workpad_id_key())) or
+      (present?(Map.get(workpad, @workpad_id_key)) or
          present?(Map.get(workpad, @url_key)))
   end
 

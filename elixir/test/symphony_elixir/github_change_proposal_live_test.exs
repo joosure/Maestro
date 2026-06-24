@@ -10,7 +10,7 @@ defmodule SymphonyElixir.GitHubChangeProposalLiveTest do
   @run_env "SYMPHONY_RUN_GITHUB_CHANGE_PROPOSAL_LIVE"
   @review_checks_run_env "SYMPHONY_RUN_GITHUB_REVIEW_CHECKS_LIVE"
   @independent_approval_run_env "SYMPHONY_RUN_GITHUB_INDEPENDENT_APPROVAL_LIVE"
-  @default_repository "acme/widgets"
+  @default_repository "zuoke/batt"
   @default_base_branch "master"
   @default_branch_prefix "symphony/live"
   @default_checks_timeout_ms 900_000

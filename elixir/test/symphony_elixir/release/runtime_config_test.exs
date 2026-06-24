@@ -6,7 +6,7 @@ defmodule SymphonyElixir.Release.RuntimeConfigTest do
   alias SymphonyElixir.Release.WorkflowSource
   alias SymphonyElixir.RepoProvider.Kinds, as: RepoProviderKinds
   alias SymphonyElixir.Tracker.Kinds, as: TrackerKinds
-  alias SymphonyElixir.Workflow.TemplateRegistry
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
 
   test "exposes the release runtime environment contract" do
     assert RuntimeConfig.host_env() == "HOST"

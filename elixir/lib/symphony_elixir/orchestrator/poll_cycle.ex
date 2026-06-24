@@ -1,7 +1,6 @@
 defmodule SymphonyElixir.Orchestrator.PollCycle do
   @moduledoc false
 
-  alias SymphonyElixir.ChangeProposalReconciliation
   alias SymphonyElixir.Config
   alias SymphonyElixir.Orchestrator.Events
   alias SymphonyElixir.Orchestrator.IssueDispatch
@@ -9,9 +8,12 @@ defmodule SymphonyElixir.Orchestrator.PollCycle do
   alias SymphonyElixir.Orchestrator.Running
   alias SymphonyElixir.Orchestrator.Runtime
   alias SymphonyElixir.Orchestrator.State
+  alias SymphonyElixir.Orchestrator.WorkflowExtensionRuntimeCommands
   alias SymphonyElixir.RepoProvider.Error, as: RepoProviderError
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.Error, as: TrackerError
+  alias SymphonyElixir.Workflow.Extension.Runtime, as: WorkflowExtensionRuntime
+  alias SymphonyElixir.Workflow.Extension.Runtime.Context, as: WorkflowExtensionRuntimeContext
 
   @poll_transition_render_delay_ms 20
 
@@ -65,7 +67,9 @@ defmodule SymphonyElixir.Orchestrator.PollCycle do
     with {:ok, settings} <- Config.settings(),
          :ok <- Config.validate!(),
          {:ok, state} <-
-           {:ok, ChangeProposalReconciliation.reconcile(settings, state, change_proposal_reconciler_opts(opts))},
+           settings
+           |> WorkflowExtensionRuntimeContext.new!(state)
+           |> WorkflowExtensionRuntime.run_poll_cycle(state, workflow_runtime_extension_opts(opts)),
          {:ok, issues} <- Tracker.fetch_candidate_issues() do
       if Events.available_slots(state) > 0 do
         {IssueDispatch.choose_issues(issues, state), :info, %{status: "ok", candidate_count: length(issues)}}
@@ -147,11 +151,15 @@ defmodule SymphonyElixir.Orchestrator.PollCycle do
     end
   end
 
-  defp change_proposal_reconciler_opts(opts) do
-    case Keyword.get(opts, :change_proposal_reconciler_opts) do
-      reconciler_opts when is_function(reconciler_opts, 0) -> reconciler_opts.()
-      reconciler_opts when is_list(reconciler_opts) -> reconciler_opts
-      _other -> []
+  defp workflow_runtime_extension_opts(opts) do
+    registry_opts =
+      opts
+      |> Keyword.take([:entries, :extra_entries, :sources, :extra_sources, :source_opts, :command_handler])
+      |> Keyword.put_new(:command_handler, &WorkflowExtensionRuntimeCommands.handle/1)
+
+    case Keyword.fetch(opts, :runtime_extension_opts) do
+      {:ok, runtime_extension_opts} -> Keyword.put(registry_opts, :extension_opts, runtime_extension_opts)
+      :error -> registry_opts
     end
   end
 

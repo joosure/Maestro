@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.StoreTest do
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store
 
   setup do
+    unless Process.whereis(Store), do: start_supervised!(Store)
     if Process.whereis(Store), do: Store.reset()
     :ok
   end

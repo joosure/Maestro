@@ -5,10 +5,9 @@ defmodule SymphonyElixir.Tracker.DynamicToolSource do
 
   @behaviour SymphonyElixir.Agent.DynamicTool.Source
 
-  alias SymphonyElixir.ChangeProposalReconciliation
+  alias SymphonyElixir.Agent.DynamicTool.ResultRecorder
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
-  alias SymphonyElixir.Workflow.StateTransitionReadiness.EvidenceRecorder
 
   @spec default_context(keyword()) :: TrackerConfig.t()
   def default_context(_opts \\ []), do: TrackerConfig.current!()
@@ -41,8 +40,7 @@ defmodule SymphonyElixir.Tracker.DynamicToolSource do
 
   def execute(source_context, tool, arguments, opts) when is_map(source_context) and is_list(opts) do
     result = Tracker.execute_dynamic_tool(source_context, tool, arguments, opts)
-    _record_result = ChangeProposalReconciliation.record_tracker_tool_result(source_context, tool, arguments, result, opts)
-    _record_readiness = EvidenceRecorder.record_typed_tool_result("tracker", source_context, tool, arguments, result, opts)
+    _record_result = ResultRecorder.record_result("tracker", source_context, tool, arguments, result, opts)
     result
   end
 

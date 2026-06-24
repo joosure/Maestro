@@ -2,7 +2,7 @@ defmodule SymphonyElixir.WorkflowProfileContractTest.CodingPrDelivery do
   use ExUnit.Case, async: true
 
   use SymphonyElixir.WorkflowProfileContract,
-    profile: SymphonyElixir.Workflow.Profiles.CodingPrDelivery
+    profile: SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Profile
 end
 
 defmodule SymphonyElixir.WorkflowProfileContractTest.RequirementAnalysis do

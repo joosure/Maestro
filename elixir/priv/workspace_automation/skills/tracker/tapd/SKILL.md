@@ -34,8 +34,9 @@ generated inventory for the matching semantic capability:
   If no `workpad_id` exists yet, omit it and let the typed tool create and
   register the canonical workpad. The tool owns the provider comment mapping,
   canonical Markdown rendering, and Markdown-to-TAPD rich text conversion.
-- `tracker.attach_change_proposal`: attach a PR/MR/change proposal URL to the
-  Story. TAPD currently stores this through the canonical workpad comment.
+- `tracker.attach_external_reference`: attach a caller-owned external reference
+  URL to the Story. TAPD currently stores this through the canonical workpad
+  comment. Pass the `reference_kind` supplied by the active workflow template.
 - `tracker.upsert_comment`: create a general Story comment or update a specific
   existing comment by `comment_id`.
 - `tracker.create_follow_up_issue`: create a constrained follow-up Story in the
@@ -113,13 +114,19 @@ Update a specific comment:
 }
 ```
 
-Attach a change proposal:
+Attach an external reference:
 
 ```json
 {
   "issue_id": "{{ issue.id }}",
-  "url": "https://provider.example/org/repo/change-proposals/123",
-  "title": "TAPD implementation"
+  "url": "https://provider.example/org/repo/references/123",
+  "title": "TAPD implementation",
+  "reference_kind": "<workflow-supplied-kind>",
+  "provider_kind": "cnb",
+  "external_id": "123",
+  "metadata": {
+    "repository": "org/repo"
+  }
 }
 ```
 
@@ -171,15 +178,16 @@ Read and save dependency facts:
   splitting out related work instead of constructing TAPD Story REST calls.
 - Use `tracker.read_issue_dependencies` and `tracker.save_issue_dependency`
   when the workflow explicitly needs dependency/blocker relation facts.
-- Use `tracker.attach_change_proposal` for PR/MR/change proposal links; TAPD
-  stores the link in the canonical workpad comment until a structured TAPD
-  attachment API is available.
+- Use `tracker.attach_external_reference` for external links. For workflow-owned
+  PR/MR links, pass the template-supplied `reference_kind`; TAPD stores the link
+  in the canonical workpad comment until a structured TAPD attachment API is
+  available.
 - Do not introduce token-bearing shell helpers or direct TAPD REST calls.
 
 ## TAPD Access Boundary
 
 Only use inventory-listed typed TAPD tools for Story reads and writes, state
-transitions, workpad/comment updates, change proposal links, relations,
+transitions, workpad/comment updates, external reference links, relations,
 dependencies, and provider health checks.
 
 Use `tracker.provider_diagnostics` for fixed provider health checks when the

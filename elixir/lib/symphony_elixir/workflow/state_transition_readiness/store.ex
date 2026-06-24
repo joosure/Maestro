@@ -9,14 +9,14 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Store do
 
   use GenServer
 
-  alias SymphonyElixir.Workflow.StateTransitionReadiness.Contract, as: StateTransitionReadinessContract
+  alias SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Envelope
 
   @default_max_records 10_000
-  @schema_key StateTransitionReadinessContract.schema_key()
-  @policy_id_key StateTransitionReadinessContract.policy_id_key()
-  @observations_key StateTransitionReadinessContract.observations_key()
-  @declarations_key StateTransitionReadinessContract.declarations_key()
-  @metadata_key StateTransitionReadinessContract.metadata_key()
+  @schema_key Envelope.schema_key()
+  @policy_id_key Envelope.policy_id_key()
+  @observations_key Envelope.observations_key()
+  @declarations_key Envelope.declarations_key()
+  @metadata_key Envelope.metadata_key()
 
   defmodule State do
     @moduledoc false

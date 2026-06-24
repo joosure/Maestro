@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor do
   """
 
   alias SymphonyElixir.Agent.DynamicTool.EventContract
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract.Response
   alias SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools
 
   @spec tool_specs() :: [map()]
@@ -43,7 +44,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor do
        "error" => %{
          "code" => EventContract.unsupported_tool(),
          "message" => "Unsupported Linear dynamic tool.",
-         EventContract.supported_tools_key() => supported_tool_names()
+         Response.supported_tools_key() => supported_tool_names()
        }
      }}
   end
@@ -54,7 +55,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor do
        "error" => %{
          "code" => EventContract.unsupported_tool(),
          "message" => "Unsupported Linear dynamic tool.",
-         EventContract.supported_tools_key() => supported_tool_names(tracker)
+         Response.supported_tools_key() => supported_tool_names(tracker)
        }
      }}
   end

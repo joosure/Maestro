@@ -1,9 +1,11 @@
 defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridge.Transport do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.DynamicTool.{Bridge, BridgeContract, Context}
+  alias SymphonyElixir.Agent.DynamicTool.{Bridge, Context}
+  alias SymphonyElixir.Agent.DynamicTool.Context.RuntimeMetadata
   alias SymphonyElixir.Agent.Runtime.Target
   alias SymphonyElixir.HttpServer
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract, as: BridgeContract
   alias SymphonyElixir.Platform.Process, as: PlatformProcess
   alias SymphonyElixir.Platform.SSH
 
@@ -148,7 +150,7 @@ defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridge.Transport do
   end
 
   defp runtime_metadata(opts) when is_list(opts) do
-    %{}
+    RuntimeMetadata.empty()
     |> put_metadata(:run_id, Keyword.get(opts, :run_id))
     |> put_metadata(:issue_id, Keyword.get(opts, :issue_id))
     |> put_metadata(:issue_identifier, Keyword.get(opts, :issue_identifier))
@@ -169,10 +171,7 @@ defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridge.Transport do
   defp put_issue_metadata(metadata, _issue), do: metadata
 
   defp put_metadata(metadata, key, value) when is_atom(key) and is_binary(value) do
-    case String.trim(value) do
-      "" -> metadata
-      normalized -> Map.put_new(metadata, key, normalized)
-    end
+    RuntimeMetadata.put(metadata, key, value)
   end
 
   defp put_metadata(metadata, _key, _value), do: metadata

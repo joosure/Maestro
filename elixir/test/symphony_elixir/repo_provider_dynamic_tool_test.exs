@@ -23,7 +23,9 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
 
   test "repo-provider typed tools advertise production metadata and resolve inventory capabilities" do
     context = repo_tool_context()
-    names = Enum.map(context.tool_specs, &Map.fetch!(&1, "name"))
+    tool_specs = DynamicTool.Context.tool_specs(context)
+    tool_metadata = DynamicTool.Context.tool_metadata(context)
+    names = Enum.map(tool_specs, &Map.fetch!(&1, "name"))
 
     assert Enum.sort(names) ==
              Enum.sort([
@@ -38,22 +40,22 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
                "repo_close_change_proposal"
              ])
 
-    assert context.tool_metadata["repo_change_proposal_snapshot"]["workflowCapability"] ==
+    assert tool_metadata["repo_change_proposal_snapshot"]["capability"] ==
              "repo.change_proposal_snapshot"
 
-    assert context.tool_metadata["repo_change_proposal_snapshot"]["sourceKind"] == "memory"
-    assert context.tool_metadata["repo_change_proposal_snapshot"]["sideEffect"] == "read_only"
-    assert context.tool_metadata["repo_create_or_update_change_proposal"]["sideEffect"] == "write"
-    assert context.tool_metadata["repo_add_change_proposal_comment"]["sideEffect"] == "write"
-    assert context.tool_metadata["repo_submit_change_proposal_review"]["sideEffect"] == "write"
+    assert tool_metadata["repo_change_proposal_snapshot"]["sourceKind"] == "memory"
+    assert tool_metadata["repo_change_proposal_snapshot"]["sideEffect"] == "read_only"
+    assert tool_metadata["repo_create_or_update_change_proposal"]["sideEffect"] == "write"
+    assert tool_metadata["repo_add_change_proposal_comment"]["sideEffect"] == "write"
+    assert tool_metadata["repo_submit_change_proposal_review"]["sideEffect"] == "write"
 
-    assert context.tool_metadata["repo_reply_change_proposal_review_comment"]["sideEffect"] ==
+    assert tool_metadata["repo_reply_change_proposal_review_comment"]["sideEffect"] ==
              "write"
 
-    assert context.tool_metadata["repo_merge_change_proposal"]["sideEffect"] == "destructive"
+    assert tool_metadata["repo_merge_change_proposal"]["sideEffect"] == "destructive"
 
     create_spec =
-      Enum.find(context.tool_specs, &(&1["name"] == "repo_create_or_update_change_proposal"))
+      Enum.find(tool_specs, &(&1["name"] == "repo_create_or_update_change_proposal"))
 
     assert create_spec["description"] =~ "If body is provided it must be one JSON string"
     assert create_spec["description"] =~ "idempotent by head branch"
@@ -222,7 +224,7 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
 
   test "repo change proposal snapshot accepts CNB pull request URLs as typed selectors" do
     context = repo_tool_context(cnb_repo())
-    names = Enum.map(context.tool_specs, &Map.fetch!(&1, "name"))
+    names = context |> DynamicTool.Context.tool_specs() |> Enum.map(&Map.fetch!(&1, "name"))
 
     refute "repo_submit_change_proposal_review" in names
 
@@ -481,7 +483,7 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
                       "responseTool" => "repo_add_change_proposal_comment",
                       "responseAction" => %{
                         "tool" => "repo_add_change_proposal_comment",
-                        "workflowCapability" => "repo.add_change_proposal_comment",
+                        "capability" => "repo.add_change_proposal_comment",
                         "prefilledArguments" => %{"number" => "20", "reply_to_comment_id" => "1"},
                         "requiredArguments" => ["body"]
                       }
@@ -509,7 +511,7 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
                       "responseTool" => "repo_reply_change_proposal_review_comment",
                       "responseAction" => %{
                         "tool" => "repo_reply_change_proposal_review_comment",
-                        "workflowCapability" => "repo.reply_change_proposal_review_comment",
+                        "capability" => "repo.reply_change_proposal_review_comment",
                         "prefilledArguments" => %{"number" => "20", "comment_id" => "8"},
                         "requiredArguments" => ["body"]
                       }
@@ -538,7 +540,7 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
                       "responseTool" => "repo_reply_change_proposal_review_comment",
                       "responseAction" => %{
                         "tool" => "repo_reply_change_proposal_review_comment",
-                        "workflowCapability" => "repo.reply_change_proposal_review_comment",
+                        "capability" => "repo.reply_change_proposal_review_comment",
                         "prefilledArguments" => %{"number" => "20", "comment_id" => "8"},
                         "requiredArguments" => ["body"]
                       },
@@ -656,7 +658,7 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
 
   test "CNB feedback discussion marks submit review unsupported without exposing the tool" do
     context = repo_tool_context(cnb_repo())
-    names = Enum.map(context.tool_specs, &Map.fetch!(&1, "name"))
+    names = context |> DynamicTool.Context.tool_specs() |> Enum.map(&Map.fetch!(&1, "name"))
 
     refute "repo_submit_change_proposal_review" in names
 
@@ -697,7 +699,7 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
                   "feedbackActionPolicy" => %{
                     "submitReview" => %{
                       "supported" => false,
-                      "workflowCapability" => "repo.submit_change_proposal_review",
+                      "capability" => "repo.submit_change_proposal_review",
                       "reason" => "provider_capability_not_available"
                     },
                     "topLevelComment" => %{
@@ -1080,6 +1082,32 @@ defmodule SymphonyElixir.RepoProviderDynamicToolTest do
 
     assert_received {:memory_repo_provider_pr_create, create_opts}
     assert create_opts[:body] == "Configured PR body."
+  end
+
+  test "repo create-or-update tool uses explicit body without invoking fallback generator" do
+    repo =
+      memory_repo(%{
+        change_proposal_body_generator: %{
+          kind: "template",
+          template: "{{ unknown }}"
+        }
+      })
+
+    assert {:success, %{"data" => %{"action" => "created"}}} =
+             DynamicTool.execute(
+               repo_tool_context(repo),
+               "repo_create_or_update_change_proposal",
+               %{
+                 "mode" => "create",
+                 "title" => "DEMO-27 explicit body",
+                 "body" => "Precomputed by the workflow extension.",
+                 "base" => "main",
+                 "head" => "demo-27-explicit-body"
+               }
+             )
+
+    assert_received {:memory_repo_provider_pr_create, create_opts}
+    assert create_opts[:body] == "Precomputed by the workflow extension."
   end
 
   test "repo create-or-update tool renders configured template body generator" do

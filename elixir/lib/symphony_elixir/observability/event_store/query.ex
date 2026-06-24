@@ -1,20 +1,17 @@
 defmodule SymphonyElixir.Observability.EventStore.Query do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.DynamicTool.{EventContract, MetadataContract}
+  alias SymphonyElixir.Agent.DynamicTool.{EventContract, Metadata}
   alias SymphonyElixir.AgentProvider
+  alias SymphonyElixir.Capability.Registry, as: CapabilityRegistry
   alias SymphonyElixir.Observability.{AlertContract, DynamicToolAlertContract, DynamicToolMetrics}
+  alias SymphonyElixir.Observability.EventContract, as: ObservabilityEventContract
   alias SymphonyElixir.Observability.EventStore.{Buffer, Index, State}
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @terminal_tool_events MapSet.new(EventContract.terminal_event_names())
-  @known_provider_unavailable_capabilities MapSet.new([
-                                             CapabilityNames.repo_submit_change_proposal_review()
-                                           ])
   @total_calls_key DynamicToolMetrics.total_calls()
   @typed_tool_hits_key DynamicToolMetrics.typed_tool_hits()
   @raw_tool_attempts_key DynamicToolMetrics.raw_tool_attempts()
-  @fallback_count_key DynamicToolMetrics.fallback_count()
   @unsupported_tool_count_key DynamicToolMetrics.unsupported_tool_count()
   @provider_capability_unavailable_count_key DynamicToolMetrics.provider_capability_unavailable_count()
   @provider_capability_unavailable_key DynamicToolMetrics.provider_capability_unavailable()
@@ -28,32 +25,28 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
   @provider_capability_known_key DynamicToolMetrics.provider_capability_known()
   @provider_capability_unknown_key DynamicToolMetrics.provider_capability_unknown()
   @provider_capability_by_capability_key DynamicToolMetrics.provider_capability_by_capability()
-  @typed_usage_kind MetadataContract.typed_usage_kind()
-  @raw_usage_kind MetadataContract.raw_usage_kind()
-  @fallback_usage_kind MetadataContract.fallback_usage_kind()
+  @typed_usage_kind Metadata.Contract.typed_usage_kind()
+  @raw_usage_kind Metadata.Contract.raw_usage_kind()
   @tool_status_succeeded EventContract.status_succeeded()
   @unsupported_tool_reason EventContract.unsupported_tool()
   @unknown_tool EventContract.unknown_tool()
-  @provider_capability_unavailable_reason MetadataContract.provider_capability_unavailable_reason()
-  @workflow_capability_key MetadataContract.workflow_capability()
-  @description_key MetadataContract.description()
-  @reason_key MetadataContract.reason()
+  @provider_capability_unavailable_reason Metadata.Contract.provider_capability_unavailable_reason()
+  @capability_key Metadata.Contract.capability()
+  @description_key Metadata.Contract.description()
+  @reason_key Metadata.Contract.reason()
   @alert_count_key AlertContract.count_key()
   @alert_capabilities_key AlertContract.capabilities_key()
   @critical_alert_severity AlertContract.critical()
   @warning_alert_severity AlertContract.warning()
   @info_alert_severity AlertContract.info()
   @raw_tool_attempts_alert_code DynamicToolAlertContract.raw_tool_attempts_code()
-  @operator_migration_fallback_alert_code DynamicToolAlertContract.operator_migration_fallback_code()
   @unsupported_tool_calls_alert_code DynamicToolAlertContract.unsupported_tool_calls_code()
   @provider_capability_unavailable_unknown_alert_code DynamicToolAlertContract.provider_capability_unavailable_unknown_code()
   @provider_capability_unavailable_known_alert_code DynamicToolAlertContract.provider_capability_unavailable_known_code()
   @regression_alert_category DynamicToolAlertContract.regression_category()
-  @operator_migration_alert_category DynamicToolAlertContract.operator_migration_category()
   @tool_surface_regression_alert_category DynamicToolAlertContract.tool_surface_regression_category()
   @provider_capability_alert_category DynamicToolAlertContract.provider_capability_category()
   @raw_tool_attempts_alert_message DynamicToolAlertContract.raw_tool_attempts_message()
-  @operator_migration_fallback_alert_message DynamicToolAlertContract.operator_migration_fallback_message()
   @unsupported_tool_calls_alert_message DynamicToolAlertContract.unsupported_tool_calls_message()
   @provider_capability_unavailable_unknown_alert_message DynamicToolAlertContract.provider_capability_unavailable_unknown_message()
   @provider_capability_unavailable_known_alert_message DynamicToolAlertContract.provider_capability_unavailable_known_message()
@@ -148,8 +141,8 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
   defp records_to_payloads(records, order, _limit), do: records_to_payloads(records, order, 1)
 
   defp agent_session_log_event?(payload) when is_map(payload) do
-    component = Map.get(payload, "component", "")
-    event = Map.get(payload, "event", "")
+    component = Map.get(payload, ObservabilityEventContract.component_key(), ObservabilityEventContract.unknown_component())
+    event = Map.get(payload, ObservabilityEventContract.event_key(), ObservabilityEventContract.unknown_event())
 
     agent_lifecycle_event?(event) or
       AgentProvider.session_log_event?(component, event) or
@@ -172,7 +165,7 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
   defp agent_lifecycle_event?(_event), do: false
 
   defp terminal_tool_event?(payload) when is_map(payload) do
-    MapSet.member?(@terminal_tool_events, Map.get(payload, "event"))
+    MapSet.member?(@terminal_tool_events, Map.get(payload, ObservabilityEventContract.event_key()))
   end
 
   defp terminal_tool_event?(_payload), do: false
@@ -194,7 +187,6 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
     |> increment(DynamicToolMetrics.usage_calls(usage_kind))
     |> maybe_increment_typed_tool_hit(usage_kind, status)
     |> maybe_increment_raw_tool_attempt(usage_kind)
-    |> maybe_increment_fallback_count(usage_kind)
     |> maybe_increment_unsupported_tool_count(failure_reason)
     |> add(@provider_capability_unavailable_count_key, provider_capability_unavailable_count)
     |> accumulate_provider_capability_unavailable(provider_capability_unavailable_details)
@@ -240,11 +232,6 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
     do: increment(metrics, @raw_tool_attempts_key)
 
   defp maybe_increment_raw_tool_attempt(metrics, _usage_kind), do: metrics
-
-  defp maybe_increment_fallback_count(metrics, @fallback_usage_kind),
-    do: increment(metrics, @fallback_count_key)
-
-  defp maybe_increment_fallback_count(metrics, _usage_kind), do: metrics
 
   defp maybe_increment_unsupported_tool_count(metrics, @unsupported_tool_reason),
     do: increment(metrics, @unsupported_tool_count_key)
@@ -319,12 +306,12 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
 
   defp provider_unavailable_capability(detail) when is_map(detail) do
     detail
-    |> Map.get(@workflow_capability_key)
+    |> Map.get(@capability_key)
     |> normalize_non_empty_string()
   end
 
   defp known_provider_unavailable_capability?(capability) when is_binary(capability),
-    do: MapSet.member?(@known_provider_unavailable_capabilities, capability)
+    do: CapabilityRegistry.known_provider_unavailable_capability?(capability)
 
   defp known_provider_unavailable_capability?(_capability), do: false
 
@@ -362,7 +349,6 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
         |> increment(DynamicToolMetrics.status_calls(status))
         |> maybe_increment_typed_tool_hit(usage_kind, status)
         |> maybe_increment_raw_tool_attempt(usage_kind)
-        |> maybe_increment_fallback_count(usage_kind)
         |> maybe_increment_unsupported_tool_count(failure_reason)
         |> add(@provider_capability_unavailable_count_key, provider_capability_unavailable_count)
         |> accumulate_provider_capability_unavailable(provider_capability_unavailable_details)
@@ -384,7 +370,6 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
     |> increment(DynamicToolMetrics.status_calls(status))
     |> maybe_increment_typed_tool_hit(usage_kind, status)
     |> maybe_increment_raw_tool_attempt(usage_kind)
-    |> maybe_increment_fallback_count(usage_kind)
     |> maybe_increment_unsupported_tool_count(failure_reason)
     |> add(@provider_capability_unavailable_count_key, provider_capability_unavailable_count)
     |> accumulate_provider_capability_unavailable(provider_capability_unavailable_details)
@@ -438,7 +423,7 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
 
   defp normalize_provider_capability_detail(%{} = detail) do
     %{
-      @workflow_capability_key => detail |> Map.get(@workflow_capability_key) |> normalize_non_empty_string(),
+      @capability_key => detail |> Map.get(@capability_key) |> normalize_non_empty_string(),
       @description_key => detail |> Map.get(@description_key) |> normalize_non_empty_string(),
       @reason_key =>
         detail
@@ -473,14 +458,6 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
       @critical_alert_severity,
       @regression_alert_category,
       @raw_tool_attempts_alert_message
-    )
-    |> maybe_add_count_alert(
-      metrics,
-      @fallback_count_key,
-      @operator_migration_fallback_alert_code,
-      @warning_alert_severity,
-      @operator_migration_alert_category,
-      @operator_migration_fallback_alert_message
     )
     |> maybe_add_count_alert(
       metrics,
@@ -608,13 +585,13 @@ defmodule SymphonyElixir.Observability.EventStore.Query do
   defp normalize_non_empty_string(_value), do: nil
 
   defp tool_usage_kind(%{"dynamic_tool_usage_kind" => kind})
-       when kind in [@typed_usage_kind, @raw_usage_kind, @fallback_usage_kind], do: kind
+       when kind in [@typed_usage_kind, @raw_usage_kind], do: kind
 
   defp tool_usage_kind(_event), do: @raw_usage_kind
 
   defp tool_name(%{"tool_name" => tool}) when is_binary(tool) and tool != "", do: tool
   defp tool_name(_event), do: @unknown_tool
 
-  defp tool_status(%{"event" => event}), do: EventContract.status_for_event(event)
-  defp tool_status(_event), do: EventContract.status_failed()
+  defp tool_status(event) when is_map(event),
+    do: event |> Map.get(ObservabilityEventContract.event_key()) |> EventContract.status_for_event()
 end

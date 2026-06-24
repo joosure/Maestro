@@ -6,7 +6,7 @@ defmodule SymphonyElixirWeb.Router do
   use Phoenix.Router
   import Phoenix.LiveView.Router
 
-  alias SymphonyElixir.Agent.DynamicTool.BridgeContract
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract, as: BridgeContract
   alias SymphonyElixirWeb.BrowserPaths
   alias SymphonyElixirWeb.Observability.Paths
 

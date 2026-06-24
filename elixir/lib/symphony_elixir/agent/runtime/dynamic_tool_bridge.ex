@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridge do
   """
 
   alias SymphonyElixir.Agent.DynamicTool.Bridge
+  alias SymphonyElixir.Agent.DynamicTool.Context
   alias SymphonyElixir.Agent.Runtime.DynamicToolBridge.Transport
 
   @type transport :: Transport.transport()
@@ -63,7 +64,7 @@ defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridge do
 
   defp managed_runtime_required?(opts) do
     case Keyword.get(opts, :tool_context) do
-      %{tool_specs: [_tool_spec | _rest]} -> true
+      %Context{tool_specs: [_tool_spec | _rest]} -> true
       %{"tool_specs" => [_tool_spec | _rest]} -> true
       _tool_context -> false
     end

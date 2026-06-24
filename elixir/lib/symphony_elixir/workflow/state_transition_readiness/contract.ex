@@ -17,38 +17,14 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract do
   defdelegate declarations_key(), to: Envelope
   defdelegate metadata_key(), to: Envelope
 
-  defdelegate workpad_key(), to: Evidence
-  defdelegate repo_key(), to: Evidence
-  defdelegate change_proposal_key(), to: Evidence
-  defdelegate validation_key(), to: Evidence
-  defdelegate checks_key(), to: Evidence
-  defdelegate feedback_key(), to: Evidence
   defdelegate status_key(), to: Evidence
   defdelegate source_key(), to: Evidence
   defdelegate key_key(), to: Evidence
   defdelegate id_key(), to: Evidence
   defdelegate url_key(), to: Evidence
-  defdelegate head_ref_key(), to: Evidence
-  defdelegate head_sha_key(), to: Evidence
-  defdelegate published_head_sha_key(), to: Evidence
-  defdelegate commits_key(), to: Evidence
-  defdelegate change_kind_key(), to: Evidence
-  defdelegate no_code_change_justification_key(), to: Evidence
-  defdelegate linked_to_tracker_key(), to: Evidence
   defdelegate observed_at_key(), to: Evidence
-  defdelegate commands_key(), to: Evidence
-  defdelegate workpad_id_key(), to: Evidence
   defdelegate updated_at_key(), to: Evidence
-  defdelegate provider_kind_key(), to: Evidence
-  defdelegate repository_key(), to: Evidence
-  defdelegate number_key(), to: Evidence
   defdelegate summary_key(), to: Evidence
-  defdelegate actionable_count_key(), to: Evidence
-  defdelegate working_tree_clean_key(), to: Evidence
-  defdelegate pushed_key(), to: Evidence
-  defdelegate command_key(), to: Evidence
-  defdelegate cwd_key(), to: Evidence
-  defdelegate exit_code_key(), to: Evidence
 
   defdelegate target_state_key(), to: Result
   defdelegate capability_gaps_key(), to: Result
@@ -75,8 +51,6 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract do
   defdelegate updated_status(), to: Values
   defdelegate clear_status(), to: Values
   defdelegate action_required_status(), to: Values
-  defdelegate code_change_kind(), to: Values
-  defdelegate no_code_change_kind(), to: Values
   defdelegate typed_tool_observed_source(), to: Values
   defdelegate tracker_observed_source(), to: Values
   defdelegate repo_observed_source(), to: Values

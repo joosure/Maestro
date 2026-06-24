@@ -1,15 +1,15 @@
 defmodule SymphonyElixir.ChangeProposalReconciliation.Contract do
   @moduledoc false
 
-  alias SymphonyElixir.Workflow.CapabilityNames
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
 
   @component "change_proposal_reconciliation"
   @tracker_tool_result_producer "tracker_tool_result"
   @known_target_watcher_producer "known_target_watcher"
   @known_target_registry_producer "known_target_registry"
 
-  @tracker_attach_change_proposal_capability CapabilityNames.tracker_attach_change_proposal()
-  @tracker_move_issue_capability CapabilityNames.tracker_move_issue()
+  @tracker_attach_change_proposal_capability TrackerCapabilities.attach_external_reference()
+  @tracker_move_issue_capability TrackerCapabilities.move_issue()
 
   @tracker_tool_result_ignored_event :change_proposal_tracker_tool_result_ignored
   @candidate_enqueue_dropped_event :change_proposal_candidate_enqueue_dropped

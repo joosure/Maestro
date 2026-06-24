@@ -1,14 +1,9 @@
 defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
   @moduledoc false
 
-  alias SymphonyElixir.ChangeProposalReconciliation.KnownTarget
-  alias SymphonyElixir.Config
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Orchestrator.Dispatch.{Context, Eligibility}
-  alias SymphonyElixir.RepoProvider.ChangeProposalInspector
-  alias SymphonyElixir.Tracker
-  alias SymphonyElixir.Tracker.ChangeProposalReference
-  alias SymphonyElixir.Workflow.ChangeProposalReconciliation.Facts, as: ChangeProposalFacts
+  alias SymphonyElixir.Workflow.Extension.Contributions
   alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.Readiness
   alias SymphonyElixir.Workflow.Readiness.Contract, as: ReadinessContract
@@ -266,119 +261,57 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
       is_function(Keyword.get(opts, :readiness_evidence_fn)) ->
         opts
         |> Keyword.fetch!(:readiness_evidence_fn)
-        |> call_readiness_evidence_fn(issue, context, facts)
+        |> call_readiness_evidence_fn(issue, context, facts, opts)
         |> normalize_readiness_evidence_result()
 
       true ->
-        default_readiness_evidence(issue, opts)
+        extension_readiness_evidence(issue, context, facts, opts)
     end
   end
 
-  defp call_readiness_evidence_fn(fun, issue, context, facts) when is_function(fun, 3),
+  defp call_readiness_evidence_fn(fun, issue, context, facts, opts) when is_function(fun, 4),
+    do: fun.(issue, context, facts, opts)
+
+  defp call_readiness_evidence_fn(fun, issue, context, facts, _opts) when is_function(fun, 3),
     do: fun.(issue, context, facts)
 
-  defp call_readiness_evidence_fn(fun, issue, context, _facts) when is_function(fun, 2),
+  defp call_readiness_evidence_fn(fun, issue, context, _facts, _opts) when is_function(fun, 2),
     do: fun.(issue, context)
 
-  defp call_readiness_evidence_fn(fun, issue, _context, _facts) when is_function(fun, 1),
+  defp call_readiness_evidence_fn(fun, issue, _context, _facts, _opts) when is_function(fun, 1),
     do: fun.(issue)
 
-  defp call_readiness_evidence_fn(_fun, _issue, _context, _facts), do: %{}
+  defp call_readiness_evidence_fn(_fun, _issue, _context, _facts, _opts), do: %{}
 
   defp normalize_readiness_evidence_result({:ok, evidence}) when is_map(evidence), do: evidence
   defp normalize_readiness_evidence_result(evidence) when is_map(evidence), do: evidence
   defp normalize_readiness_evidence_result(_result), do: %{}
 
-  defp default_readiness_evidence(%Issue{} = issue, opts) do
-    with {:ok, settings} <- current_settings(),
-         repo when is_map(repo) <- Map.get(settings, :repo),
-         {:ok, %ChangeProposalReference{} = reference} <- change_proposal_reference(issue, repo, opts),
-         target when map_size(target) > 0 <- change_proposal_target(reference),
-         %ChangeProposalFacts{} = facts <-
-           ChangeProposalInspector.facts(repo, target, Keyword.get(opts, :change_proposal_inspector_opts, [])),
-         true <- land_ready_facts?(facts) do
-      change_proposal_facts_to_evidence(facts, issue)
+  defp extension_readiness_evidence(issue, context, facts, opts) do
+    :readiness_evidence_providers
+    |> Contributions.list!()
+    |> Enum.reduce(%{}, fn provider, evidence ->
+      Map.merge(evidence, provider_readiness_evidence(provider, issue, context, facts, opts))
+    end)
+  end
+
+  defp provider_readiness_evidence(provider, issue, context, facts, opts)
+       when is_atom(provider) do
+    if Code.ensure_loaded?(provider) and function_exported?(provider, :evidence, 4) do
+      provider
+      |> provider_evidence(issue, context, facts, opts)
+      |> normalize_readiness_evidence_result()
     else
-      _reason -> %{}
+      %{}
     end
-  end
-
-  defp current_settings do
-    {:ok, Config.settings!()}
   rescue
-    _reason -> :error
+    _error -> %{}
+  catch
+    _kind, _reason -> %{}
   end
 
-  defp change_proposal_reference(%Issue{} = issue, repo, opts) when is_map(repo) do
-    case Tracker.change_proposal_reference(issue) do
-      %ChangeProposalReference{} = reference ->
-        {:ok, reference}
-
-      nil ->
-        {:ok, known_target_reference(issue, opts)}
-    end
-  end
-
-  defp known_target_reference(%Issue{id: issue_id}, opts) when is_binary(issue_id) do
-    registry_opts = Keyword.get(opts, :known_target_registry_opts, [])
-
-    case KnownTarget.Registry.get(issue_id, registry_opts) do
-      %KnownTarget{} = target -> KnownTarget.reference(target)
-      _target -> nil
-    end
-  end
-
-  defp known_target_reference(_issue, _opts), do: nil
-
-  defp change_proposal_target(%ChangeProposalReference{} = reference) do
-    %{}
-    |> put_present(:number, reference.number)
-    |> put_present(:url, reference.url)
-    |> put_present(:branch, reference.branch)
-  end
-
-  defp change_proposal_facts_to_evidence(%ChangeProposalFacts{} = facts, %Issue{} = issue) do
-    %{
-      change_proposal: %{
-        url: facts.url,
-        number: facts.number,
-        target: facts.number || facts.url || facts.branch,
-        branch: facts.branch,
-        provider_state: atom_name(facts.provider_state),
-        linked_issue: true,
-        tracker_linked: true
-      },
-      repo: %{
-        repository: facts.repository,
-        branch: facts.branch,
-        head_sha: facts.head_sha,
-        diff_present: present?(facts.head_sha)
-      },
-      checks: %{
-        read: facts.check_summary != :unknown,
-        status: atom_name(facts.check_summary),
-        check_summary: atom_name(facts.check_summary),
-        passing: facts.check_summary == :passing
-      },
-      review: %{
-        approved: facts.review_summary == :approved,
-        status: atom_name(facts.review_summary),
-        review_summary: atom_name(facts.review_summary)
-      },
-      tracker: %{
-        state: issue.state,
-        change_proposal_attached: true,
-        merge_approved: land_ready_facts?(facts)
-      }
-    }
-  end
-
-  defp land_ready_facts?(%ChangeProposalFacts{} = facts) do
-    facts.provider_state == :open and
-      facts.review_summary == :approved and
-      facts.check_summary == :passing and
-      facts.mergeability_summary == :mergeable and
-      facts.unresolved_actionable_feedback? == false
+  defp provider_evidence(provider, issue, context, facts, opts) do
+    provider.evidence(issue, context, facts, opts)
   end
 
   defp put_completion_evidence(%Issue{} = issue, evidence) when is_map(evidence) do
@@ -518,17 +451,6 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
        ),
        do: :ok
 
-  defp put_present(map, _key, nil), do: map
-
-  defp put_present(map, key, value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> map
-      _value -> Map.put(map, key, value)
-    end
-  end
-
-  defp put_present(map, key, value) when is_integer(value), do: Map.put(map, key, value)
-
   defp normalize_map(value) when is_map(value), do: value
   defp normalize_map(_value), do: %{}
 
@@ -537,9 +459,4 @@ defmodule SymphonyElixir.Orchestrator.Dispatch.RoutePreparation do
   end
 
   defp map_field(_map, _key), do: nil
-
-  defp atom_name(value) when is_atom(value), do: Atom.to_string(value)
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_value), do: false
 end

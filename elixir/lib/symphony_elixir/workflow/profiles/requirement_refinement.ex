@@ -5,7 +5,9 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementRefinement do
 
   @behaviour SymphonyElixir.Workflow.Profile
 
-  alias SymphonyElixir.Workflow.CapabilityNames, as: Capabilities
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
+  alias SymphonyElixir.Repo.Capabilities, as: RepoCapabilities
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
   alias SymphonyElixir.Workflow.Profile.Options, as: ProfileOptions
 
@@ -52,19 +54,19 @@ defmodule SymphonyElixir.Workflow.Profiles.RequirementRefinement do
   }
 
   @required_capabilities [
-    Capabilities.tracker_issue_read(),
-    Capabilities.tracker_issue_update(),
-    Capabilities.tracker_comment_read(),
-    Capabilities.tracker_comment_write(),
-    Capabilities.tracker_state_update(),
-    Capabilities.agent_turn_run()
+    TrackerCapabilities.issue_read(),
+    TrackerCapabilities.issue_update(),
+    TrackerCapabilities.comment_read(),
+    TrackerCapabilities.comment_write(),
+    TrackerCapabilities.state_update(),
+    AgentCapabilities.turn_run()
   ]
 
   @optional_capabilities [
-    Capabilities.tracker_comment_update(),
-    Capabilities.tracker_relation_read(),
-    Capabilities.tracker_relation_write(),
-    Capabilities.repo_diff()
+    TrackerCapabilities.comment_update(),
+    TrackerCapabilities.relation_read(),
+    TrackerCapabilities.relation_write(),
+    RepoCapabilities.diff()
   ]
 
   @impl true

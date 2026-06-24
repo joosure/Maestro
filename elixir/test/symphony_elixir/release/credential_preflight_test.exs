@@ -7,8 +7,7 @@ defmodule SymphonyElixir.Release.CredentialPreflightTest do
   alias SymphonyElixir.Release.WorkflowSource
   alias SymphonyElixir.RepoProvider.Kinds, as: RepoProviderKinds
   alias SymphonyElixir.Tracker.Kinds, as: TrackerKinds
-  alias SymphonyElixir.Workflow.TemplateRegistry
-
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
   @auth_probe_opts [auth_probe: true, prompt: "Reply with exactly OK."]
 
   test "logs in and verifies CodeBuddy credentials from environment" do

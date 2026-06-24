@@ -20,9 +20,6 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Values do
   @clear_status "clear"
   @action_required_status "action_required"
 
-  @code_change_kind "code_change"
-  @no_code_change_kind "no_code_change"
-
   @typed_tool_observed_source "typed_tool_observed"
   @tracker_observed_source "tracker_observed"
   @repo_observed_source "repo_observed"
@@ -75,12 +72,6 @@ defmodule SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Values do
 
   @spec action_required_status() :: String.t()
   def action_required_status, do: @action_required_status
-
-  @spec code_change_kind() :: String.t()
-  def code_change_kind, do: @code_change_kind
-
-  @spec no_code_change_kind() :: String.t()
-  def no_code_change_kind, do: @no_code_change_kind
 
   @spec typed_tool_observed_source() :: String.t()
   def typed_tool_observed_source, do: @typed_tool_observed_source

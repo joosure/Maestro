@@ -9,8 +9,8 @@ defmodule SymphonyElixir.AgentProvider.Mock.Adapter do
 
   @behaviour SymphonyElixir.AgentProvider.Adapter
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.AgentProvider.{Config, EventSummary, Kinds, Session, TurnResult, TurnStatus}
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @provider_kind Kinds.mock()
   @supported_options ~w(message turn_status session_id thread_id turn_id complete_issue_state)
@@ -29,7 +29,7 @@ defmodule SymphonyElixir.AgentProvider.Mock.Adapter do
   end
 
   @impl true
-  def capabilities, do: [CapabilityNames.agent_turn_run()]
+  def capabilities, do: [AgentCapabilities.turn_run()]
 
   @impl true
   def validate_options(options) when is_map(options) do

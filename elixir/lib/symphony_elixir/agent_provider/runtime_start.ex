@@ -1,8 +1,9 @@
 defmodule SymphonyElixir.AgentProvider.RuntimeStart do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.Credential
-  alias SymphonyElixir.Agent.DynamicTool.WorkflowPlan
+  alias SymphonyElixir.Agent.DynamicTool.Context, as: DynamicToolContext
   alias SymphonyElixir.Agent.Quota
   alias SymphonyElixir.Agent.Runtime
   alias SymphonyElixir.AgentProvider.Capabilities
@@ -11,9 +12,9 @@ defmodule SymphonyElixir.AgentProvider.RuntimeStart do
   alias SymphonyElixir.AgentProvider.Error
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
   alias SymphonyElixir.Observability.Redaction
-  alias SymphonyElixir.Workflow.CapabilityNames
+  alias SymphonyElixir.Workflow.DynamicToolPlan
 
-  @remote_worker_capability CapabilityNames.agent_runtime_remote_worker()
+  @remote_worker_capability AgentCapabilities.runtime_remote_worker()
 
   @spec provider_start_opts(Config.t(), Path.t(), keyword()) :: {:ok, keyword()} | {:error, term()}
   def provider_start_opts(%Config{} = config, workspace, opts) when is_list(opts) do
@@ -69,7 +70,7 @@ defmodule SymphonyElixir.AgentProvider.RuntimeStart do
   end
 
   defp dynamic_tool_workflow_planner(opts) do
-    case Keyword.get(opts, :dynamic_tool_workflow_planner, &WorkflowPlan.from_opts/1) do
+    case Keyword.get(opts, :dynamic_tool_workflow_planner, &DynamicToolPlan.from_opts/1) do
       planner when is_function(planner, 1) -> {:ok, planner}
       planner -> {:error, {:invalid_dynamic_tool_workflow_planner, planner}}
     end
@@ -95,7 +96,7 @@ defmodule SymphonyElixir.AgentProvider.RuntimeStart do
 
   defp dynamic_tool_names(tool_context) when is_map(tool_context) do
     tool_context
-    |> Map.get(:tool_specs, Map.get(tool_context, "tool_specs", []))
+    |> SymphonyElixir.Agent.DynamicTool.Context.tool_specs()
     |> Enum.flat_map(fn
       %{"name" => name} when is_binary(name) -> [name]
       %{name: name} when is_binary(name) -> [name]
@@ -104,13 +105,7 @@ defmodule SymphonyElixir.AgentProvider.RuntimeStart do
     |> Enum.sort()
   end
 
-  defp dynamic_tool_exposure(%{tool_plan: %{exposure: exposure}}) when is_atom(exposure),
-    do: Atom.to_string(exposure)
-
-  defp dynamic_tool_exposure(%{tool_plan: %{exposure: exposure}}) when is_binary(exposure), do: exposure
-
-  defp dynamic_tool_exposure(%{"tool_plan" => %{"exposure" => exposure}}) when is_binary(exposure), do: exposure
-  defp dynamic_tool_exposure(_tool_context), do: nil
+  defp dynamic_tool_exposure(tool_context), do: DynamicToolContext.tool_plan_exposure(tool_context)
 
   defp issue_field(opts, field) when is_list(opts) do
     case Keyword.get(opts, :issue) do

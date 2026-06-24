@@ -5,6 +5,7 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Adapter do
 
   @behaviour SymphonyElixir.AgentProvider.Adapter
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.Credential.{Lease, Material}
   alias SymphonyElixir.Agent.Quota.Snapshot
 
@@ -20,7 +21,6 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Adapter do
   }
 
   alias SymphonyElixir.AgentProvider.{Config, Kinds, Session, TurnResult}
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @provider_kind Kinds.claude_code()
   @oauth_token_credential_kind CredentialEnv.oauth_token_credential_kind()
@@ -35,13 +35,13 @@ defmodule SymphonyElixir.AgentProvider.ClaudeCode.Adapter do
   @impl true
   def capabilities do
     [
-      CapabilityNames.agent_turn_run(),
-      CapabilityNames.agent_session_stateful(),
-      CapabilityNames.agent_events_streaming(),
-      CapabilityNames.agent_usage_metrics(),
-      CapabilityNames.agent_runtime_remote_worker(),
-      CapabilityNames.agent_credentials_managed(),
-      CapabilityNames.agent_quota_probe()
+      AgentCapabilities.turn_run(),
+      AgentCapabilities.session_stateful(),
+      AgentCapabilities.events_streaming(),
+      AgentCapabilities.usage_metrics(),
+      AgentCapabilities.runtime_remote_worker(),
+      AgentCapabilities.credentials_managed(),
+      AgentCapabilities.quota_probe()
     ]
   end
 

@@ -75,7 +75,7 @@ defmodule SymphonyElixir.TrackerConfigTest do
     assert "tapd_issue_snapshot" in tool_names
     assert "tapd_move_issue" in tool_names
     assert "tapd_upsert_workpad" in tool_names
-    assert "tapd_attach_change_proposal" in tool_names
+    assert "tapd_attach_external_reference" in tool_names
     assert "tapd_upsert_comment" in tool_names
     assert "tapd_create_follow_up_story" in tool_names
     assert "tapd_read_story_relations" in tool_names
@@ -101,6 +101,13 @@ defmodule SymphonyElixir.TrackerConfigTest do
           "Todo" => "todo",
           "In Progress" => "in_progress",
           "Done" => "done"
+        },
+        "raw_state_by_route_key" => %{"review" => "In Review"},
+        "policy_by_route_key" => %{"review" => %{"action" => "wait"}},
+        "workflows_by_type" => %{
+          "bug" => %{
+            "raw_state_by_route_key" => %{"review" => "Bug Review"}
+          }
         }
       },
       tracker_api_token: nil,
@@ -120,5 +127,13 @@ defmodule SymphonyElixir.TrackerConfigTest do
     assert TrackerConfig.terminal_states(tracker) == ["Done"]
     assert TrackerConfig.current!() |> TrackerConfig.state_phase_map() |> Map.get("done") == "done"
     assert TrackerConfig.state_phase_map(tracker)["in progress"] == "in_progress"
+    assert TrackerConfig.raw_state_by_route_key(tracker) == %{"review" => "In Review"}
+    assert TrackerConfig.policy_by_route_key(tracker) == %{"review" => %{"action" => "wait"}}
+    assert TrackerConfig.workflows_by_type(tracker) |> Map.has_key?("bug")
+
+    assert tracker
+           |> TrackerConfig.workflows_by_type()
+           |> Map.fetch!("bug")
+           |> TrackerConfig.workflow_raw_state_by_route_key() == %{"review" => "Bug Review"}
   end
 end

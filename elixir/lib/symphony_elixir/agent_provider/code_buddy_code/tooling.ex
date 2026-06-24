@@ -2,6 +2,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Tooling do
   @moduledoc false
 
   alias SymphonyElixir.Agent.DynamicTool.Context, as: DynamicToolContext
+  alias SymphonyElixir.Agent.DynamicTool.Inventory.RenderOptions
   alias SymphonyElixir.AgentProvider.CodeBuddyCode.Settings
 
   alias SymphonyElixir.AgentProvider.CodeBuddyCode.Tooling.{
@@ -34,10 +35,10 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Tooling do
   @spec dynamic_tool_inventory_opts() :: keyword()
   def dynamic_tool_inventory_opts do
     [
-      provider_callable_name: &mcp_tool_name/1,
-      provider_callable_label: "CodeBuddy MCP tool",
-      provider_callable_note:
-        "CodeBuddy Code exposes Symphony Dynamic Tools through a session-scoped MCP server. The inventory lists the exact MCP-qualified callable name for each capability and the internal Symphony runtime tool separately."
+      {RenderOptions.provider_callable_name_key(), &mcp_tool_name/1},
+      {RenderOptions.provider_callable_label_key(), "CodeBuddy MCP tool"},
+      {RenderOptions.provider_callable_note_key(),
+       "CodeBuddy Code exposes Symphony Dynamic Tools through a session-scoped MCP server. The inventory lists the exact MCP-qualified callable name for each capability and the internal Symphony runtime tool separately."}
     ]
   end
 

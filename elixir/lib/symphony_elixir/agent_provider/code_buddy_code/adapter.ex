@@ -5,6 +5,7 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter do
 
   @behaviour SymphonyElixir.AgentProvider.Adapter
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.Credential.Accounts.{Command, Options, Secret}
   alias SymphonyElixir.Agent.Credential.{Lease, Material}
   alias SymphonyElixir.Agent.Credential.Store
@@ -20,7 +21,6 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter do
   }
 
   alias SymphonyElixir.AgentProvider.{Config, Kinds, Session, TurnResult}
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @provider_kind Kinds.codebuddy_code()
   @env_token_credential_kind CredentialEnv.env_token_credential_kind()
@@ -35,11 +35,11 @@ defmodule SymphonyElixir.AgentProvider.CodeBuddyCode.Adapter do
   @impl true
   def capabilities do
     [
-      CapabilityNames.agent_turn_run(),
-      CapabilityNames.agent_session_stateful(),
-      CapabilityNames.agent_events_streaming(),
-      CapabilityNames.agent_tools_dynamic(),
-      CapabilityNames.agent_credentials_managed()
+      AgentCapabilities.turn_run(),
+      AgentCapabilities.session_stateful(),
+      AgentCapabilities.events_streaming(),
+      AgentCapabilities.tools_dynamic(),
+      AgentCapabilities.credentials_managed()
     ]
   end
 

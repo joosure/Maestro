@@ -151,7 +151,7 @@ Linear typed capability semantics and argument shape. Use inventory-listed
 typed tracker tools and treat missing typed capabilities as blockers.
 For repo-core or repo-provider operations covered by the inventory, use the
 typed tool. Use repo-core or repo-provider helpers only for unsupported
-operations, diagnostics, or documented fallback.
+operations or explicitly documented helper/diagnostics paths.
 For repo-core typed tools, use canonical typed-tool argument values from the
 inventory. In particular, `repo.commit` mode is `all` or `staged`, and
 `repo.checkout` mode is `create_or_switch`, `create`, or `switch`; do not send
@@ -167,7 +167,7 @@ to any non-inventory Linear or repo access path for that routine action.
 ## Linear Access Boundary
 
 Only use inventory-listed typed Linear tools for issue reads and writes, state
-transitions, workpad/comment updates, change proposal links, file upload
+transitions, workpad/comment updates, external reference links, file upload
 preparation, and provider health checks. If a required Linear capability is
 missing, stop as blocked. Record the missing typed capability in the workpad
 when `tracker.upsert_workpad` is available; if the workpad capability itself is
@@ -182,8 +182,8 @@ access path; do not use any non-inventory Linear access path.
 - `SYMPHONY_WORKSPACE_AUTOMATION_DIR` points at the workspace-root automation directory for the active agent provider.
 - Run build, test, and code-edit commands from `repo/`. For repo-core actions covered by the inventory, use the exact typed tool; use normal git only for low-level inspection that repo-core does not expose.
 - Leave any `repo/.codex` or `repo/.agents` content in place; do not merge it into the workspace root during normal ticket execution.
-- When workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo` exists, treat it as the repo-core helper fallback for provider-neutral repo facts and supported Git side effects that are not covered by the typed tool inventory, or when documented fallback is explicitly required. It delegates to `symphony repo` and does not perform PR, review, check, or provider merge operations.
-- When workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo-provider` exists, use it only for provider-backed PR view/create/edit/check/merge/close operations that are not covered by the typed tool inventory or when documented fallback is explicitly required.
+- When workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo` exists, treat it as the repo-core helper path for provider-neutral repo facts and supported Git side effects that are not covered by the typed tool inventory, or when an explicit helper path is documented and required. It delegates to `symphony repo` and does not perform PR, review, check, or provider merge operations.
+- When workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo-provider` exists, use it only for provider-backed PR view/create/edit/check/merge/close operations that are not covered by the typed tool inventory or when an explicit helper path is documented and required.
 
 ## Default posture
 
@@ -236,11 +236,11 @@ Workspace-root automation skills can help. They stay separate from any `repo/.co
      - If PR is already attached, start by reviewing all open PR comments and deciding required changes vs explicit pushback responses.
    - `In Progress` -> continue execution flow from the current workpad comment.
    - `In Review` -> wait and poll for decision/review updates.
-   - `Merging` -> on entry, open workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists and follow it. Otherwise, use the inventory `repo.merge_change_proposal` typed tool when it is listed; use the repository's normal repo-core/repo-provider fallback flow only when documented fallback is explicitly required.
+   - `Merging` -> on entry, open workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists and follow it. Otherwise, use the inventory `repo.merge_change_proposal` typed tool when it is listed; use the repository's normal repo-core/repo-provider helper flow only when an explicit helper path is documented and required.
    - `Rework` -> run rework flow.
    - `Done` -> do nothing and shut down.
 4. Check whether a PR already exists for the current branch and whether it is closed.
-   - Use the inventory `repo.change_proposal_snapshot` typed tool with the current workflow branch when it is listed; use documented fallback only if snapshot capability is unavailable and fallback is explicitly allowed.
+   - Use the inventory `repo.change_proposal_snapshot` typed tool with the current workflow branch when it is listed; use explicitly documented helper path only if snapshot capability is unavailable and an explicit helper path is allowed.
    - If a branch PR exists and is `CLOSED` or `MERGED`, treat prior branch work as non-reusable for this run.
    - Prefer `"${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo" create-working-branch "<unique-issue-attempt-id>" --base "origin/{{ repo.base_branch }}"` and restart execution flow as a new attempt.
 5. For `Todo` tickets, do startup sequencing in this exact order:
@@ -292,7 +292,7 @@ When a ticket has an attached PR, run this protocol before moving to `In Review`
      `nextResponseActions` as the canonical response queue, use
      `actionableItems` for full item context, and use `reviewThreads` for inline
      thread context. Check `feedbackActionPolicy` before submitting review
-     decisions or replies; unsupported actions are not fallback invitations.
+     decisions or replies; unsupported actions are not helper-bypass invitations.
      When an actionable item includes `responseAction`, call its `tool`, keep
      its `prefilledArguments`, and supply only its `requiredArguments` instead
      of guessing provider-specific reply parameters.
@@ -352,7 +352,7 @@ Use this only when completion is blocked by missing required tools or missing au
 {% if repo.provider.kind == "github" %}{% if repo.provider.options.required_pr_label %}    - Ensure the PR has label `{{ repo.provider.options.required_pr_label }}`.
     - Apply the label through the inventory `repo.create_or_update_change_proposal` typed tool by passing `labels: ["{{ repo.provider.options.required_pr_label }}"]` during create or update. Do not call `repo-provider`, `gh`, or direct GitHub APIs for label handling when the typed tool is listed.
 {% endif %}{% endif %}
-9.  Attach PR URL to the issue through the inventory `tracker.attach_change_proposal` typed tool. If it is missing, stop as blocked and record the missing typed tracker capability. Prefer tracker attachment/link fields and use the workpad comment only when the typed attach flow reports that attachment/link storage is unavailable.
+9.  Attach PR URL to the issue through the inventory `tracker.attach_external_reference` typed tool with `reference_kind: "change_proposal"`. If it is missing, stop as blocked and record the missing typed tracker capability. Prefer tracker attachment/link fields and use the workpad comment only when the typed attach flow reports that attachment/link storage is unavailable.
 10. Update the workpad comment with final checklist status and validation notes.
     - Mark completed plan/acceptance/validation checklist items as checked.
     - Add final handoff notes (commit + validation summary) in the same workpad comment.
@@ -380,14 +380,14 @@ Use this only when completion is blocked by missing required tools or missing au
 2. Poll for updates as needed, including active-provider PR review comments from humans and bots.
 3. If review feedback requires changes, move the issue to `Rework` and follow the rework flow.
 4. If approved, human moves the issue to `Merging`.
-5. When the issue is in `Merging`, open workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists and follow its loop. Otherwise, use the inventory `repo.merge_change_proposal` typed tool when it is listed; use the repository's normal repo-core/repo-provider fallback flow only when documented fallback is explicitly required.
+5. When the issue is in `Merging`, open workspace-root `${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/skills/repo/land/SKILL.md` if it exists and follow its loop. Otherwise, use the inventory `repo.merge_change_proposal` typed tool when it is listed; use the repository's normal repo-core/repo-provider helper flow only when an explicit helper path is documented and required.
 6. After merge is complete, move the issue to `Done`.
 
 ## Step 4: Rework handling
 
 1. Treat `Rework` as a full approach reset, not incremental patching.
 2. Re-read the full issue body and all human comments; explicitly identify what will be done differently this attempt.
-3. Close the existing PR tied to the issue using the inventory `repo.close_change_proposal` typed tool when it is listed; use repo-provider fallback only when documented fallback is explicitly required.
+3. Close the existing PR tied to the issue using the inventory `repo.close_change_proposal` typed tool when it is listed; use repo-provider helper path only when an explicit helper path is documented and required.
 4. Reset the existing `## Codex Workpad` comment through the inventory `tracker.upsert_workpad` typed tool; do not delete the comment or create a parallel workpad.
 5. Prefer `"${SYMPHONY_WORKSPACE_AUTOMATION_DIR}/bin/repo" create-working-branch "<unique-issue-attempt-id>" --base "origin/{{ repo.base_branch }}"`.
 6. Start over from the normal kickoff flow:

@@ -143,5 +143,5 @@ defmodule SymphonyWorkerDaemon.ProviderAppServerTest do
 
   defp unique_name(prefix), do: Map.fetch!(@process_names, prefix)
 
-  defp empty_tool_context, do: %{tool_specs: [], tool_metadata: %{}, tool_environment: %{}}
+  defp empty_tool_context, do: %{"tool_specs" => [], "tool_metadata" => %{}, "tool_environment" => %{}}
 end

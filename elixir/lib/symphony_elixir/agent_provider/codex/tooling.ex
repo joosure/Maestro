@@ -8,6 +8,8 @@ defmodule SymphonyElixir.AgentProvider.Codex.Tooling do
     ToolSpecs
   }
 
+  alias SymphonyElixir.Agent.DynamicTool.Inventory.RenderOptions
+
   @spec server_relative_path() :: String.t()
   def server_relative_path, do: McpConfig.server_relative_path()
 
@@ -26,10 +28,10 @@ defmodule SymphonyElixir.AgentProvider.Codex.Tooling do
   @spec dynamic_tool_inventory_opts() :: keyword()
   def dynamic_tool_inventory_opts do
     [
-      provider_callable_name: &mcp_tool_name/1,
-      provider_callable_label: "Codex MCP tool",
-      provider_callable_note:
-        "Codex exposes Symphony Dynamic Tools through the runtime MCP bridge. The inventory lists the exact MCP-qualified callable name for each capability and the internal Symphony runtime tool separately."
+      {RenderOptions.provider_callable_name_key(), &mcp_tool_name/1},
+      {RenderOptions.provider_callable_label_key(), "Codex MCP tool"},
+      {RenderOptions.provider_callable_note_key(),
+       "Codex exposes Symphony Dynamic Tools through the runtime MCP bridge. The inventory lists the exact MCP-qualified callable name for each capability and the internal Symphony runtime tool separately."}
     ]
   end
 

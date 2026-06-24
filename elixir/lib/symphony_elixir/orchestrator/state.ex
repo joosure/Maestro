@@ -22,7 +22,7 @@ defmodule SymphonyElixir.Orchestrator.State do
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
-    change_proposal_reconciliation: %{},
+    workflow_extensions: %{},
     retry_attempts: %{},
     agent_totals: nil,
     agent_rate_limits: nil
@@ -38,7 +38,7 @@ defmodule SymphonyElixir.Orchestrator.State do
           running: map(),
           completed: map(),
           claimed: map(),
-          change_proposal_reconciliation: map(),
+          workflow_extensions: map(),
           retry_attempts: map(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil

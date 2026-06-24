@@ -18,7 +18,9 @@ defmodule SymphonyElixir.RepoDynamicToolTest do
 
   test "repo-core typed tools advertise production metadata and resolve inventory capabilities" do
     context = repo_tool_context(repo_config(System.tmp_dir!()))
-    names = Enum.map(context.tool_specs, &Map.fetch!(&1, "name"))
+    tool_specs = DynamicTool.Context.tool_specs(context)
+    tool_metadata = DynamicTool.Context.tool_metadata(context)
+    names = Enum.map(tool_specs, &Map.fetch!(&1, "name"))
 
     assert Enum.sort(names) ==
              Enum.sort([
@@ -28,12 +30,12 @@ defmodule SymphonyElixir.RepoDynamicToolTest do
                "repo_push"
              ])
 
-    assert context.tool_metadata["repo_checkout"]["workflowCapability"] == "repo.checkout"
-    assert context.tool_metadata["repo_checkout"]["sourceKind"] == "repo"
-    assert context.tool_metadata["repo_checkout"]["sideEffect"] == "write"
-    assert context.tool_metadata["repo_diff"]["sideEffect"] == "read_only"
+    assert tool_metadata["repo_checkout"]["capability"] == "repo.checkout"
+    assert tool_metadata["repo_checkout"]["sourceKind"] == "repo"
+    assert tool_metadata["repo_checkout"]["sideEffect"] == "write"
+    assert tool_metadata["repo_diff"]["sideEffect"] == "read_only"
 
-    assert context.tool_specs
+    assert tool_specs
            |> Enum.find(&(&1["name"] == "repo_commit"))
            |> get_in(["inputSchema", "properties", "mode", "enum"]) == ["all", "staged", nil]
 

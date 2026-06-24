@@ -33,8 +33,9 @@ inventory for the matching semantic capability:
   If no `workpad_id` exists yet, omit it and let the typed tool create and
   register the canonical workpad. The tool owns the provider comment mapping and
   canonical Markdown rendering.
-- `tracker.attach_change_proposal`: attach a PR, MR, or other change proposal
-  URL to the issue.
+- `tracker.attach_external_reference`: attach a caller-owned external reference
+  URL to the issue. Pass the `reference_kind` supplied by the active workflow
+  template.
 - `tracker.upsert_comment`: create a general issue comment or update a specific
   existing comment by `comment_id`.
 - `tracker.prepare_file_upload`: prepare a signed Linear file upload and return
@@ -130,13 +131,19 @@ After `tracker.prepare_file_upload` returns `uploadUrl`, upload the file bytes
 to that signed URL with the exact returned headers. Then call
 `tracker.upsert_comment` with the returned `assetUrl` in `asset_urls`.
 
-Attach a change proposal:
+Attach an external reference:
 
 ```json
 {
   "issue_id": "{{ issue.id }}",
-  "url": "https://provider.example/org/repo/change-proposals/123",
-  "title": "DEMO-123 implementation"
+  "url": "https://provider.example/org/repo/references/123",
+  "title": "DEMO-123 implementation",
+  "reference_kind": "<workflow-supplied-kind>",
+  "provider_kind": "github",
+  "external_id": "123",
+  "metadata": {
+    "repository": "org/repo"
+  }
 }
 ```
 
@@ -156,7 +163,7 @@ Attach a change proposal:
 ## Linear Access Boundary
 
 Only use inventory-listed typed Linear tools for issue reads and writes, state
-transitions, workpad/comment updates, change proposal links, file upload
+transitions, workpad/comment updates, external reference links, file upload
 preparation, and provider health checks.
 
 Use `tracker.provider_diagnostics` for fixed provider health checks when the

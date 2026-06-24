@@ -6,7 +6,13 @@ defmodule SymphonyElixir.AgentProvider.OpenCode.Tooling.ToolSpecs do
   @spec from_opts(keyword()) :: [map()]
   def from_opts(opts) when is_list(opts) do
     case Keyword.get(opts, :tool_context) do
-      %{tool_specs: tool_specs} when is_list(tool_specs) ->
+      %Context{} ->
+        opts
+        |> Context.from_opts()
+        |> Context.tool_specs()
+        |> Enum.filter(&valid?/1)
+
+      %{"tool_specs" => tool_specs} when is_list(tool_specs) ->
         opts
         |> Context.from_opts()
         |> Context.tool_specs()

@@ -1,8 +1,9 @@
 defmodule SymphonyElixir.WorkflowValidatorTest do
   use ExUnit.Case, async: true
 
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Profile, as: CodingPrDelivery
   alias SymphonyElixir.Workflow.ProfileRegistry
-  alias SymphonyElixir.Workflow.Profiles.{CodingPrDelivery, RequirementAnalysis}
+  alias SymphonyElixir.Workflow.Profiles.RequirementAnalysis
   alias SymphonyElixir.Workflow.RoutePolicy
   alias SymphonyElixir.Workflow.RouteRef
   alias SymphonyElixir.Workflow.Validator

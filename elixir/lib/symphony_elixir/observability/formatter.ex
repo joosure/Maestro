@@ -9,9 +9,8 @@ defmodule SymphonyElixir.Observability.Formatter do
 
   @behaviour :logger_formatter
 
-  alias SymphonyElixir.Observability.{Event, Fields, Redaction}
+  alias SymphonyElixir.Observability.{Event, EventContract, Fields, Redaction}
 
-  @service "symphony_elixir"
   @default_time_offset ~c"Z"
   @message_formatter %{template: [:msg], single_line: true}
   @time_formatter %{template: [:time], single_line: true, time_offset: @default_time_offset}
@@ -22,7 +21,7 @@ defmodule SymphonyElixir.Observability.Formatter do
   @spec format(map(), map()) :: iodata()
   def format(%{meta: meta} = log_event, _config) when is_map(meta) do
     payload =
-      case Map.get(meta, :observability_event) do
+      case Map.get(meta, EventContract.observability_event_metadata_key()) do
         %{} = event_payload -> Redaction.redact(event_payload)
         _ -> generic_payload(log_event)
       end
@@ -31,13 +30,13 @@ defmodule SymphonyElixir.Observability.Formatter do
   rescue
     error ->
       error_payload = %{
-        "timestamp" => DateTime.utc_now(:millisecond) |> DateTime.to_iso8601(),
-        "level" => "warning",
-        "event" => "formatter_failed",
-        "message" => "observability_formatter_failed",
-        "service" => @service,
-        "component" => "observability.formatter",
-        "error" => Exception.message(error)
+        EventContract.timestamp_key() => DateTime.utc_now(:millisecond) |> DateTime.to_iso8601(),
+        EventContract.level_key() => "warning",
+        EventContract.event_key() => EventContract.formatter_failed_event(),
+        EventContract.message_key() => EventContract.formatter_failed_message(),
+        EventContract.service_key() => EventContract.service_name(),
+        EventContract.component_key() => EventContract.formatter_component(),
+        EventContract.error_key() => Exception.message(error)
       }
 
       [Jason.encode_to_iodata!(error_payload), ?\n]
@@ -46,26 +45,26 @@ defmodule SymphonyElixir.Observability.Formatter do
   defp generic_payload(%{level: level, meta: meta} = log_event) when is_map(meta) do
     event_name =
       meta
-      |> Map.get(:event, "log_message")
+      |> Map.get(:event, EventContract.log_message_event())
       |> normalize_text()
 
     component =
       meta
-      |> Map.get(:component, "logger")
+      |> Map.get(:component, EventContract.logger_component())
       |> normalize_text()
 
     fields =
       meta
       |> select_generic_metadata()
       |> Map.merge(%{
-        "component" => component,
-        "message" => format_message(log_event)
+        EventContract.component_key() => component,
+        EventContract.message_key() => format_message(log_event)
       })
       |> Redaction.redact()
 
     level
     |> Event.build(event_name, fields)
-    |> Map.put("timestamp", format_timestamp(log_event))
+    |> Map.put(EventContract.timestamp_key(), format_timestamp(log_event))
   end
 
   defp select_generic_metadata(meta) when is_map(meta) do

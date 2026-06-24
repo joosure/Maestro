@@ -15,6 +15,7 @@ defmodule SymphonyElixir.Agent.Runtime.DynamicToolBridge.Environment do
   end
 
   @spec context_env(map()) :: map()
-  def context_env(%{tool_environment: tool_environment}) when is_map(tool_environment), do: tool_environment
+  def context_env(%Context{tool_environment: tool_environment}) when is_map(tool_environment), do: tool_environment
+  def context_env(%{"tool_environment" => tool_environment}) when is_map(tool_environment), do: tool_environment
   def context_env(_context), do: %{}
 end

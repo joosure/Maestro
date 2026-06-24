@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.AgentProvider.Smoke do
   use Mix.Task
 
-  alias SymphonyElixir.Agent.DynamicTool.BridgeRegistry
+  alias SymphonyElixir.Agent.DynamicTool.Bridge.Registry
   alias SymphonyElixir.CLI.AgentProviderSmoke, as: AgentProviderSmokeCLI
 
   @shortdoc "Run agent-provider smoke probes"
@@ -54,7 +54,7 @@ defmodule Mix.Tasks.AgentProvider.Smoke do
          {:ok, _yaml_apps} <- Application.ensure_all_started(:yaml_elixir),
          {:ok, _ecto_apps} <- Application.ensure_all_started(:ecto),
          :ok <- ensure_task_supervisor(),
-         :ok <- ensure_bridge_registry() do
+         :ok <- ensure_bridge_context_registry() do
       :ok
     else
       {:error, reason} -> Mix.raise("Failed to start agent-provider smoke runtime dependencies: #{inspect(reason)}")
@@ -75,13 +75,13 @@ defmodule Mix.Tasks.AgentProvider.Smoke do
     end
   end
 
-  defp ensure_bridge_registry do
-    case Process.whereis(BridgeRegistry) do
+  defp ensure_bridge_context_registry do
+    case Process.whereis(Registry) do
       pid when is_pid(pid) ->
         :ok
 
       _pid ->
-        case BridgeRegistry.start_link() do
+        case Registry.start_link() do
           {:ok, _pid} -> :ok
           {:error, {:already_started, _pid}} -> :ok
           {:error, reason} -> {:error, reason}

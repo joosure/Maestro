@@ -2,6 +2,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
   @moduledoc false
 
   alias SymphonyElixir.Agent.{Continuation, Credential}
+  alias SymphonyElixir.Agent.DynamicTool.EventContract, as: DynamicToolEventContract
   alias SymphonyElixir.Agent.Runner.{EventFields, Prompts, RunContext, TurnEvents, WorkerUpdates}
   alias SymphonyElixir.AgentProvider
   alias SymphonyElixir.Issue
@@ -344,7 +345,7 @@ defmodule SymphonyElixir.Agent.Runner.TurnLoop do
     %{issue_id: issue_id, run_id: run_id}
     |> EventStore.recent_issue_events(limit: 100)
     |> Enum.find(fn event ->
-      event["event"] == "typed_tool_failure_policy_blocked" and
+      event["event"] == DynamicToolEventContract.typed_tool_failure_policy_blocked() and
         event["retryable"] == false and
         event["resource_kind"] == "tracker_issue" and
         event["resource_id"] == issue_id and

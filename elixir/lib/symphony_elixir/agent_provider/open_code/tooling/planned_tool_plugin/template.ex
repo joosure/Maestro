@@ -1,7 +1,7 @@
 defmodule SymphonyElixir.AgentProvider.OpenCode.Tooling.PlannedToolPlugin.Template do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.DynamicTool.BridgeContract
+  alias SymphonyElixir.Platform.DynamicToolBridgeContract, as: BridgeContract
 
   @spec render(%{tool_name: String.t(), description: String.t(), args_source: String.t()}) :: String.t()
   def render(%{tool_name: tool_name, description: description, args_source: args_source})

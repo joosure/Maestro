@@ -5,31 +5,31 @@ defmodule SymphonyElixir.Repo.ToolExecutor do
 
   @dialyzer {:nowarn_function, typed_error: 1}
 
-  alias SymphonyElixir.Agent.DynamicTool.{MetadataContract, Serializer}
+  alias SymphonyElixir.Agent.DynamicTool.{Metadata, Serializer}
   alias SymphonyElixir.Repo
+  alias SymphonyElixir.Repo.Capabilities, as: RepoCapabilities
   alias SymphonyElixir.Repo.Context
   alias SymphonyElixir.Repo.Error
   alias SymphonyElixir.Repo.Status
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @schema_version "1"
   @risk_flags ["external_process", "filesystem_write"]
   @read_risk_flags ["external_process", "filesystem_read"]
-  @metadata_schema_version_key MetadataContract.schema_version()
-  @metadata_side_effect_key MetadataContract.side_effect()
-  @metadata_risk_flags_key MetadataContract.risk_flags()
-  @metadata_workflow_capability_key MetadataContract.workflow_capability()
-  @metadata_source_kind_key MetadataContract.source_kind()
+  @metadata_schema_version_key Metadata.Contract.schema_version()
+  @metadata_side_effect_key Metadata.Contract.side_effect()
+  @metadata_risk_flags_key Metadata.Contract.risk_flags()
+  @metadata_capability_key Metadata.Contract.capability()
+  @metadata_source_kind_key Metadata.Contract.source_kind()
 
   @checkout_tool "repo_checkout"
   @diff_tool "repo_diff"
   @commit_tool "repo_commit"
   @push_tool "repo_push"
 
-  @checkout_capability CapabilityNames.repo_checkout()
-  @diff_capability CapabilityNames.repo_diff()
-  @commit_capability CapabilityNames.repo_commit()
-  @push_capability CapabilityNames.repo_push()
+  @checkout_capability RepoCapabilities.checkout()
+  @diff_capability RepoCapabilities.diff()
+  @commit_capability RepoCapabilities.commit()
+  @push_capability RepoCapabilities.push()
 
   @spec tool_specs(map()) :: [map()]
   def tool_specs(repo) when is_map(repo) do
@@ -163,7 +163,7 @@ defmodule SymphonyElixir.Repo.ToolExecutor do
       @metadata_schema_version_key => @schema_version,
       @metadata_side_effect_key => side_effect,
       @metadata_risk_flags_key => risk_flags,
-      @metadata_workflow_capability_key => capability,
+      @metadata_capability_key => capability,
       @metadata_source_kind_key => "repo",
       "repoPath" => Context.path(repo)
     }

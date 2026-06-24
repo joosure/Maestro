@@ -65,10 +65,15 @@ defmodule SymphonyElixir.Observability.Fields do
     workflow_gate_reason
     workflow_missing_capabilities
     tool_name
+    provider_tool_name
+    canonical_tool_name
     dynamic_tool_exposure
     dynamic_tool_count
     dynamic_tool_names
     dynamic_tool_rejection_reason
+    readiness_error_code
+    readiness_failed_check_count
+    readiness_target_state
     hook_name
     stream_label
     workflow_path
@@ -146,22 +151,27 @@ defmodule SymphonyElixir.Observability.Fields do
     workflow_gate_reason
     workflow_missing_capabilities
     tool_name
+    provider_tool_name
+    canonical_tool_name
     dynamic_tool_usage_kind
-    dynamic_tool_workflow_capability
+    dynamic_tool_capability
     dynamic_tool_side_effect
     dynamic_tool_source_kind
     dynamic_tool_schema_version
-    dynamic_tool_deprecated
     dynamic_tool_operator_only
     dynamic_tool_exposure
     dynamic_tool_count
     dynamic_tool_names
-    dynamic_tool_fallback_reason
-    dynamic_tool_fallback_ambiguous
     dynamic_tool_failure_reason
     dynamic_tool_rejection_reason
     dynamic_tool_provider_capability_unavailable_count
     dynamic_tool_provider_capability_unavailable
+    readiness_error_code
+    readiness_reason_codes
+    readiness_failed_check_keys
+    readiness_failed_check_count
+    readiness_remediation_actions
+    readiness_target_state
     hook_name
     stream_label
     skip_reason

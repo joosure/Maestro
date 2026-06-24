@@ -7,29 +7,28 @@ defmodule SymphonyElixir.AgentProvider.ToolInventory do
   through their native transport.
   """
 
+  alias SymphonyElixir.Agent.DynamicTool.Inventory.RenderOptions
   alias SymphonyElixir.AgentProvider.Registry
 
-  @spec render_opts(String.t() | nil) :: keyword()
+  @spec render_opts(String.t() | nil) :: RenderOptions.t()
   def render_opts(kind) when is_binary(kind) do
     case Registry.fetch(kind) do
       adapter when is_atom(adapter) and not is_nil(adapter) ->
         adapter_render_opts(adapter)
 
       _adapter ->
-        []
+        RenderOptions.normalize(nil)
     end
   end
 
-  def render_opts(_kind), do: []
+  def render_opts(_kind), do: RenderOptions.normalize(nil)
 
   defp adapter_render_opts(adapter) when is_atom(adapter) do
     if Code.ensure_loaded?(adapter) and function_exported?(adapter, :dynamic_tool_inventory_opts, 0) do
-      case adapter.dynamic_tool_inventory_opts() do
-        opts when is_list(opts) -> opts
-        _opts -> []
-      end
+      adapter.dynamic_tool_inventory_opts()
+      |> RenderOptions.normalize()
     else
-      []
+      RenderOptions.normalize(nil)
     end
   end
 end

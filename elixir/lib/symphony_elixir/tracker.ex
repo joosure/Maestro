@@ -26,7 +26,7 @@ defmodule SymphonyElixir.Tracker do
   """
 
   alias SymphonyElixir.Issue
-  alias SymphonyElixir.Tracker.{Adapter, ChangeProposalReference, Config, Error, ProjectRef, Registry}
+  alias SymphonyElixir.Tracker.{Adapter, Config, Error, ProjectRef, Registry}
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
 
   @type tracker_config :: Config.t()
@@ -202,9 +202,6 @@ defmodule SymphonyElixir.Tracker do
 
   @spec project_url(tracker_config()) :: String.t() | nil
   def project_url(tracker), do: project_ref(tracker) |> Map.get(:url)
-
-  @spec change_proposal_reference(Issue.t() | map()) :: ChangeProposalReference.t() | nil
-  def change_proposal_reference(issue), do: ChangeProposalReference.from_issue(issue)
 
   @spec normalize_issue_id(String.t()) :: String.t() | nil
   def normalize_issue_id(issue_id) when is_binary(issue_id) do

@@ -1,10 +1,11 @@
 defmodule SymphonyElixir.AgentProvider.WorkspacePreparation.ToolContext do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.DynamicTool.CompositeSource.Context, as: CompositeSourceContext
   alias SymphonyElixir.Agent.DynamicTool.Context
+  alias SymphonyElixir.Agent.DynamicTool.Context.ToolPlan
 
   @empty_exposure "prepare_empty"
-  @empty_source Module.concat(["SymphonyElixir", "Agent", "DynamicTool", "CompositeSource"])
 
   @spec put(keyword()) :: {:ok, keyword()} | {:error, term()}
   def put(opts) when is_list(opts) do
@@ -25,31 +26,29 @@ defmodule SymphonyElixir.AgentProvider.WorkspacePreparation.ToolContext do
   end
 
   defp empty_context(opts) when is_list(opts) do
-    %{
-      source: @empty_source,
-      source_context: %{
-        sources: [],
-        tool_specs: [],
-        routes: %{}
-      },
-      source_kind: "composite",
-      tool_specs: [],
-      tool_metadata: %{},
-      tool_environment: %{},
-      tool_plan: %{
-        exposure: @empty_exposure,
-        required_capabilities: [],
-        tool_names: [],
-        resolved_tools: [],
-        reason: "workspace_prepare_without_workflow_context"
-      }
+    %Context{
+      source_context: CompositeSourceContext.empty(),
+      tool_plan:
+        ToolPlan.new!(
+          exposure: @empty_exposure,
+          required_capabilities: [],
+          tool_names: [],
+          resolved_tools: [],
+          reason: "workspace_prepare_without_workflow_context"
+        )
     }
   end
 
   defp explicit_tool_context?(opts) do
     case Keyword.get(opts, :tool_context) do
-      %{tool_specs: tool_specs} when is_list(tool_specs) -> true
-      _context -> false
+      %Context{} ->
+        true
+
+      %{"tool_specs" => tool_specs} when is_list(tool_specs) ->
+        true
+
+      _context ->
+        false
     end
   end
 end

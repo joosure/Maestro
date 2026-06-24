@@ -1,39 +1,38 @@
 defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   @moduledoc false
 
-  alias SymphonyElixir.Agent.DynamicTool.EvidencePayload
-  alias SymphonyElixir.Agent.DynamicTool.MetadataContract
+  alias SymphonyElixir.Agent.DynamicTool.Metadata
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
   alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Linear.Client
   alias SymphonyElixir.Tracker.WorkpadRegistry
-  alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixir.Workflow.StateTransitionReadiness
 
   @source_kind Kinds.linear()
   @schema_version "1"
   @risk_flags ["external_network", "secret_access", "privileged_api"]
-  @metadata_schema_version_key MetadataContract.schema_version()
-  @metadata_side_effect_key MetadataContract.side_effect()
-  @metadata_risk_flags_key MetadataContract.risk_flags()
-  @metadata_workflow_capability_key MetadataContract.workflow_capability()
-  @metadata_source_kind_key MetadataContract.source_kind()
-  @review_handoff_comment_limit 50
+  @metadata_schema_version_key Metadata.Contract.schema_version()
+  @metadata_side_effect_key Metadata.Contract.side_effect()
+  @metadata_risk_flags_key Metadata.Contract.risk_flags()
+  @metadata_capability_key Metadata.Contract.capability()
+  @metadata_source_kind_key Metadata.Contract.source_kind()
+  @readiness_validation_comment_limit 50
 
   @issue_snapshot_tool "linear_issue_snapshot"
   @move_issue_tool "linear_move_issue"
   @upsert_workpad_tool "linear_upsert_workpad"
-  @attach_change_proposal_tool "linear_attach_change_proposal"
+  @attach_external_reference_tool "linear_attach_external_reference"
   @upsert_comment_tool "linear_upsert_comment"
   @prepare_file_upload_tool "linear_prepare_file_upload"
   @provider_diagnostics_tool "linear_provider_diagnostics"
 
-  @issue_snapshot_capability CapabilityNames.tracker_issue_snapshot()
-  @move_issue_capability CapabilityNames.tracker_move_issue()
-  @upsert_workpad_capability CapabilityNames.tracker_upsert_workpad()
-  @attach_change_proposal_capability CapabilityNames.tracker_attach_change_proposal()
-  @upsert_comment_capability CapabilityNames.tracker_upsert_comment()
-  @prepare_file_upload_capability CapabilityNames.tracker_prepare_file_upload()
-  @provider_diagnostics_capability CapabilityNames.tracker_provider_diagnostics()
+  @issue_snapshot_capability TrackerCapabilities.issue_snapshot()
+  @move_issue_capability TrackerCapabilities.move_issue()
+  @upsert_workpad_capability TrackerCapabilities.upsert_workpad()
+  @attach_external_reference_capability TrackerCapabilities.attach_external_reference()
+  @upsert_comment_capability TrackerCapabilities.upsert_comment()
+  @prepare_file_upload_capability TrackerCapabilities.prepare_file_upload()
+  @provider_diagnostics_capability TrackerCapabilities.provider_diagnostics()
 
   @issue_snapshot_query """
   query SymphonyLinearIssueSnapshot($issueId: String!, $commentFirst: Int!) {
@@ -280,9 +279,9 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
         }
       ),
       tool_spec(
-        @attach_change_proposal_tool,
-        @attach_change_proposal_capability,
-        "Attach a repository-backed change proposal URL, such as a GitHub pull request, to a Linear issue.",
+        @attach_external_reference_tool,
+        @attach_external_reference_capability,
+        "Attach an external reference URL to a Linear issue without interpreting the reference as workflow business state.",
         "write",
         %{
           "type" => "object",
@@ -290,11 +289,12 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
           "required" => ["issue_id", "url"],
           "properties" => %{
             "issue_id" => %{"type" => "string", "description" => "Linear issue id or identifier."},
-            "url" => %{"type" => "string", "description" => "Absolute change proposal URL."},
-            "title" => %{"type" => ["string", "null"], "description" => "Optional attachment title."},
-            "repo_provider_kind" => %{"type" => ["string", "null"], "description" => "Optional repo provider kind."},
-            "repository" => %{"type" => ["string", "null"], "description" => "Optional provider repository handle."},
-            "change_proposal_id" => %{"type" => ["string", "number", "integer", "null"], "description" => "Optional provider change proposal id."}
+            "url" => %{"type" => "string", "description" => "Absolute external reference URL."},
+            "title" => %{"type" => ["string", "null"], "description" => "Optional reference title."},
+            "reference_kind" => %{"type" => ["string", "null"], "description" => "Optional caller-owned reference kind."},
+            "provider_kind" => %{"type" => ["string", "null"], "description" => "Optional external provider kind."},
+            "external_id" => %{"type" => ["string", "number", "integer", "null"], "description" => "Optional external provider object id."},
+            "metadata" => %{"type" => ["object", "null"], "additionalProperties" => true, "description" => "Optional caller-owned JSON metadata."}
           }
         }
       ),
@@ -354,7 +354,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   def execute(tracker, @issue_snapshot_tool, arguments, opts), do: issue_snapshot(tracker, arguments, opts)
   def execute(tracker, @move_issue_tool, arguments, opts), do: move_issue(tracker, arguments, opts)
   def execute(tracker, @upsert_workpad_tool, arguments, opts), do: upsert_workpad(tracker, arguments, opts)
-  def execute(tracker, @attach_change_proposal_tool, arguments, opts), do: attach_change_proposal(tracker, arguments, opts)
+  def execute(tracker, @attach_external_reference_tool, arguments, opts), do: attach_external_reference(tracker, arguments, opts)
   def execute(tracker, @upsert_comment_tool, arguments, opts), do: upsert_comment(tracker, arguments, opts)
   def execute(tracker, @prepare_file_upload_tool, arguments, opts), do: prepare_file_upload(tracker, arguments, opts)
   def execute(tracker, @provider_diagnostics_tool, arguments, opts), do: provider_diagnostics(tracker, arguments, opts)
@@ -372,7 +372,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
       @metadata_schema_version_key => @schema_version,
       @metadata_side_effect_key => side_effect,
       @metadata_risk_flags_key => @risk_flags,
-      @metadata_workflow_capability_key => capability,
+      @metadata_capability_key => capability,
       @metadata_source_kind_key => @source_kind
     }
   end
@@ -394,12 +394,12 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   defp move_issue(tracker, arguments, opts) do
     with {:ok, args} <- move_issue_args(arguments),
          workflow <- workflow(tracker),
-         review_handoff_target? <- StateTransitionReadiness.governed_target?(workflow, args.state_name),
-         {:ok, response} <- fetch_issue_for_move(tracker, args, review_handoff_target?, opts),
+         readiness_governed_target? <- StateTransitionReadiness.governed_target?(workflow, args.state_name),
+         {:ok, response} <- fetch_issue_for_move(tracker, args, readiness_governed_target?, opts),
          {:ok, issue} <- response_issue(response),
          :ok <- expected_current_state(issue, args.expected_current_state),
          {:ok, state} <- resolve_state(issue, args.state_name),
-         :ok <- maybe_validate_review_handoff(review_handoff_target?, workflow, issue, args, opts) do
+         :ok <- maybe_validate_transition_readiness(readiness_governed_target?, workflow, issue, args, opts) do
       if get_in(issue, ["state", "name"]) == args.state_name do
         {:success, success_payload(%{"issue" => moved_issue(issue, state)})}
       else
@@ -414,16 +414,16 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     with {:ok, args} <- upsert_workpad_args(arguments),
          :ok <- validate_workpad_mode(args.mode),
          {:ok, comment} <- upsert_workpad_comment(tracker, args, opts) do
-      {:success, success_payload(%{"comment" => comment}, EvidencePayload.workpad(comment))}
+      {:success, success_payload(%{"comment" => comment})}
     else
       {:error, reason} -> typed_failure(reason)
     end
   end
 
-  defp attach_change_proposal(tracker, arguments, opts) do
-    with {:ok, args} <- attach_change_proposal_args(arguments),
+  defp attach_external_reference(tracker, arguments, opts) do
+    with {:ok, args} <- attach_external_reference_args(arguments),
          :ok <- validate_url(args.url),
-         {:ok, response} <- graphql(tracker, @issue_attachments_query, %{issueId: args.issue_id}, opts, :attach_change_proposal),
+         {:ok, response} <- graphql(tracker, @issue_attachments_query, %{issueId: args.issue_id}, opts, :attach_external_reference),
          {:ok, issue} <- response_issue(response) do
       case existing_attachment(issue, args.url) do
         nil ->
@@ -433,10 +433,11 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
           attachment = Map.put(attachment, "existing", true)
 
           {:success,
-           success_payload(
-             %{"attachment" => attachment, "issue" => minimal_issue_payload(issue)},
-             EvidencePayload.tracker_change_proposal(attachment, args)
-           )}
+           success_payload(%{
+             "attachment" => attachment,
+             "externalReference" => external_reference_payload(args, attachment),
+             "issue" => minimal_issue_payload(issue)
+           })}
       end
     else
       {:error, reason} -> typed_failure(reason)
@@ -485,7 +486,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     graphql(
       tracker,
       @issue_snapshot_query,
-      %{issueId: args.issue_id, commentFirst: @review_handoff_comment_limit},
+      %{issueId: args.issue_id, commentFirst: @readiness_validation_comment_limit},
       opts,
       :move_issue
     )
@@ -495,17 +496,17 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
     graphql(tracker, @issue_team_states_query, %{issueId: args.issue_id}, opts, :move_issue)
   end
 
-  defp maybe_validate_review_handoff(false, _workflow, _issue, _args, _opts), do: :ok
+  defp maybe_validate_transition_readiness(false, _workflow, _issue, _args, _opts), do: :ok
 
-  defp maybe_validate_review_handoff(true, workflow, issue, args, opts) do
+  defp maybe_validate_transition_readiness(true, workflow, issue, args, opts) do
     StateTransitionReadiness.validate(
       workflow,
       issue,
-      review_handoff_readiness_opts(args, opts)
+      transition_readiness_opts(args, opts)
     )
   end
 
-  defp review_handoff_readiness_opts(args, opts) do
+  defp transition_readiness_opts(args, opts) do
     [
       target_state_name: args.state_name,
       issue_key: args.issue_id,
@@ -646,18 +647,31 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
 
     variables = %{issueId: args.issue_id, url: args.url, title: args.title}
 
-    with {:ok, response} <- graphql(tracker, mutation, variables, opts, :attach_change_proposal),
+    with {:ok, response} <- graphql(tracker, mutation, variables, opts, :attach_external_reference),
          {:ok, attachment} <- mutation_attachment(response, ["data", result_key], :attachment_create_failed) do
       attachment = Map.put(attachment, "existing", false)
 
       {:success,
-       success_payload(
-         %{"attachment" => attachment, "issue" => minimal_issue_payload(issue)},
-         EvidencePayload.tracker_change_proposal(attachment, args)
-       )}
+       success_payload(%{
+         "attachment" => attachment,
+         "externalReference" => external_reference_payload(args, attachment),
+         "issue" => minimal_issue_payload(issue)
+       })}
     else
       {:error, reason} -> typed_failure(reason)
     end
+  end
+
+  defp external_reference_payload(args, attachment) do
+    %{
+      "id" => Map.get(attachment, "id") || Map.get(args, :external_id),
+      "url" => Map.get(attachment, "url") || Map.fetch!(args, :url),
+      "title" => Map.get(attachment, "title") || Map.get(args, :title),
+      "referenceKind" => Map.get(args, :reference_kind),
+      "providerKind" => Map.get(args, :provider_kind),
+      "externalId" => Map.get(args, :external_id),
+      "metadata" => Map.get(args, :metadata) || %{}
+    }
   end
 
   defp file_upload_variables(args) do
@@ -738,7 +752,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
 
   defp upsert_workpad_args(_arguments), do: {:error, {:invalid_arguments, "Expected an object with issue_id and body."}}
 
-  defp attach_change_proposal_args(arguments) when is_map(arguments) do
+  defp attach_external_reference_args(arguments) when is_map(arguments) do
     with {:ok, issue_id} <- required_string(arguments, "issue_id"),
          {:ok, url} <- required_string(arguments, "url"),
          {:ok, title} <- optional_nullable_string(arguments, "title") do
@@ -747,14 +761,15 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
          issue_id: issue_id,
          url: url,
          title: title,
-         repo_provider_kind: nullable_string(arguments, "repo_provider_kind"),
-         repository: nullable_string(arguments, "repository"),
-         change_proposal_id: optional_value(arguments, "change_proposal_id")
+         reference_kind: nullable_string(arguments, "reference_kind"),
+         provider_kind: nullable_string(arguments, "provider_kind"),
+         external_id: optional_value(arguments, "external_id"),
+         metadata: optional_map(arguments, "metadata")
        }}
     end
   end
 
-  defp attach_change_proposal_args(_arguments), do: {:error, {:invalid_arguments, "Expected an object with issue_id and url."}}
+  defp attach_external_reference_args(_arguments), do: {:error, {:invalid_arguments, "Expected an object with issue_id and url."}}
 
   defp upsert_comment_args(arguments) when is_map(arguments) do
     with {:ok, body} <- required_string(arguments, "body"),
@@ -801,6 +816,13 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   end
 
   defp optional_nullable_string(arguments, key), do: {:ok, nullable_string(arguments, key)}
+
+  defp optional_map(arguments, key) do
+    case optional_value(arguments, key) do
+      value when is_map(value) -> value
+      _value -> %{}
+    end
+  end
 
   defp nullable_string(arguments, key) do
     arguments
@@ -923,9 +945,10 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   defp atom_key("mode"), do: :mode
   defp atom_key("url"), do: :url
   defp atom_key("title"), do: :title
-  defp atom_key("repo_provider_kind"), do: :repo_provider_kind
-  defp atom_key("repository"), do: :repository
-  defp atom_key("change_proposal_id"), do: :change_proposal_id
+  defp atom_key("reference_kind"), do: :reference_kind
+  defp atom_key("provider_kind"), do: :provider_kind
+  defp atom_key("external_id"), do: :external_id
+  defp atom_key("metadata"), do: :metadata
   defp atom_key("asset_urls"), do: :asset_urls
   defp atom_key("filename"), do: :filename
   defp atom_key("content_type"), do: :content_type
@@ -1124,7 +1147,7 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   defp canonical_url(url) when is_binary(url), do: String.trim(url)
   defp canonical_url(_url), do: nil
 
-  defp success_payload(data, evidence \\ nil), do: %{"data" => data, "warnings" => []} |> EvidencePayload.attach(evidence)
+  defp success_payload(data), do: %{"data" => data, "warnings" => []}
 
   defp typed_failure(reason) do
     {code, message, details} = typed_error(reason)
@@ -1138,8 +1161,17 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   defp typed_error({:ambiguous_state, state_name}), do: {"ambiguous_state", "The issue's team contains multiple states with the requested name.", %{"stateName" => state_name}}
   defp typed_error({:conflict, message, details}) when is_map(details), do: {"conflict", message, details}
 
-  defp typed_error({:review_handoff_not_ready, details}) when is_map(details),
-    do: {"review_handoff_not_ready", "Review handoff is not ready. Structured readiness evidence is incomplete.", details}
+  defp typed_error({reason, details}) when is_atom(reason) and is_map(details) and is_map_key(details, "policy_id") do
+    {
+      StateTransitionReadiness.typed_tool_not_ready_error_code(),
+      "The requested workflow transition is not ready. Structured readiness evidence is incomplete.",
+      Map.put_new(details, "policy_error_code", Atom.to_string(reason))
+    }
+  end
+
+  defp typed_error({reason, details}) when is_atom(reason) and is_map(details) and is_map_key(details, :policy_id) do
+    typed_error({reason, stringify_keys(details)})
+  end
 
   defp typed_error(:issue_update_failed), do: {"provider_request_failed", "Linear issue state update did not report success.", %{}}
   defp typed_error(:comment_update_failed), do: {"provider_request_failed", "Linear comment update did not report success.", %{}}
@@ -1152,4 +1184,11 @@ defmodule SymphonyElixir.Tracker.Linear.ToolExecutor.TypedTools do
   defp typed_error({:linear_api_request, reason}), do: {"provider_request_failed", "Linear request failed before receiving a successful response.", %{"reason" => inspect(reason)}}
   defp typed_error({:linear_api_status, status}), do: {"provider_request_failed", "Linear request failed with an HTTP error.", %{"status" => status}}
   defp typed_error(reason), do: {"provider_request_failed", "Linear typed workflow tool execution failed.", %{"reason" => inspect(reason)}}
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
+      {key, value} -> {key, value}
+    end)
+  end
 end

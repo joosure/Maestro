@@ -102,18 +102,10 @@ defmodule SymphonyElixir.Workflow.Prompt.Builder do
   defp to_solid_value(value), do: value
 
   defp tool_inventory(opts) when is_list(opts) do
-    fallback_policy =
-      Keyword.get(
-        opts,
-        :typed_workflow_tool_fallback_policy,
-        Application.get_env(:symphony_elixir, :typed_workflow_tool_fallback_policy, %{})
-      )
-
     render_opts =
       opts
       |> Keyword.get(:agent_provider_kind)
       |> ToolInventory.render_opts()
-      |> Keyword.put(:fallback_policy, fallback_policy)
 
     opts
     |> Context.from_opts()

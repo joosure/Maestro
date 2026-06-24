@@ -2,10 +2,13 @@ defmodule SymphonyElixir.TestSupport do
   @workflow_prompt "You are an agent for this repository."
 
   alias SymphonyElixir.Agent.DynamicTool.TypedToolFailurePolicy
-  alias SymphonyElixir.ChangeProposalReconciliation.{CandidateInbox, KnownTarget}
   alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Orchestrator.BlockedResourceRegistry
   alias SymphonyElixir.Tracker.WorkpadRegistry
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.KnownTarget
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.KnownTarget.Registry.Admin, as: KnownTargetRegistryControls
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.Candidate.Inbox
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.Candidate.Inbox.Admin, as: InboxAdmin
   alias SymphonyElixir.Workflow.Runtime.Store, as: WorkflowStore
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store, as: ReadinessStore
 
@@ -55,14 +58,15 @@ defmodule SymphonyElixir.TestSupport do
         workflow_file = Path.join(workflow_root, "WORKFLOW.md")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
+        Application.put_env(:symphony_elixir, :dynamic_tool_sources, catalogs: [SymphonyElixir.AssemblyCatalog.DynamicToolSources])
         ensure_supervisor_running()
 
         if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
 
         if Process.whereis(EventStore), do: EventStore.reset()
         if Process.whereis(TypedToolFailurePolicy), do: TypedToolFailurePolicy.reset()
-        if Process.whereis(CandidateInbox), do: CandidateInbox.reset()
-        if Process.whereis(KnownTarget.Registry), do: KnownTarget.Registry.reset()
+        if Process.whereis(Inbox), do: InboxAdmin.reset()
+        if Process.whereis(KnownTarget.Registry), do: KnownTargetRegistryControls.reset()
         if Process.whereis(WorkpadRegistry), do: WorkpadRegistry.reset()
         if Process.whereis(BlockedResourceRegistry), do: BlockedResourceRegistry.reset()
         if Process.whereis(ReadinessStore), do: ReadinessStore.reset()
@@ -73,6 +77,7 @@ defmodule SymphonyElixir.TestSupport do
           Application.delete_env(:symphony_elixir, :workflow_file_path)
           Application.delete_env(:symphony_elixir, :server_host_override)
           Application.delete_env(:symphony_elixir, :server_port_override)
+          Application.put_env(:symphony_elixir, :dynamic_tool_sources, catalogs: [SymphonyElixir.AssemblyCatalog.DynamicToolSources])
           Application.delete_env(:symphony_elixir, :memory_tracker_issues)
           Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
           File.rm_rf(workflow_root)

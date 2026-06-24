@@ -179,7 +179,7 @@ It is recommended that the test repository meets:
 | `repo-provider smoke` | Minimal authentication check of the repository platform; by default, it only verifies that the token is available, no clone, no push, no PR creation |
 | `raw status` | Internal status value returned by TAPD/Linear API; newcomers usually only need to look at the page status name, which is converted by the initialization script |
 | `route policy` | Workflow rules that decide whether a state should dispatch implementation, wait for review, merge, or finish |
-| `change proposal reconciliation` | Background review-stage processing that checks whether the associated PR/MR satisfies checks, mergeability, and other gates |
+| `Coding PR Delivery reconciliation` | Background review-stage processing from the Coding PR Delivery extension that checks whether the associated PR/MR satisfies checks, mergeability, and other gates |
 | `gate` | Conditions that must be met before automatic transition, such as PR checks passed, PR can be merged, approval required, etc. |
 
 ### 3.4 Pre-run checklist
@@ -263,11 +263,11 @@ The Quickstart path must be configured with these flows. `需求池` is the manu
 合并中 -> 返工
 ```
 
-Important: `需求池` is not part of Maestro's automatic scan range. Maestro only takes over after a human moves the requirement to `待开发`. After the issue enters `评审中`, Maestro stops dispatching implementation work and instead uses change proposal reconciliation to check the associated CNB PR. When PR checks pass, the PR is mergeable, and the configured workflow gates are satisfied, Maestro automatically transitions the issue to `合并中`, runs the merge flow, and finally transitions it to `已完成`. TAPD APIs and Maestro workflow files use internal status values; the initialization script handles that mapping, so newcomers do not need to look them up manually.
+Important: `需求池` is not part of Maestro's automatic scan range. Maestro only takes over after a human moves the requirement to `待开发`. After the issue enters `评审中`, Maestro stops dispatching implementation work and instead uses Coding PR Delivery reconciliation to check the associated CNB PR. When PR checks pass, the PR is mergeable, and the configured workflow gates are satisfied, Maestro automatically transitions the issue to `合并中`, runs the merge flow, and finally transitions it to `已完成`. TAPD APIs and Maestro workflow files use internal status values; the initialization script handles that mapping, so newcomers do not need to look them up manually.
 
 In other words, newcomers only need to configure the status display names and transitions in TAPD. After `../scripts/tapd-workflow-init` runs, it reads TAPD API status information and converts the page display names into the values required by the local Maestro workflow. You do not need to query or fill in those internal values manually.
 
-Also configure the recommended transitions on the TAPD process/workflow configuration page; do not only create the status display names. The quickstart path requires status display names to exactly match the table above, and the recommended transitions must be allowed between those statuses. Otherwise, `../scripts/tapd-workflow-init` reports an error and asks you to fix the TAPD workflow configuration. `需求池` is the manual entry point and is not scanned automatically by Maestro; `待开发` is the entry point for Maestro's automated loop.
+Also configure the recommended transitions on the TAPD process/workflow configuration page; do not only create the status display names. By default, the quickstart path expects status display names to match the table above, and the recommended transitions must be allowed. To improve tolerance, the initialization script also supports **intelligent heuristic fallback (Heuristic Fallback)**. For example, if your statuses contain keywords like "开始开发", "测试中", "待处理", or "完成", the script automatically maps them to the corresponding workflow phases. If conflicts occur (e.g., two phases map to the same status) or mapping cannot be uniquely determined, the script fails. You can run the script with the `--interactive` option to confirm mappings interactively or correct them in TAPD. `需求池` is the manual entry point and is not scanned automatically by Maestro; `待开发` is the entry point for Maestro's automated loop.
 
 ### 4.3 Fill in `.env.tapd.local`
 
@@ -904,6 +904,14 @@ mise exec -- mix symphony.workflow.render \
 After manual modification, it is still recommended to use the generated local workflow file to complete `accounts login`, `accounts verify` and main service startup to avoid inconsistency between the credential store and the runtime configuration.
 
 `tapd-workflow-init` is a one-time configuration generation script, not the main service entry point. It reads the status display names, internal raw statuses, and available transitions returned by the TAPD API, then maps the statuses required by this guide: `需求池`, `待开发`, `开发中`, `评审中`, `合并中`, `返工`, `已完成`, and `已拒绝`. If the Story type can be inferred automatically or specified through `TAPD_WORKITEM_TYPE_ID`, the script verifies transitions for that type; if a status or transition edge is missing, it reports an error and asks you to fix the TAPD process/workflow configuration.
+
+To accommodate different workflow naming habits, the script supports **intelligent heuristic fallback (Heuristic Fallback)**. If your TAPD statuses do not strictly follow the default names above but contain relevant business keywords (e.g., "开始开发" instead of "开发中", or "完成" instead of "已完成"), the script automatically fills them in when exact matches are missing.
+Please note that if:
+- The same status is heuristically matched to multiple routes;
+- A route matches multiple ambiguous candidate statuses;
+- The heuristically matched status configuration fails verification;
+
+The script will fail and abort in non-interactive mode. In such cases, we recommend passing the `--interactive` flag to enable **interactive mode**, allowing you to input and confirm the Backlog status and mappings for each workflow phase via the terminal.
 
 By default, the script writes the local quickstart workflow with `approval_required: false` under `workflow.reconciliation.change_proposal.gates`. This is only a newcomer-friendly smoke setting. Use `--require-pr-approval` when you want the generated file to require PR approval before automatic reconciliation can move the Story into `合并中`.
 

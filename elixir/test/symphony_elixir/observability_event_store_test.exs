@@ -194,7 +194,7 @@ defmodule SymphonyElixir.Observability.EventStoreTest do
            ]
   end
 
-  test "dynamic tool usage metrics aggregate typed operator migration fallback and failure reasons" do
+  test "dynamic tool usage metrics aggregate typed raw usage and failure reasons" do
     capture_log(fn ->
       Logger.emit(:info, :tool_call_succeeded, %{
         component: "agent.dynamic_tool_bridge",
@@ -202,11 +202,11 @@ defmodule SymphonyElixir.Observability.EventStoreTest do
         session_id: "session-tools",
         tool_name: "linear_issue_snapshot",
         dynamic_tool_usage_kind: "typed",
-        dynamic_tool_workflow_capability: "tracker.issue_snapshot",
+        dynamic_tool_capability: "tracker.issue_snapshot",
         dynamic_tool_provider_capability_unavailable_count: 1,
         dynamic_tool_provider_capability_unavailable: [
           %{
-            "workflowCapability" => "repo.submit_change_proposal_review",
+            "capability" => "repo.submit_change_proposal_review",
             "reason" => "provider_capability_not_available",
             "description" => "formal PR reviews"
           }
@@ -218,9 +218,7 @@ defmodule SymphonyElixir.Observability.EventStoreTest do
         run_id: "run-tools",
         session_id: "session-tools",
         tool_name: "legacy_tracker_api",
-        dynamic_tool_usage_kind: "fallback",
-        dynamic_tool_workflow_capability: "tracker.issue_snapshot",
-        dynamic_tool_fallback_reason: "temporary migration",
+        dynamic_tool_usage_kind: "raw",
         dynamic_tool_failure_reason: "provider_validation_failed"
       })
 
@@ -238,11 +236,9 @@ defmodule SymphonyElixir.Observability.EventStoreTest do
 
     assert all_metrics["total_calls"] == 3
     assert all_metrics["typed_calls"] == 1
-    assert all_metrics["fallback_calls"] == 1
-    assert all_metrics["raw_calls"] == 1
+    assert all_metrics["raw_calls"] == 2
     assert all_metrics["typed_tool_hits"] == 1
-    assert all_metrics["raw_tool_attempts"] == 1
-    assert all_metrics["fallback_count"] == 1
+    assert all_metrics["raw_tool_attempts"] == 2
     assert all_metrics["unsupported_tool_count"] == 1
     assert all_metrics["provider_capability_unavailable_count"] == 1
 
@@ -264,14 +260,13 @@ defmodule SymphonyElixir.Observability.EventStoreTest do
 
     assert Enum.map(all_metrics["operator_alerts"], & &1["code"]) == [
              "raw_tool_attempts",
-             "operator_migration_fallback",
              "unsupported_tool_calls",
              "provider_capability_unavailable_known"
            ]
 
     assert all_metrics["typed_hit_rate"] == 1 / 3
     assert all_metrics["failure_reasons"] == %{"provider_validation_failed" => 1, "unsupported_tool" => 1}
-    assert get_in(all_metrics, ["by_tool", "legacy_tracker_api", "fallback_calls"]) == 1
+    assert get_in(all_metrics, ["by_tool", "legacy_tracker_api", "raw_calls"]) == 1
     assert get_in(all_metrics, ["by_tool", "unknown_tool", "rejected_calls"]) == 1
     assert get_in(all_metrics, ["by_tool", "unknown_tool", "unsupported_tool_count"]) == 1
     assert get_in(all_metrics, ["by_tool", "linear_issue_snapshot", "provider_capability_unavailable", "known"]) == 1
@@ -280,14 +275,14 @@ defmodule SymphonyElixir.Observability.EventStoreTest do
 
     assert scoped_metrics["total_calls"] == 2
     assert scoped_metrics["typed_calls"] == 1
-    assert scoped_metrics["fallback_calls"] == 1
-    assert scoped_metrics["raw_calls"] == 0
+    assert scoped_metrics["raw_calls"] == 1
     assert scoped_metrics["typed_tool_hits"] == 1
+    assert scoped_metrics["raw_tool_attempts"] == 1
     assert scoped_metrics["provider_capability_unavailable_count"] == 1
-    assert scoped_metrics["operator_status"] == "warning"
+    assert scoped_metrics["operator_status"] == "critical"
 
     assert Enum.map(scoped_metrics["operator_alerts"], & &1["code"]) == [
-             "operator_migration_fallback",
+             "raw_tool_attempts",
              "provider_capability_unavailable_known"
            ]
 

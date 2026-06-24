@@ -1,14 +1,14 @@
 defmodule SymphonyElixir.Agent.Credential do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.Credential.{Lease, LeaseRequest, Material, Store}
   alias SymphonyElixir.AgentProvider.{Config, Error}
   alias SymphonyElixir.Observability.Logger, as: ObsLogger
   alias SymphonyElixir.Observability.OperationStatus
   alias SymphonyElixir.Observability.Redaction
-  alias SymphonyElixir.Workflow.CapabilityNames
 
-  @managed_capability CapabilityNames.agent_credentials_managed()
+  @managed_capability AgentCapabilities.credentials_managed()
 
   @spec prepare_provider_start(Config.t(), module(), [String.t()], keyword()) ::
           {:ok, keyword()} | {:error, Error.t()}

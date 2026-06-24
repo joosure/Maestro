@@ -1,41 +1,18 @@
 defmodule SymphonyElixir.Agent.DynamicTool.Serializer do
   @moduledoc """
   JSON-safe serialization helpers for dynamic tool provider boundaries.
+
+  This module is the last-mile JSON sanitizer. It does not interpret domain
+  error structs; known error types must be projected before they reach this
+  serializer.
   """
 
-  @spec error_payload(term()) :: map()
-  def error_payload(%{__struct__: _struct} = error) do
-    %{
-      "message" => Map.get(error, :message) || "Dynamic tool execution failed.",
-      "code" => error |> Map.get(:code, :unknown) |> to_string()
-    }
-    |> maybe_put("status", detail_value(Map.get(error, :details), "status"))
-    |> maybe_put("body", detail_value(Map.get(error, :details), "body"))
-    |> maybe_put("details", public_error_details(Map.get(error, :details)))
-    |> maybe_put("reason", detail_value(Map.get(error, :details), "reason") && inspect(detail_value(Map.get(error, :details), "reason")))
-  end
-
-  def error_payload(reason) do
-    %{
-      "message" => "Dynamic tool execution failed.",
-      "reason" => inspect(reason)
-    }
-  end
+  alias SymphonyElixir.Agent.DynamicTool.ErrorProjector.Contract
 
   @spec public_error_details(map() | nil) :: map() | nil
   def public_error_details(details) when is_map(details) do
     details
-    |> Map.drop([
-      :source_reason,
-      "source_reason",
-      :status,
-      "status",
-      :body,
-      "body",
-      :reason,
-      "reason"
-    ])
-    |> json_safe_map()
+    |> canonical_public_error_details()
     |> case do
       sanitized when map_size(sanitized) == 0 -> nil
       sanitized -> sanitized
@@ -49,18 +26,17 @@ defmodule SymphonyElixir.Agent.DynamicTool.Serializer do
     Map.new(map, fn {key, value} -> {json_safe_key(key), json_safe_value(value)} end)
   end
 
-  @spec json_safe_value(term()) :: term()
-  def json_safe_value(%{__struct__: _struct, provider: provider, operation: operation, code: code, message: message} = error) do
-    %{
-      "provider" => provider,
-      "operation" => to_string(operation),
-      "code" => to_string(code),
-      "message" => message,
-      "retryable" => Map.get(error, :retryable?, false)
-    }
-    |> maybe_put("details", public_error_details(Map.get(error, :details)))
+  @spec canonical_json_safe_map(map()) :: map()
+  def canonical_json_safe_map(map) when is_map(map) do
+    map
+    |> Enum.flat_map(fn
+      {key, value} when is_binary(key) -> [{key, json_safe_value(value)}]
+      {_key, _value} -> []
+    end)
+    |> Map.new()
   end
 
+  @spec json_safe_value(term()) :: term()
   def json_safe_value(%_{} = value), do: inspect(value)
   def json_safe_value(map) when is_map(map), do: json_safe_map(map)
   def json_safe_value(list) when is_list(list), do: Enum.map(list, &json_safe_value/1)
@@ -79,11 +55,11 @@ defmodule SymphonyElixir.Agent.DynamicTool.Serializer do
   def maybe_put(payload, _key, nil), do: payload
   def maybe_put(payload, key, value), do: Map.put(payload, key, value)
 
-  defp detail_value(details, key) when is_map(details) and is_binary(key) do
-    Map.get(details, key) || Map.get(details, String.to_existing_atom(key))
-  rescue
-    ArgumentError -> Map.get(details, key)
-  end
+  defp canonical_public_error_details(details) do
+    allowed_keys = Contract.public_detail_keys()
 
-  defp detail_value(_details, _key), do: nil
+    details
+    |> canonical_json_safe_map()
+    |> Map.take(allowed_keys)
+  end
 end

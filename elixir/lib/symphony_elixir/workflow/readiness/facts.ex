@@ -8,7 +8,7 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
   repository, or provider side effects.
   """
 
-  alias SymphonyElixir.Workflow.CapabilityNames
+  alias SymphonyElixir.Capability.Registry, as: CapabilityRegistry
   alias SymphonyElixir.Workflow.CompletionValidator
   alias SymphonyElixir.Workflow.ExecutionProfileRegistry
   alias SymphonyElixir.Workflow.Lifecycle, as: WorkflowLifecycle
@@ -105,7 +105,7 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
           "Waiting for human approval or review feedback.",
           [
             "human approval or requested-changes decision",
-            "tracker or change-proposal review evidence"
+            "profile-specific review evidence"
           ],
           observed_route_evidence(route_facts)
         )
@@ -160,7 +160,7 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
 
   defp gate(%RouteFacts{action: :dispatch, execution_profile: execution_profile} = route_facts, capabilities, evidence)
        when is_binary(execution_profile) do
-    if capabilities |> Map.get("conditional", []) |> CapabilityNames.merge_gate?() do
+    if capabilities |> Map.get("conditional", []) |> merge_gate_capability?() do
       merge_gate(route_facts, capabilities, evidence)
     else
       dispatch_gate(route_facts)
@@ -618,6 +618,12 @@ defmodule SymphonyElixir.Workflow.Readiness.Facts do
   end
 
   defp map_field(_map, _key), do: nil
+
+  defp merge_gate_capability?(capabilities) do
+    capabilities
+    |> List.wrap()
+    |> Enum.any?(&CapabilityRegistry.merge_gate_capability?/1)
+  end
 
   defp atom_name(nil), do: nil
   defp atom_name(value) when is_atom(value), do: Atom.to_string(value)

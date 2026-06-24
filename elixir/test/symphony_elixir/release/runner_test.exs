@@ -7,8 +7,7 @@ defmodule SymphonyElixir.Release.RunnerTest do
   alias SymphonyElixir.Release.WorkflowSource
   alias SymphonyElixir.RepoProvider.Kinds, as: RepoProviderKinds
   alias SymphonyElixir.Tracker.Kinds, as: TrackerKinds
-  alias SymphonyElixir.Workflow.TemplateRegistry
-
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
 
   test "builds template serve args from environment" do

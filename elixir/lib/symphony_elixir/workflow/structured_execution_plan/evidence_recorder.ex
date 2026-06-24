@@ -3,15 +3,25 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorder do
   Mirrors successful typed workflow tool results into active structured plans.
 
   Recording is disabled by default and only runs when the caller explicitly
-  enables `workflow.structured_execution_plan.enabled` through opts.
+  enables structured execution plan recording through opts. This recorder is
+  best-effort: it returns `:ok` to the tool path, but emits compact diagnostics
+  when binding, plan resolution, or persistence fails.
   """
 
+  alias SymphonyElixir.Observability.Logger, as: ObsLogger
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceBinding
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorder.Options
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorder.PlanResolver
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store
+
+  @component "structured_execution_plan_evidence_recorder"
+  @binding_failed_event :structured_plan_evidence_binding_failed
+  @plan_resolution_failed_event :structured_plan_evidence_plan_resolution_failed
+  @record_failed_event :structured_plan_evidence_record_failed
 
   @spec record_typed_tool_result(String.t() | atom() | nil, term(), String.t() | nil, term(), term(), keyword()) :: :ok
   def record_typed_tool_result(source_kind, source_context, tool, arguments, result, opts \\ []) do
-    if enabled?(opts) do
+    if Options.enabled?(opts) do
       do_record_typed_tool_result(source_kind, source_context, tool, arguments, result, opts)
     else
       :ok
@@ -19,74 +29,55 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.EvidenceRecorder do
   end
 
   defp do_record_typed_tool_result(source_kind, source_context, tool, arguments, result, opts) do
-    with {:ok, evidence_refs} <- EvidenceBinding.bind_typed_tool_result(source_kind, source_context, tool, arguments, result, opts),
-         true <- evidence_refs != [],
-         {:ok, plan_id} <- resolve_plan_id(opts) do
-      _result = Store.record_evidence_refs(plan_id, evidence_refs, store_opts(opts))
+    case EvidenceBinding.bind_typed_tool_result(source_kind, source_context, tool, arguments, result, opts) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, evidence_refs} ->
+        record_evidence_refs(evidence_refs, tool, opts)
+
+      {:error, reason} ->
+        emit_diagnostic(@binding_failed_event, reason, tool, opts, %{evidence_ref_count: 0})
+        :ok
+    end
+  end
+
+  defp record_evidence_refs(evidence_refs, tool, opts) do
+    with {:ok, plan_id} <- PlanResolver.resolve_plan_id(opts),
+         {:ok, _plan} <- Store.record_evidence_refs(plan_id, evidence_refs, Options.store_opts(opts)) do
       :ok
     else
-      false -> :ok
-      _error -> :ok
+      {:error, reason} ->
+        event = if plan_resolution_error?(reason), do: @plan_resolution_failed_event, else: @record_failed_event
+        emit_diagnostic(event, reason, tool, opts, %{evidence_ref_count: length(evidence_refs)})
+        :ok
     end
   end
 
-  defp enabled?(opts) do
-    case structured_plan_opts(opts) do
-      %{enabled: true} -> true
-      %{"enabled" => true} -> true
-      keyword when is_list(keyword) -> Keyword.get(keyword, :enabled, false) == true
-      _config -> Keyword.get(opts, :structured_execution_plan_enabled?, false) == true
-    end
+  defp plan_resolution_error?(%{code: code}) do
+    code == Map.fetch!(Store.plan_not_found_error(nil), :code)
   end
 
-  defp resolve_plan_id(opts) do
-    config = structured_plan_opts(opts)
+  defp plan_resolution_error?(_reason), do: false
 
-    cond do
-      plan_id = option_value(config, :plan_id) ->
-        {:ok, plan_id}
-
-      true ->
-        resolve_active_plan_id(config, opts)
-    end
+  defp emit_diagnostic(event, reason, tool, opts, fields) do
+    ObsLogger.emit(
+      :warning,
+      event,
+      fields
+      |> Map.merge(Options.diagnostic_fields(opts))
+      |> Map.merge(%{
+        component: @component,
+        tool_name: tool,
+        error_code: error_code(reason),
+        error: error_message(reason)
+      })
+    )
   end
 
-  defp resolve_active_plan_id(config, opts) do
-    with run_id when is_binary(run_id) <- option_value(config, :run_id) || runtime_value(opts, :run_id),
-         workflow_profile when is_map(workflow_profile) <- option_value(config, :workflow_profile),
-         route_key when is_binary(route_key) <- option_value(config, :route_key),
-         {:ok, %{"plan_id" => plan_id}} <- Store.active_plan(run_id, workflow_profile, route_key, store_opts(opts)) do
-      {:ok, plan_id}
-    else
-      _error -> {:error, %{code: "plan_not_found", message: "Structured execution plan was not found."}}
-    end
-  end
+  defp error_code(%{code: code}), do: code
+  defp error_code(_reason), do: nil
 
-  defp runtime_value(opts, key) do
-    runtime_metadata =
-      case Keyword.get(opts, :tool_context) do
-        %{runtime_metadata: metadata} when is_map(metadata) -> metadata
-        %{"runtime_metadata" => metadata} when is_map(metadata) -> metadata
-        _context -> %{}
-      end
-
-    Keyword.get(opts, key) || Map.get(runtime_metadata, key) || Map.get(runtime_metadata, Atom.to_string(key))
-  end
-
-  defp store_opts(opts) do
-    config = structured_plan_opts(opts)
-
-    []
-    |> maybe_put(:server, option_value(config, :server) || Keyword.get(opts, :structured_execution_plan_store))
-    |> maybe_put(:updated_at, Keyword.get(opts, :updated_at))
-  end
-
-  defp structured_plan_opts(opts), do: Keyword.get(opts, :structured_execution_plan, %{})
-
-  defp option_value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  defp option_value(keyword, key) when is_list(keyword), do: Keyword.get(keyword, key)
-  defp option_value(_config, _key), do: nil
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+  defp error_message(%{message: message}) when is_binary(message), do: message
+  defp error_message(reason), do: inspect(reason)
 end

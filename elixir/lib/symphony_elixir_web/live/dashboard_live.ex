@@ -214,12 +214,6 @@ defmodule SymphonyElixirWeb.DashboardLive do
             </article>
 
             <article class="metric-card">
-              <p class="metric-label">Fallback</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.fallback_count()) %></p>
-              <p class="metric-detail">Operator migration fallback calls.</p>
-            </article>
-
-            <article class="metric-card">
               <p class="metric-label">Unsupported</p>
               <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.unsupported_tool_count()) %></p>
               <p class="metric-detail">Calls blocked before source execution.</p>
@@ -527,12 +521,6 @@ defmodule SymphonyElixirWeb.DashboardLive do
               <p class="metric-label">Raw attempts</p>
               <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.raw_tool_attempts()) %></p>
               <p class="metric-detail">Rejected or failed raw tool attempts.</p>
-            </article>
-
-            <article class="metric-card">
-              <p class="metric-label">Fallback</p>
-              <p class="metric-value numeric"><%= dynamic_tool_metric(@payload, DynamicToolMetrics.fallback_count()) %></p>
-              <p class="metric-detail">Operator migration fallback calls.</p>
             </article>
 
             <article class="metric-card">

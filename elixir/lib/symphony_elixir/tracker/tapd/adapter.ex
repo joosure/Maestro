@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
 
   import SymphonyElixir.Tracker.ConfigAccess, only: [blank?: 1, provider_field: 2]
 
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error
   alias SymphonyElixir.Tracker.Kinds
@@ -18,7 +19,6 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
   alias SymphonyElixir.Tracker.StatePrecondition
   alias SymphonyElixir.Tracker.Tapd.{Client, ConfigValidator, ToolExecutor, WorkspacePreparation}
   alias SymphonyElixir.Tracker.Tapd.Client.Paths
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @provider_kind Kinds.tapd()
 
@@ -30,26 +30,26 @@ defmodule SymphonyElixir.Tracker.Tapd.Adapter do
   @spec capabilities() :: [String.t()]
   def capabilities do
     [
-      CapabilityNames.tracker_issue_read(),
-      CapabilityNames.tracker_issue_update(),
-      CapabilityNames.tracker_issue_create(),
-      CapabilityNames.tracker_comment_read(),
-      CapabilityNames.tracker_comment_write(),
-      CapabilityNames.tracker_comment_update(),
-      CapabilityNames.tracker_state_update(),
-      CapabilityNames.tracker_relation_read(),
-      CapabilityNames.tracker_relation_write(),
-      CapabilityNames.tracker_issue_snapshot(),
-      CapabilityNames.tracker_move_issue(),
-      CapabilityNames.tracker_upsert_workpad(),
-      CapabilityNames.tracker_attach_change_proposal(),
-      CapabilityNames.tracker_upsert_comment(),
-      CapabilityNames.tracker_create_follow_up_issue(),
-      CapabilityNames.tracker_read_issue_relations(),
-      CapabilityNames.tracker_add_issue_relation(),
-      CapabilityNames.tracker_read_issue_dependencies(),
-      CapabilityNames.tracker_save_issue_dependency(),
-      CapabilityNames.tracker_provider_diagnostics()
+      TrackerCapabilities.issue_read(),
+      TrackerCapabilities.issue_update(),
+      TrackerCapabilities.issue_create(),
+      TrackerCapabilities.comment_read(),
+      TrackerCapabilities.comment_write(),
+      TrackerCapabilities.comment_update(),
+      TrackerCapabilities.state_update(),
+      TrackerCapabilities.relation_read(),
+      TrackerCapabilities.relation_write(),
+      TrackerCapabilities.issue_snapshot(),
+      TrackerCapabilities.move_issue(),
+      TrackerCapabilities.upsert_workpad(),
+      TrackerCapabilities.attach_external_reference(),
+      TrackerCapabilities.upsert_comment(),
+      TrackerCapabilities.create_follow_up_issue(),
+      TrackerCapabilities.read_issue_relations(),
+      TrackerCapabilities.add_issue_relation(),
+      TrackerCapabilities.read_issue_dependencies(),
+      TrackerCapabilities.save_issue_dependency(),
+      TrackerCapabilities.provider_diagnostics()
     ]
   end
 

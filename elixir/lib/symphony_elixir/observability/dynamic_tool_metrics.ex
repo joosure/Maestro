@@ -8,10 +8,8 @@ defmodule SymphonyElixir.Observability.DynamicToolMetrics do
   @total_calls "total_calls"
   @typed_calls "typed_calls"
   @raw_calls "raw_calls"
-  @fallback_calls "fallback_calls"
   @typed_tool_hits "typed_tool_hits"
   @raw_tool_attempts "raw_tool_attempts"
-  @fallback_count "fallback_count"
   @unsupported_tool_count "unsupported_tool_count"
   @provider_capability_unavailable_count "provider_capability_unavailable_count"
   @provider_capability_unavailable "provider_capability_unavailable"
@@ -37,9 +35,6 @@ defmodule SymphonyElixir.Observability.DynamicToolMetrics do
   @spec raw_calls() :: String.t()
   def raw_calls, do: @raw_calls
 
-  @spec fallback_calls() :: String.t()
-  def fallback_calls, do: @fallback_calls
-
   @spec usage_calls(String.t()) :: String.t()
   def usage_calls(usage_kind) when is_binary(usage_kind), do: usage_kind <> "_calls"
 
@@ -51,9 +46,6 @@ defmodule SymphonyElixir.Observability.DynamicToolMetrics do
 
   @spec raw_tool_attempts() :: String.t()
   def raw_tool_attempts, do: @raw_tool_attempts
-
-  @spec fallback_count() :: String.t()
-  def fallback_count, do: @fallback_count
 
   @spec unsupported_tool_count() :: String.t()
   def unsupported_tool_count, do: @unsupported_tool_count
@@ -106,10 +98,8 @@ defmodule SymphonyElixir.Observability.DynamicToolMetrics do
       @total_calls => 0,
       @typed_calls => 0,
       @raw_calls => 0,
-      @fallback_calls => 0,
       @typed_tool_hits => 0,
       @raw_tool_attempts => 0,
-      @fallback_count => 0,
       @unsupported_tool_count => 0,
       @provider_capability_unavailable_count => 0,
       @provider_capability_unavailable => empty_provider_capability_unavailable(),
@@ -127,10 +117,8 @@ defmodule SymphonyElixir.Observability.DynamicToolMetrics do
       @total_calls => 0,
       @typed_calls => 0,
       @raw_calls => 0,
-      @fallback_calls => 0,
       @typed_tool_hits => 0,
       @raw_tool_attempts => 0,
-      @fallback_count => 0,
       @unsupported_tool_count => 0,
       @provider_capability_unavailable_count => 0,
       @provider_capability_unavailable => empty_provider_capability_unavailable(),

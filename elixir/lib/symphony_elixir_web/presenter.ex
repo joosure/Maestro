@@ -3,10 +3,10 @@ defmodule SymphonyElixirWeb.Presenter do
   Shared projections for the observability API and dashboard.
   """
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.{AgentProvider, Config, Orchestrator}
   alias SymphonyElixir.Observability.EventStore
   alias SymphonyElixir.Observability.StatusDashboard
-  alias SymphonyElixir.Workflow.CapabilityNames
   alias SymphonyElixirWeb.Observability.Status
 
   @spec state_payload(GenServer.name(), timeout()) :: map()
@@ -313,7 +313,7 @@ defmodule SymphonyElixirWeb.Presenter do
   defp provider_capabilities(_kind), do: []
 
   defp provider_stateful?(kind) when is_binary(kind) do
-    AgentProvider.supports?(CapabilityNames.agent_session_stateful(), kind: kind)
+    AgentProvider.supports?(AgentCapabilities.session_stateful(), kind: kind)
   rescue
     _ -> false
   end

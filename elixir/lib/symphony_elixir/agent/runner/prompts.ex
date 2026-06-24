@@ -1,9 +1,10 @@
 defmodule SymphonyElixir.Agent.Runner.Prompts do
   @moduledoc false
 
+  alias SymphonyElixir.Agent.Capabilities, as: AgentCapabilities
   alias SymphonyElixir.Agent.Runner.ProviderOptions
-  alias SymphonyElixir.{AgentProvider, Config}
-  alias SymphonyElixir.Workflow.CapabilityNames
+  alias SymphonyElixir.AgentProvider
+  alias SymphonyElixir.Config
   alias SymphonyElixir.Workflow.Prompt.Builder, as: PromptBuilder
 
   @spec build(term(), term(), keyword(), pos_integer(), pos_integer()) :: String.t()
@@ -33,7 +34,7 @@ defmodule SymphonyElixir.Agent.Runner.Prompts do
   end
 
   defp stateful_provider?(session) do
-    AgentProvider.supports?(CapabilityNames.agent_session_stateful(), ProviderOptions.from_session(session))
+    AgentProvider.supports?(AgentCapabilities.session_stateful(), ProviderOptions.from_session(session))
   end
 
   defp continuation_prompt(turn_number, max_turns, true) do

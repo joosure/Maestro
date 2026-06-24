@@ -13,7 +13,7 @@ defmodule SymphonyElixir.Tracker.Smoke do
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Workflow
-  alias SymphonyElixir.Workflow.Templates
+  alias SymphonyElixir.Workflow.Template, as: Templates
 
   @type probe_result :: %{
           id: String.t(),

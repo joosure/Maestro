@@ -2,8 +2,7 @@ defmodule Mix.Tasks.Symphony.Workflow.Render do
   use Mix.Task
 
   alias SymphonyElixir.Workflow
-  alias SymphonyElixir.Workflow.Templates
-
+  alias SymphonyElixir.Workflow.Template, as: Templates
   @shortdoc "Render a bundled workflow template after partial expansion"
 
   @moduledoc """

@@ -23,7 +23,7 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServerTest do
             "required" => ["issue_id"],
             "properties" => %{"issue_id" => %{"type" => "string"}}
           },
-          "workflowCapability" => "tracker.issue_snapshot",
+          "capability" => "tracker.issue_snapshot",
           "sideEffect" => "read_only",
           "sourceKind" => "linear",
           "schemaVersion" => "1"
@@ -2681,18 +2681,18 @@ defmodule SymphonyElixir.AgentProvider.Codex.AppServerTest do
 
   defp codex_dynamic_tool_context_for_test do
     %{
-      source_context: %{},
-      source_kind: "composite",
-      tool_environment: %{},
-      tool_metadata: %{
+      "source_context" => %{},
+      "source_kind" => "composite",
+      "tool_environment" => %{},
+      "tool_metadata" => %{
         "linear_issue_snapshot" => %{
-          "workflowCapability" => "tracker.issue_snapshot",
+          "capability" => "tracker.issue_snapshot",
           "sideEffect" => "read_only",
           "sourceKind" => "linear",
           "schemaVersion" => "1"
         }
       },
-      tool_specs: [
+      "tool_specs" => [
         %{
           "name" => "linear_issue_snapshot",
           "description" => "Read a Linear issue workflow snapshot.",

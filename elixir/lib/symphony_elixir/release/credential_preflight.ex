@@ -16,7 +16,7 @@ defmodule SymphonyElixir.Release.CredentialPreflight do
   alias SymphonyElixir.Release.CredentialPreflight.ProviderPlan
   alias SymphonyElixir.Release.WorkflowSource
   alias SymphonyElixir.Workflow
-  alias SymphonyElixir.Workflow.Templates, as: WorkflowTemplates
+  alias SymphonyElixir.Workflow.Template, as: WorkflowTemplates
 
   @preflight_disabled_values ~w(0 false no off disabled)
   @preflight_enabled_values ~w(1 true yes on auto)

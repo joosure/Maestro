@@ -33,4 +33,8 @@ defmodule SymphonyElixir.Workflow.Profile do
   @callback execution_profile_required_capabilities(String.t(), options()) :: [String.t()]
   @callback required_capabilities(options()) :: [String.t()]
   @callback optional_capabilities(options()) :: [String.t()]
+
+  @callback structured_execution_plan_adoption() :: module() | nil
+
+  @optional_callbacks structured_execution_plan_adoption: 0
 end

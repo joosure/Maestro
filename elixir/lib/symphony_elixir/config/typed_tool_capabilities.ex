@@ -5,37 +5,38 @@ defmodule SymphonyElixir.Config.TypedToolCapabilities do
 
   alias SymphonyElixir.Agent.DynamicTool
   alias SymphonyElixir.Agent.DynamicTool.Inventory
+  alias SymphonyElixir.Agent.DynamicTool.Inventory.ResolutionError
+  alias SymphonyElixir.Capability.Registry, as: CapabilityRegistry
   alias SymphonyElixir.Workflow.Capabilities, as: WorkflowCapabilities
 
   @spec validate_required(map()) :: :ok | {:error, term()}
   def validate_required(settings) when is_map(settings) do
     with {:ok, required_capabilities, _profile_context} <-
            WorkflowCapabilities.required_capabilities(settings),
+         required_capabilities <- Enum.filter(required_capabilities, &typed_workflow_capability?/1),
          tool_context <- DynamicTool.capture_context(),
-         fallback_policy <- Application.get_env(:symphony_elixir, :typed_workflow_tool_fallback_policy, %{}),
          {:ok, _resolved_tools} <-
-           Inventory.resolve_required(tool_context, required_capabilities, fallback_policy: fallback_policy) do
+           Inventory.resolve_required(tool_context, required_capabilities) do
       :ok
     else
-      {:error, {:missing_typed_workflow_tool, capability}} ->
+      {:error, %ResolutionError{reason: :missing_typed_tool, capability: capability}} ->
         {:error, typed_tool_error(settings, capability, :missing)}
 
-      {:error, {:ambiguous_typed_workflow_tool, capability, tools}} ->
+      {:error, %ResolutionError{reason: :ambiguous_typed_tool, capability: capability, tools: tools}} ->
         {:error, typed_tool_error(settings, capability, {:ambiguous, tools})}
 
-      {:error, {:missing_fallback_workflow_tool, capability, tool}} ->
-        {:error, typed_tool_error(settings, capability, {:missing_fallback_tool, tool})}
-
-      {:error, {:deprecated_fallback_workflow_tool, capability, tool}} ->
-        {:error, typed_tool_error(settings, capability, {:deprecated_fallback_tool, tool})}
-
-      {:error, {:typed_fallback_workflow_tool, capability, tool, tool_capability}} ->
-        {:error, typed_tool_error(settings, capability, {:typed_fallback_tool, tool, tool_capability})}
+      {:error, %ResolutionError{reason: :invalid_required_capability, value: value}} ->
+        {:error, typed_tool_error(settings, nil, {:invalid_required_capability, value})}
 
       {:error, _reason} = error ->
         error
     end
   end
+
+  defp typed_workflow_capability?(capability) when is_binary(capability),
+    do: CapabilityRegistry.typed_tool_capability?(capability)
+
+  defp typed_workflow_capability?(_capability), do: false
 
   defp typed_tool_error(settings, capability, reason) do
     case WorkflowCapabilities.required_capabilities(settings) do

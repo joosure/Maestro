@@ -3,25 +3,23 @@ defmodule SymphonyElixir.Observability.Event do
   Canonical event envelope used by the Elixir implementation's observability layer.
   """
 
-  alias SymphonyElixir.Observability.Fields
-
-  @service "symphony_elixir"
+  alias SymphonyElixir.Observability.{EventContract, Fields}
 
   @spec build(atom(), atom() | String.t(), map()) :: map()
   def build(level, event, fields \\ %{}) when is_map(fields) do
     normalized_fields = normalize_map(fields)
-    component = Map.get(normalized_fields, "component", "unknown")
-    message = Map.get(normalized_fields, "message", default_message(event, normalized_fields))
+    component = Map.get(normalized_fields, EventContract.component_key(), EventContract.unknown_component())
+    message = Map.get(normalized_fields, EventContract.message_key(), default_message(event, normalized_fields))
 
     normalized_fields
-    |> Map.drop(["component", "message"])
+    |> Map.drop([EventContract.component_key(), EventContract.message_key()])
     |> Map.merge(%{
-      "timestamp" => DateTime.utc_now(:millisecond) |> DateTime.to_iso8601(),
-      "level" => level_to_string(level),
-      "event" => event_to_string(event),
-      "message" => message,
-      "service" => @service,
-      "component" => component
+      EventContract.timestamp_key() => DateTime.utc_now(:millisecond) |> DateTime.to_iso8601(),
+      EventContract.level_key() => level_to_string(level),
+      EventContract.event_key() => event_to_string(event),
+      EventContract.message_key() => message,
+      EventContract.service_key() => EventContract.service_name(),
+      EventContract.component_key() => component
     })
     |> drop_nil_values()
   end
@@ -66,8 +64,8 @@ defmodule SymphonyElixir.Observability.Event do
   defp default_message(event, fields) when is_map(fields) do
     [event_to_string(event)]
     |> append_context_fields(fields)
-    |> append_summary_field(fields, "result_summary")
-    |> append_summary_field(fields, "payload_summary")
+    |> append_summary_field(fields, EventContract.result_summary_key())
+    |> append_summary_field(fields, EventContract.payload_summary_key())
     |> append_error_field(fields)
     |> Enum.join(" ")
   end
@@ -87,7 +85,7 @@ defmodule SymphonyElixir.Observability.Event do
   end
 
   defp append_error_field(parts, fields) when is_list(parts) and is_map(fields) do
-    append_key_value(parts, "error", Map.get(fields, "error"))
+    append_key_value(parts, EventContract.error_key(), Map.get(fields, EventContract.error_key()))
   end
 
   defp append_key_value(parts, _key, nil), do: parts

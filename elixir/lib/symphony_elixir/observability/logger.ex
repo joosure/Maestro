@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Observability.Logger do
 
   require Elixir.Logger
 
-  alias SymphonyElixir.Observability.{Event, EventStore, Fields, Redaction}
+  alias SymphonyElixir.Observability.{Event, EventContract, EventStore, Fields, Redaction}
 
   @spec emit(atom(), atom() | String.t(), map()) :: map()
   def emit(level, event, fields \\ %{}) when is_map(fields) do
@@ -16,7 +16,7 @@ defmodule SymphonyElixir.Observability.Logger do
       |> then(&Event.build(level, event, &1))
 
     maybe_record_event(payload)
-    Elixir.Logger.log(level, payload["message"], event_metadata(payload))
+    Elixir.Logger.log(level, payload[EventContract.message_key()], event_metadata(payload))
     payload
   rescue
     error ->
@@ -83,8 +83,8 @@ defmodule SymphonyElixir.Observability.Logger do
 
   defp event_metadata(payload) when is_map(payload) do
     base_metadata =
-      Enum.reduce(Fields.metadata_fields(), [observability_event: payload], fn key, acc ->
-        append_metadata_entry(acc, key, payload)
+      Enum.reduce(Fields.metadata_fields(), [{EventContract.observability_event_metadata_key(), payload}], fn key, acc ->
+        append_canonical_metadata_entry(acc, key, payload)
       end)
 
     Enum.reverse(base_metadata)
@@ -92,13 +92,20 @@ defmodule SymphonyElixir.Observability.Logger do
 
   defp text_metadata(fields) when is_map(fields) do
     Enum.reduce(Fields.metadata_fields(), [], fn key, acc ->
-      append_metadata_entry(acc, key, fields)
+      append_raw_metadata_entry(acc, key, fields)
     end)
     |> Enum.reverse()
   end
 
-  defp append_metadata_entry(acc, key, payload) when is_list(acc) and is_map(payload) do
-    case fetch_field(payload, key) do
+  defp append_canonical_metadata_entry(acc, key, payload) when is_list(acc) and is_map(payload) do
+    case fetch_canonical_payload_field(payload, key) do
+      {:ok, value} when not is_nil(value) -> [{key, value} | acc]
+      _ -> acc
+    end
+  end
+
+  defp append_raw_metadata_entry(acc, key, fields) when is_list(acc) and is_map(fields) do
+    case fetch_raw_field(fields, key) do
       {:ok, value} when not is_nil(value) -> [{key, value} | acc]
       _ -> acc
     end
@@ -109,7 +116,7 @@ defmodule SymphonyElixir.Observability.Logger do
 
     fields =
       Enum.reduce(Fields.context_metadata_fields(), fields, fn key, acc ->
-        if has_field?(acc, key) do
+        if raw_field_present?(acc, key) do
           acc
         else
           case Keyword.fetch(logger_metadata, key) do
@@ -119,7 +126,7 @@ defmodule SymphonyElixir.Observability.Logger do
         end
       end)
 
-    case {fetch_field(fields, :correlation_id), fetch_field(fields, :request_id), fetch_field(fields, :run_id)} do
+    case {fetch_raw_field(fields, :correlation_id), fetch_raw_field(fields, :request_id), fetch_raw_field(fields, :run_id)} do
       {{:ok, _correlation_id}, _request_id, _run_id} ->
         fields
 
@@ -134,11 +141,11 @@ defmodule SymphonyElixir.Observability.Logger do
     end
   end
 
-  defp has_field?(fields, key) when is_map(fields) do
+  defp raw_field_present?(fields, key) when is_map(fields) do
     Map.has_key?(fields, key) or Map.has_key?(fields, Atom.to_string(key))
   end
 
-  defp fetch_field(fields, key) when is_map(fields) do
+  defp fetch_raw_field(fields, key) when is_map(fields) do
     cond do
       Map.has_key?(fields, key) ->
         {:ok, Map.get(fields, key)}
@@ -150,6 +157,13 @@ defmodule SymphonyElixir.Observability.Logger do
         :error
     end
   end
+
+  defp fetch_canonical_payload_field(payload, key) when is_map(payload) do
+    Map.fetch(payload, canonical_payload_key(key))
+  end
+
+  defp canonical_payload_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp canonical_payload_key(key), do: to_string(key)
 
   defp maybe_record_event(payload) when is_map(payload) do
     EventStore.record(payload)

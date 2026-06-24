@@ -14,13 +14,13 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
 
   import SymphonyElixir.Tracker.ConfigAccess, only: [blank?: 1, map_get_existing_atom: 2]
 
+  alias SymphonyElixir.Tracker.Capabilities, as: TrackerCapabilities
   alias SymphonyElixir.Tracker.Config, as: TrackerConfig
   alias SymphonyElixir.Tracker.Error
   alias SymphonyElixir.Tracker.Kinds
   alias SymphonyElixir.Tracker.Linear.{Client, ConfigValidator, ToolExecutor}
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Tracker.StatePrecondition
-  alias SymphonyElixir.Workflow.CapabilityNames
 
   @provider_kind Kinds.linear()
   @tool_api_key_env "SYMPHONY_LINEAR_API_KEY"
@@ -40,18 +40,18 @@ defmodule SymphonyElixir.Tracker.Linear.Adapter do
   @spec capabilities() :: [String.t()]
   def capabilities do
     [
-      CapabilityNames.tracker_issue_read(),
-      CapabilityNames.tracker_issue_update(),
-      CapabilityNames.tracker_comment_read(),
-      CapabilityNames.tracker_comment_write(),
-      CapabilityNames.tracker_comment_update(),
-      CapabilityNames.tracker_state_update(),
-      CapabilityNames.tracker_relation_read(),
-      CapabilityNames.tracker_relation_write(),
-      CapabilityNames.tracker_issue_snapshot(),
-      CapabilityNames.tracker_move_issue(),
-      CapabilityNames.tracker_upsert_workpad(),
-      CapabilityNames.tracker_attach_change_proposal()
+      TrackerCapabilities.issue_read(),
+      TrackerCapabilities.issue_update(),
+      TrackerCapabilities.comment_read(),
+      TrackerCapabilities.comment_write(),
+      TrackerCapabilities.comment_update(),
+      TrackerCapabilities.state_update(),
+      TrackerCapabilities.relation_read(),
+      TrackerCapabilities.relation_write(),
+      TrackerCapabilities.issue_snapshot(),
+      TrackerCapabilities.move_issue(),
+      TrackerCapabilities.upsert_workpad(),
+      TrackerCapabilities.attach_external_reference()
     ]
   end
 

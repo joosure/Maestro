@@ -5,8 +5,28 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ReadinessIsolationTest
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Store, as: ReadinessStore
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store, as: PlanStore
 
+  @readiness_dir Path.expand("../../../../lib/symphony_elixir/workflow/state_transition_readiness", __DIR__)
+  @structured_plan_store_markers [
+    "Workflow.StructuredExecutionPlan.Store",
+    "StructuredExecutionPlan.Store"
+  ]
+  @forbidden_structured_plan_mutations ~w(
+    create
+    replace
+    update_plan_status
+    update_item_status
+    append_evidence_ref
+    record_evidence_refs
+    record_render_marker
+    record_provider_session_event
+    delete
+    reset
+    upsert_agent_items
+  )
+
   setup do
-    if Process.whereis(ReadinessStore), do: ReadinessStore.reset()
+    ensure_readiness_store_running()
+    ReadinessStore.reset()
 
     store = start_supervised!({PlanStore, name: nil})
     {:ok, store: store}
@@ -44,6 +64,14 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ReadinessIsolationTest
 
     assert get_in(ReadinessStore.snapshot("TES-79"), ["observations", "repo", "head_sha"]) == "abc123"
     assert {:ok, %{"items" => [%{"status" => "pending", "evidence_refs" => []}]}} = PlanStore.fetch("plan-test-1", server: store)
+  end
+
+  test "readiness policies consume structured plan store through read-only APIs" do
+    for {path, source} <- readiness_sources_with_structured_plan_store(),
+        mutation <- @forbidden_structured_plan_mutations do
+      refute Regex.match?(~r/\bStore\.#{mutation}\b/, source),
+             "#{Path.relative_to_cwd(path)} mutates Workflow.StructuredExecutionPlan.Store through Store.#{mutation}/..."
+    end
   end
 
   defp minimal_plan do
@@ -96,5 +124,28 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ReadinessIsolationTest
         "trust_classes" => ["tool_generated"]
       }
     ])
+  end
+
+  defp ensure_readiness_store_running do
+    case Process.whereis(ReadinessStore) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case start_supervised({ReadinessStore, name: ReadinessStore}) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+        end
+    end
+  end
+
+  defp readiness_sources_with_structured_plan_store do
+    @readiness_dir
+    |> Path.join("**/*.ex")
+    |> Path.wildcard()
+    |> Enum.map(&{&1, File.read!(&1)})
+    |> Enum.filter(fn {_path, source} ->
+      Enum.any?(@structured_plan_store_markers, &String.contains?(source, &1))
+    end)
   end
 end

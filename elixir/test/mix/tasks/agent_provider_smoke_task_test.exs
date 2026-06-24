@@ -4,7 +4,7 @@ defmodule Mix.Tasks.AgentProvider.SmokeTest do
   import ExUnit.CaptureIO
 
   alias Mix.Tasks.AgentProvider.Smoke, as: AgentProviderSmokeTask
-  alias SymphonyElixir.Workflow.TemplateRegistry
+  alias SymphonyElixir.Workflow.Template, as: TemplateRegistry
 
   setup do
     Mix.Task.reenable("agent_provider.smoke")

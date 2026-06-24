@@ -18,7 +18,7 @@ defmodule SymphonyElixir.LiveE2ETest do
   @docker_compose_file Path.join(@docker_support_dir, "docker-compose.yml")
   @result_file "LIVE_E2E_RESULT.txt"
   @joined_live_env "SYMPHONY_RUN_FULL_CODING_PR_DELIVERY_LIVE"
-  @default_repository "acme/widgets"
+  @default_repository "zuoke/batt"
   @default_base_branch "master"
   @default_branch_prefix "symphony/live"
   @live_e2e_skip_reason if(System.get_env("SYMPHONY_RUN_LIVE_E2E") != "1",
@@ -520,7 +520,7 @@ defmodule SymphonyElixir.LiveE2ETest do
     - `mcp__symphony-planned-tools__repo_create_or_update_change_proposal`
     - `mcp__symphony-planned-tools__repo_change_proposal_snapshot`
     - `mcp__symphony-planned-tools__repo_read_change_proposal_checks`
-    - `mcp__symphony-planned-tools__linear_attach_change_proposal`
+    - `mcp__symphony-planned-tools__linear_attach_external_reference`
     - `mcp__symphony-planned-tools__linear_move_issue`
 
     Do not replace these typed capabilities with raw Linear GraphQL operations,
@@ -602,13 +602,14 @@ defmodule SymphonyElixir.LiveE2ETest do
     Record whether checks are present or unavailable in the workpad.
 
     Step 11:
-    Call `mcp__symphony-planned-tools__linear_attach_change_proposal` with:
+    Call `mcp__symphony-planned-tools__linear_attach_external_reference` with:
     - `issue_id`: `{{ issue.id }}`
     - `url`: the change proposal URL returned in Step 8
     - `title`: `Symphony joined coding PR live probe`
-    - `repo_provider_kind`: `github`
-    - `repository`: `#{repo_live.repository}`
-    - `change_proposal_id`: the change proposal number returned in Step 8
+    - `reference_kind`: `change_proposal`
+    - `provider_kind`: `github`
+    - `external_id`: the change proposal number returned in Step 8
+    - `metadata`: `{ "repository": "#{repo_live.repository}" }`
 
     Step 12:
     Call `mcp__symphony-planned-tools__linear_move_issue` with:
@@ -887,7 +888,7 @@ defmodule SymphonyElixir.LiveE2ETest do
           assert_dynamic_tool_succeeded!(runtime_info, "repo_create_or_update_change_proposal")
           assert_dynamic_tool_succeeded!(runtime_info, "repo_change_proposal_snapshot")
           assert_dynamic_tool_succeeded!(runtime_info, "repo_read_change_proposal_checks")
-          assert_dynamic_tool_succeeded!(runtime_info, "linear_attach_change_proposal")
+          assert_dynamic_tool_succeeded!(runtime_info, "linear_attach_external_reference")
           assert_dynamic_tool_succeeded!(runtime_info, "linear_move_issue")
 
           assert read_worker_result!(runtime_info, @result_file) ==

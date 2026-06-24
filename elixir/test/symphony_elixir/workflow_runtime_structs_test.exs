@@ -5,12 +5,13 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
   alias SymphonyElixir.Workflow.Capabilities
   alias SymphonyElixir.Workflow.CompletionValidator
   alias SymphonyElixir.Workflow.Effective
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.CompletionValidator, as: CodingPrDeliveryCompletionValidator
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Profile, as: CodingPrDelivery
   alias SymphonyElixir.Workflow.IssueContext
   alias SymphonyElixir.Workflow.Profile.Config, as: ProfileConfig
   alias SymphonyElixir.Workflow.Profile.Defaults, as: ProfileDefaults
   alias SymphonyElixir.Workflow.Profile.Resolved, as: ResolvedProfile
   alias SymphonyElixir.Workflow.ProfileRegistry
-  alias SymphonyElixir.Workflow.Profiles.CodingPrDelivery
   alias SymphonyElixir.Workflow.Readiness
   alias SymphonyElixir.Workflow.RouteFacts
   alias SymphonyElixir.Workflow.RoutePolicy.Policy
@@ -91,6 +92,18 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
                  }
                }
              })
+  end
+
+  test "coding PR delivery profile rejects non-map options without exposing raw values" do
+    assert {:error,
+            %{
+              code: "invalid_coding_pr_delivery_profile_options",
+              reason: :options_not_map,
+              value_type: "list"
+            } = error} = CodingPrDelivery.validate_options([{"private", "secret"}])
+
+    refute inspect(error) =~ "private"
+    refute inspect(error) =~ "secret"
   end
 
   test "route policy policy struct preserves canonical effective map projection" do
@@ -369,6 +382,27 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
     assert "current or target route is allowed by the completion contract" in result["missing_evidence"]
   end
 
+  test "coding PR delivery completion validator fails closed on invalid options" do
+    issue =
+      issue_for_route("In Review", "human_review", %{
+        review: "In Review"
+      })
+
+    result = CodingPrDeliveryCompletionValidator.validate(issue, [:not_keyword])
+
+    assert result["status"] == "failed"
+    assert result["missing_evidence"] == ["completion validator options are valid"]
+    assert result["observed_evidence"] == ["completion_validator.options_invalid"]
+  end
+
+  test "coding PR delivery completion validator merge gate fails closed on invalid input" do
+    result = CodingPrDeliveryCompletionValidator.merge_gate(:invalid_evidence, %{})
+
+    assert result["status"] == "failed"
+    assert result["missing_evidence"] == ["completion validator input is valid"]
+    assert result["observed_evidence"] == ["completion_validator.input_invalid"]
+  end
+
   defp issue_for_route(state, lifecycle_phase, raw_state_overrides) do
     %Issue{
       state: state,
@@ -395,11 +429,11 @@ defmodule SymphonyElixir.WorkflowRuntimeStructsTest do
 
   defp merge_evidence do
     %{
-      change_proposal: %{url: "https://github.example/acme/repo/pull/42", linked_issue: true},
-      repo: %{commits: ["abc123"], diff_present: true},
-      checks: %{read: true, status: "passing"},
-      review: %{approved: true},
-      tracker: %{workpad_written: true, state: "Merging"}
+      "change_proposal" => %{"url" => "https://github.example/acme/repo/pull/42", "linked_issue" => true},
+      "repo" => %{"commits" => ["abc123"], "diff_present" => true},
+      "checks" => %{"read" => true, "status" => "passing"},
+      "review" => %{"approved" => true},
+      "tracker" => %{"workpad_written" => true, "state" => "Merging"}
     }
   end
 
