@@ -8,15 +8,21 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   @timestamp "2026-06-25T00:00:00Z"
 
   test "TAPD and CNB shadow template chain reaches observation decision without production writes" do
+    assert_shadow_chain(:tapd_cnb_shadow, "tapd-cnb-shadow", "tapd", "shadow-run-cnb-42")
+  end
+
+  test "Linear and CNB shadow template chain reaches observation decision without production writes" do
+    assert_shadow_chain(:linear_cnb_shadow, "linear-cnb-shadow", "linear", "shadow-run-linear-cnb-42")
+  end
+
+  defp assert_shadow_chain(template, entry_id, tracker_kind, shadow_run_id) do
     assert {:ok, claim} =
-             ProductionProfile.phase2_claim_template(:tapd_cnb_shadow,
-               shadow_run_id: "shadow-run-cnb-42"
-             )
+             ProductionProfile.phase2_claim_template(template, shadow_run_id: shadow_run_id)
 
     assert [
              %{
-               "id" => "tapd-cnb-shadow",
-               "tracker" => %{"kind" => "tapd"},
+               "id" => ^entry_id,
+               "tracker" => %{"kind" => ^tracker_kind},
                "repo_provider" => %{"kind" => "cnb"},
                "side_effect_mode" => "shadow_no_write",
                "shadow" => shadow
@@ -26,6 +32,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert shadow["prefix"] == OneShotContract.shadow_prefix()
     assert shadow["authority"] == OneShotContract.shadow_authority()
     assert shadow["canonical_authority"] == false
+    assert shadow["run_id"] == shadow_run_id
 
     assert {:ok, evidence_template} = ProductionProfile.phase2_evidence_packet_template(claim)
     assert evidence_template["does_not_collect_live_evidence"] == true
@@ -37,7 +44,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert {:ok, review_template} = ProductionProfile.phase4_review_packet_template(evidence_packet)
     assert review_template["does_not_read_evidence_files"] == true
 
-    review_packet = complete_review_packet(review_template)
+    review_packet = complete_review_packet(review_template, entry_id)
     assert {:ok, review_packet} = ProductionProfile.validate_review_packet(review_packet)
     assert review_packet["scrubbing_pipeline"]["failure_behavior"] == "fail_closed"
     assert review_packet["retention_policy"]["tombstone_preserving"] == true
@@ -49,13 +56,13 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
     assert {:ok, enablement_template} =
              ProductionProfile.enablement_request_template(review_decision,
-               provider_matrix_entry_ids: ["tapd-cnb-shadow"],
+               provider_matrix_entry_ids: [entry_id],
                repositories: ["acme/widgets"]
              )
 
     assert enablement_template["does_not_enable_production"] == true
 
-    enablement_request = complete_enablement_request(enablement_template)
+    enablement_request = complete_enablement_request(enablement_template, entry_id)
 
     assert {:ok, normalized_enablement_request} =
              ProductionProfile.validate_enablement_request(enablement_request)
@@ -71,7 +78,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert {:ok, apply_record_template} = ProductionProfile.operator_apply_record_template(apply_plan)
     assert apply_record_template["does_not_apply_settings"] == true
 
-    apply_record = complete_apply_record(apply_record_template)
+    apply_record = complete_apply_record(apply_record_template, entry_id)
 
     assert {:ok, normalized_apply_record} =
              ProductionProfile.validate_operator_apply_record(apply_record)
@@ -82,7 +89,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert observation_template["records_observation_only"] == true
     assert observation_template["does_not_enable_production"] == true
 
-    observation_status = complete_observation_status(observation_template)
+    observation_status = complete_observation_status(observation_template, entry_id)
 
     assert {:ok, normalized_observation_status} =
              ProductionProfile.validate_observation_status(observation_status)
@@ -148,15 +155,15 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     }
   end
 
-  defp complete_review_packet(template) do
+  defp complete_review_packet(template, entry_id) do
     template["review_packet_field_template"]
     |> Map.merge(%{
-      "review_packet_id" => "review-packet-tapd-cnb-shadow",
+      "review_packet_id" => "review-packet-#{entry_id}",
       "changed_source_specs" => [
         "specs/workflow/profiles/coding_pr_delivery/production_hardening_plan.md",
         "specs/workflow/extensions/coding_pr_delivery/reconciliation/production_profile_spec.md"
       ],
-      "implementation_refs" => ["commit:production-profile-shadow-chain"],
+      "implementation_refs" => ["commit:production-profile-#{entry_id}-shadow-chain"],
       "deterministic_test_matrix" => [
         %{
           "command" => "mise exec -- mix test test/symphony_elixir/workflow/extensions/coding_pr_delivery/production_profile",
@@ -177,10 +184,10 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     ])
   end
 
-  defp complete_enablement_request(template) do
+  defp complete_enablement_request(template, entry_id) do
     template["enablement_request_field_template"]
     |> Map.merge(%{
-      "enablement_request_id" => "enablement-tapd-cnb-shadow",
+      "enablement_request_id" => "enablement-#{entry_id}",
       "requested_by" => "release-manager",
       "requested_at" => @timestamp,
       "approvals" => [
@@ -195,9 +202,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     |> put_in(["activation_control", "change_ticket"], "CHANGE-123")
   end
 
-  defp complete_apply_record(template) do
+  defp complete_apply_record(template, entry_id) do
     template["apply_record_field_template"]
-    |> Map.merge(%{"apply_record_id" => "apply-record-tapd-cnb-shadow"})
+    |> Map.merge(%{"apply_record_id" => "apply-record-#{entry_id}"})
     |> put_in(["apply_metadata", "applied_by"], "release-operator")
     |> put_in(["apply_metadata", "applied_at"], @timestamp)
     |> put_in(["rollback_readiness", "verified"], true)
@@ -211,10 +218,10 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     end)
   end
 
-  defp complete_observation_status(template) do
+  defp complete_observation_status(template, entry_id) do
     template["observation_status_field_template"]
     |> Map.merge(%{
-      "observation_status_id" => "observation-tapd-cnb-shadow",
+      "observation_status_id" => "observation-#{entry_id}",
       "observed_by" => "release-operator",
       "observed_at" => @timestamp,
       "status" => "passed"
