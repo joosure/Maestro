@@ -32,6 +32,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
     help: :boolean
   ]
   @template_kinds [
+    "preflight_report_template",
     "evidence_packet_template",
     "review_packet_template",
     "enablement_request_template",
@@ -43,6 +44,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
 
   @type deps :: %{
           required(:read_file) => (String.t() -> {:ok, binary()} | {:error, term()}),
+          required(:phase2_preflight_report_template) => (map() -> template_result()),
           required(:phase2_evidence_packet_template) => (map() -> template_result()),
           required(:phase4_review_packet_template) => (map() -> template_result()),
           required(:enablement_request_template) => (map(), keyword() -> template_result()),
@@ -72,6 +74,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
   def runtime_deps do
     %{
       read_file: &File.read/1,
+      phase2_preflight_report_template: &ProductionProfile.phase2_preflight_report_template/1,
       phase2_evidence_packet_template: &ProductionProfile.phase2_evidence_packet_template/1,
       phase4_review_packet_template: &ProductionProfile.phase4_review_packet_template/1,
       enablement_request_template: fn decision, opts -> ProductionProfile.enablement_request_template(decision, opts) end,
@@ -151,6 +154,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       false ->
         {:error, {:usage, "Metadata JSON file must contain an object."}}
     end
+  end
+
+  defp dispatch_kind("preflight_report_template", payload, _opts, deps) do
+    payload
+    |> deps.phase2_preflight_report_template.()
+    |> dispatch_result("preflight_report_template")
   end
 
   defp dispatch_kind("evidence_packet_template", payload, _opts, deps) do
@@ -277,6 +286,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
   defp required_deps do
     [
       read_file: 1,
+      phase2_preflight_report_template: 1,
       phase2_evidence_packet_template: 1,
       phase4_review_packet_template: 1,
       enablement_request_template: 2,
@@ -309,6 +319,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       --kind <template-kind> --file <metadata-json> [--json|--pretty]
 
     Template kinds:
+      preflight_report_template      Input is a Phase 2 evidence plan.
       evidence_packet_template       Input is a production claim.
       review_packet_template         Input is a completed evidence packet.
       enablement_request_template    Input is a ready review decision.

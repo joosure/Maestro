@@ -53,6 +53,38 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
     end)
   end
 
+  test "builds preflight report templates from Phase 2 evidence plans" do
+    assert {:ok, phase2_plan} =
+             Phase2EvidencePlan.build(:tiered_reference,
+               tapd_cnb_shadow_run_id: "template-command-tapd-cnb",
+               linear_cnb_shadow_run_id: "template-command-linear-cnb"
+             )
+
+    phase2_plan = Map.put(phase2_plan, "raw_payload", "raw command input")
+
+    with_json_file!(phase2_plan, fn path ->
+      assert {stdout, "", 0} =
+               ProductionProfileTemplate.evaluate(["--kind", "preflight_report_template", "--file", path, "--json"])
+
+      payload = Jason.decode!(stdout)
+
+      assert payload["schema"] == "coding_pr_delivery.production_profile_template_result.v1"
+      assert payload["kind"] == "preflight_report_template"
+      assert payload["status"] == "ready"
+      assert payload["valid"] == true
+      assert payload["template_schema"] == "coding_pr_delivery.provider_preflight_report_template.v1"
+      assert payload["completed_packet_schema"] == "coding_pr_delivery.provider_preflight_report.v1"
+      assert payload["does_not_collect_live_evidence"] == true
+      assert payload["does_not_call_providers"] == true
+      assert payload["does_not_enable_production"] == true
+
+      template = payload["template"]
+      assert template["template_authority"] == "preflight_report_shape_only"
+      assert length(template["preflight_result_requirements"]) == 6
+      refute stdout =~ "raw command input"
+    end)
+  end
+
   test "builds review packet templates from completed evidence metadata" do
     with_json_file!(completed_evidence_packet(:linear_cnb_shadow, "review-template-shadow-1"), fn path ->
       assert {stdout, "", 0} =
