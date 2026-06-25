@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   @schema "coding_pr_delivery.production_observation_status_template.v1"
   @completed_packet_schema "coding_pr_delivery.production_observation_status.v1"
   @status_options ["in_progress", "passed", "failed"]
+  @allowed_evidence_ref_prefixes ["evidence/", "https://", "http://"]
 
   @type result :: {:ok, map()} | {:error, map()}
 
@@ -39,6 +40,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "records_observation_only" => true,
       "does_not_enable_production" => true,
       "status_options" => @status_options,
+      "allowed_evidence_ref_prefixes" => @allowed_evidence_ref_prefixes,
       "observation_status_field_template" => %{
         "observation_status_id" => "fill-observation-status-id",
         "operator_apply_record" => apply_record,
@@ -59,12 +61,30 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "criterion" => criterion,
         "status" => "in_progress",
         "observed_at" => "fill-observed-at",
-        "evidence_files" => ["fill-observation-evidence-file"]
+        "allowed_evidence_ref_prefixes" => @allowed_evidence_ref_prefixes,
+        "evidence_files" => [evidence_file(criterion)]
       }
     end)
   end
 
   defp criteria_results(_window), do: []
+
+  defp evidence_file(criterion) do
+    "evidence/observation/#{criterion_slug(criterion)}.md"
+  end
+
+  defp criterion_slug(criterion) when is_binary(criterion) do
+    criterion
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "criterion"
+      slug -> slug
+    end
+  end
+
+  defp criterion_slug(_criterion), do: "criterion"
 
   defp no_write_observation(%{"applied_scope" => %{"side_effect_mode" => "shadow_no_write"}}) do
     %{

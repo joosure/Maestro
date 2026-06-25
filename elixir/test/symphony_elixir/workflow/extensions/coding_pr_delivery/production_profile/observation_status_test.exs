@@ -73,6 +73,20 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(errors, &(&1.code == "shadow_canonical_surface_mutated"))
   end
 
+  test "rejects unbounded observation evidence references" do
+    status =
+      valid_status()
+      |> put_in(["criteria_results", Access.at(0), "evidence_files"], [
+        "fill-observation-evidence-file",
+        "file:///var/tmp/observation.txt"
+      ])
+
+    assert {:error, %{errors: errors}} = ObservationStatus.validate(status)
+
+    assert Enum.any?(errors, &(&1.code == "invalid_evidence_ref"))
+    assert Enum.any?(errors, &(&1.code == "placeholder_evidence_ref"))
+  end
+
   test "rejects invalid nested operator apply records" do
     status =
       valid_status()

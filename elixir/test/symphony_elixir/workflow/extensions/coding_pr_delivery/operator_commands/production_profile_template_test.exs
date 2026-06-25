@@ -159,6 +159,10 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       assert payload["completed_packet_schema"] == "coding_pr_delivery.production_observation_status.v1"
       assert payload["template"]["records_observation_only"] == true
       assert payload["template"]["does_not_enable_production"] == true
+      assert payload["template"]["allowed_evidence_ref_prefixes"] == ["evidence/", "https://", "http://"]
+
+      criteria_results = get_in(payload, ["template", "observation_status_field_template", "criteria_results"])
+      assert Enum.all?(criteria_results, &(List.first(&1["evidence_files"]) =~ "evidence/observation/"))
     end)
   end
 

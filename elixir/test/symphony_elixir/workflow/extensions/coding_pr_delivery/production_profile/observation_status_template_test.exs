@@ -18,6 +18,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert template["does_not_enable_production"] == true
     assert template["apply_record_id"] == "apply-record-tapd-cnb-shadow"
     assert template["status_options"] == ["in_progress", "passed", "failed"]
+    assert template["allowed_evidence_ref_prefixes"] == ["evidence/", "https://", "http://"]
 
     field_template = template["observation_status_field_template"]
 
@@ -25,6 +26,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert field_template["status"] == "in_progress"
     assert field_template["observation_window"] == apply_record["observation_start"]["observation_window"]
     assert length(field_template["criteria_results"]) == 2
+    assert Enum.all?(field_template["criteria_results"], &(&1["allowed_evidence_ref_prefixes"] == ["evidence/", "https://", "http://"]))
+    assert Enum.all?(field_template["criteria_results"], &(List.first(&1["evidence_files"]) =~ "evidence/observation/"))
 
     assert field_template["no_write_observation"] == %{
              "production_write_performed" => false,
