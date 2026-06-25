@@ -33,6 +33,34 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert decision["evidence_summary"]["non_claim_acknowledgement_count"] == 1
   end
 
+  test "projects Linear + CNB shadow review packets into bounded ready decisions" do
+    assert {:ok, decision} =
+             ReviewDecision.build(complete_review_packet("linear-cnb-shadow", "linear", "shadow-run-linear-cnb-42"))
+
+    assert decision["schema"] == "coding_pr_delivery.production_review_decision.v1"
+    assert decision["status"] == "ready_for_approval"
+    assert decision["review_packet_id"] == "review-packet-linear-cnb-shadow"
+    assert decision["profile_instance_id"] == "coding-pr-delivery-production"
+    assert decision["does_not_enable_production"] == true
+    assert decision["raw_evidence_payload_included"] == false
+    assert decision["blockers"] == []
+
+    assert [
+             %{
+               "entry_id" => "linear-cnb-shadow",
+               "tracker" => %{"kind" => "linear"},
+               "repo_provider" => %{"kind" => "cnb"},
+               "side_effect_mode" => "shadow_no_write",
+               "topology_mode" => "singleton",
+               "non_claims" => non_claims
+             }
+           ] = decision["provider_entries"]
+
+    assert "multi_node_ownership" in non_claims
+    assert decision["evidence_summary"]["scenario_evidence_count"] > 0
+    assert decision["evidence_summary"]["non_claim_acknowledgement_count"] == 1
+  end
+
   test "projects invalid review packets into bounded blocked decisions" do
     packet =
       complete_review_packet()
@@ -61,15 +89,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert [%{"code" => "invalid_type"}] = decision["blockers"]
   end
 
-  defp complete_review_packet do
+  defp complete_review_packet(
+         entry_id \\ "tapd-cnb-shadow",
+         tracker_kind \\ "tapd",
+         shadow_run_id \\ "shadow-run-1"
+       ) do
     %{
-      "review_packet_id" => "review-packet-tapd-cnb-shadow",
+      "review_packet_id" => "review-packet-#{entry_id}",
       "changed_source_specs" => [
         "specs/workflow/profiles/coding_pr_delivery/profile_spec.md"
       ],
       "implementation_refs" => ["commit:6505ae0"],
       "deterministic_test_matrix" => [%{"command" => "mise exec -- mix test", "status" => "passed"}],
-      "evidence_packet" => complete_evidence_packet(),
+      "evidence_packet" => complete_evidence_packet(entry_id, tracker_kind, shadow_run_id),
       "rollback_instructions" => %{
         "owner" => "workflow-runtime",
         "external_transition_readiness_gate" => Gates.transition_readiness_required_gate_key(),
@@ -119,8 +151,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     }
   end
 
-  defp complete_evidence_packet do
-    claim = production_claim()
+  defp complete_evidence_packet(entry_id, tracker_kind, shadow_run_id) do
+    claim = production_claim(entry_id, tracker_kind, shadow_run_id)
     assert {:ok, runbook} = EvidenceRunbook.build(claim)
 
     %{
@@ -145,7 +177,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
           "canonical_surface_mutated" => false,
           "shadow" => %{
             "prefix" => OneShotContract.shadow_prefix(),
-            "run_id" => "shadow-run-1",
+            "run_id" => get_in(entry, ["shadow_requirements", "run_id"]) || "shadow-run-1",
             "authority" => OneShotContract.shadow_authority(),
             "canonical_authority" => false,
             "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
@@ -166,19 +198,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     end)
   end
 
-  defp production_claim do
+  defp production_claim(entry_id, tracker_kind, shadow_run_id) do
     %{
       "profile_instance_id" => "coding-pr-delivery-production",
-      "provider_matrix" => [shadow_entry()],
-      "production_governance" => [governance_packet("tapd-cnb-shadow")]
+      "provider_matrix" => [shadow_entry(entry_id, tracker_kind, shadow_run_id)],
+      "production_governance" => [governance_packet(entry_id)]
     }
   end
 
-  defp shadow_entry do
+  defp shadow_entry(entry_id, tracker_kind, shadow_run_id) do
     %{
-      "id" => "tapd-cnb-shadow",
+      "id" => entry_id,
       "workflow_profile" => %{"kind" => "coding_pr_delivery", "version" => 1},
-      "tracker" => %{"kind" => "tapd"},
+      "tracker" => %{"kind" => tracker_kind},
       "repo_provider" => %{"kind" => "cnb"},
       "agent_provider" => %{"kind" => "codex"},
       "repository_class" => "single_repo_change_proposal",
@@ -201,12 +233,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       },
       "shadow" => %{
         "prefix" => OneShotContract.shadow_prefix(),
-        "run_id" => "shadow-run-1",
+        "run_id" => shadow_run_id,
         "authority" => OneShotContract.shadow_authority(),
         "canonical_authority" => false,
         "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
       },
-      "evidence_files" => ["evidence/provider-matrix/tapd-cnb-shadow.md"],
+      "evidence_files" => ["evidence/provider-matrix/#{entry_id}.md"],
       "recovery" => %{"model" => "operator_one_shot"},
       "rollback" => %{
         "owner" => "workflow-runtime",
