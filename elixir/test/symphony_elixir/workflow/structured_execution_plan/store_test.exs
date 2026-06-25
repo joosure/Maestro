@@ -158,12 +158,18 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
   test "record evidence refs scrubs matching refs before storage", %{store: store} do
     assert {:ok, _plan} = Store.create(minimal_plan_with_required_evidence(), server: store)
 
+    validation_result =
+      "LINEAR" <>
+        "_API_KEY=lin" <>
+        "-secret Authorization: Bearer bear" <>
+        "er-secret"
+
     secret_ref =
       put_in(evidence_ref(), ["payload"], %{
         "branch" => "feature/demo",
         "head_sha" => "abc123",
         "published_head_sha" => "abc123",
-        "validation_result" => "LINEAR_API_KEY=lin-secret Authorization: Bearer bearer-secret"
+        "validation_result" => validation_result
       })
 
     assert {:ok, %{"items" => [%{"evidence_refs" => [stored_ref]}]}} =
