@@ -40,6 +40,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
     assert report.ok
     assert report.mode == "dry_run"
+    assert report.shadow["prefix"] == "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    assert report.shadow["mode"] == "shadow_no_write"
+    assert report.shadow["run_id"] =~ ~r/^shadow-/
+    assert report.shadow["authority"] == "diagnostic_only"
+    assert report.shadow["canonical_authority"] == false
+    assert "diagnostic_logs" in report.shadow["allowed_destinations"]
     assert report.candidate_discovery == "runtime_targeted"
     assert report.before_state == "In Review"
     assert report.after_state == "In Review"
@@ -51,6 +57,14 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
     refute_receive {:memory_tracker_state_update, "issue-one-shot-dry-run", _state}, 50
     assert {:ok, [%Issue{state: "In Review"}]} = Tracker.fetch_issue_states_by_ids(["issue-one-shot-dry-run"])
+
+    text = OneShot.format_text(report)
+
+    for line <- String.split(String.trim(text), "\n") do
+      assert String.starts_with?(line, "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]")
+      assert line =~ "shadow_run_id=#{report.shadow["run_id"]}"
+      assert line =~ "shadow_authority=diagnostic_only"
+    end
   end
 
   test "confirmed one-shot writes through normal reconciliation preconditions" do
@@ -70,6 +84,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
     assert report.ok
     assert report.mode == "state_write"
+    assert report.shadow == nil
+    refute OneShot.format_text(report) =~ "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
     assert report.before_state == "In Review"
     assert report.after_state == "Merging"
     assert report.state_changed

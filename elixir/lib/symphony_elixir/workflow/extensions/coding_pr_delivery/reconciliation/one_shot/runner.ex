@@ -27,6 +27,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
     previous_workflow_env = deps.workflow_file_env.()
     issue_id = opts |> Keyword.get(:issue_id) |> normalize_optional_string()
     mode = Contract.mode_from_options(opts)
+    shadow_run_id = shadow_run_id(mode, started_at_ms)
 
     try do
       case WorkflowRef.resolve(opts, deps) do
@@ -35,7 +36,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
           {probes, settings, reconciliation_config} = run_config_probe(deps)
 
-          with_known_target_registry(deps, workflow_label, issue_id, mode, started_at_ms, settings, fn known_target_registry ->
+          with_known_target_registry(deps, workflow_label, issue_id, mode, started_at_ms, settings, shadow_run_id, fn known_target_registry ->
             {probes, before_issue} =
               append_issue_probe(probes, settings, issue_id, deps, Contract.probe_id(:fetch_before))
 
@@ -55,12 +56,13 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
               deps.issue_events.(issue_id || ""),
               deps.recent_events.(),
               probes,
-              deps.monotonic_time_ms.() - started_at_ms
+              deps.monotonic_time_ms.() - started_at_ms,
+              shadow_run_id
             )
           end)
 
         {:error, reason} ->
-          failure_report(issue_id, mode, Contract.probe_id(:workflow), reason, deps.monotonic_time_ms.() - started_at_ms)
+          failure_report(issue_id, mode, Contract.probe_id(:workflow), reason, deps.monotonic_time_ms.() - started_at_ms, shadow_run_id)
       end
     after
       deps.restore_workflow_file_env.(previous_workflow_env)
@@ -81,7 +83,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
     failure_report(nil, Contract.mode(:invalid), Contract.probe_id(:options), reason, 0)
   end
 
-  defp failure_report(issue_id, mode, probe_id, reason, duration_ms) do
+  defp failure_report(issue_id, mode, probe_id, reason, duration_ms, shadow_run_id \\ nil) do
     Report.build(
       nil,
       issue_id,
@@ -93,7 +95,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
       [],
       [],
       [Probe.failed(probe_id, reason)],
-      duration_ms
+      duration_ms,
+      shadow_run_id
     )
   end
 
@@ -195,12 +198,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
   defp single_issue(issues) when is_list(issues), do: {:error, %{code: :unexpected_issue_count, count: length(issues)}}
   defp single_issue(_issues), do: {:error, %{code: :unexpected_issue_lookup_payload}}
 
-  defp with_known_target_registry(_deps, _workflow_label, _issue_id, _mode, _started_at_ms, nil, fun)
+  defp with_known_target_registry(_deps, _workflow_label, _issue_id, _mode, _started_at_ms, nil, _shadow_run_id, fun)
        when is_function(fun, 1) do
     fun.(nil)
   end
 
-  defp with_known_target_registry(deps, workflow_label, issue_id, mode, started_at_ms, settings, fun)
+  defp with_known_target_registry(deps, workflow_label, issue_id, mode, started_at_ms, settings, shadow_run_id, fun)
        when is_map(deps) and is_function(fun, 1) do
     case deps.start_known_target_registry.(settings) do
       {:ok, pid} when is_pid(pid) ->
@@ -225,7 +228,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
           [],
           [],
           [Probe.failed(Contract.probe_id(:known_target_registry), reason)],
-          deps.monotonic_time_ms.() - started_at_ms
+          deps.monotonic_time_ms.() - started_at_ms,
+          shadow_run_id
         )
     end
   end
@@ -253,4 +257,10 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
   defp normalize_optional_string(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_optional_string()
   defp normalize_optional_string(value) when is_integer(value), do: value |> Integer.to_string() |> normalize_optional_string()
   defp normalize_optional_string(_value), do: nil
+
+  defp shadow_run_id(mode, started_at_ms) do
+    if Contract.shadow_mode?(mode) do
+      "shadow-#{abs(started_at_ms)}-#{:erlang.unique_integer([:positive, :monotonic])}"
+    end
+  end
 end

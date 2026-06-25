@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
 
   test "runs one-shot command through validated deps" do
     parent = self()
-    report = fake_report("issue-123")
+    report = fake_report("issue-123", shadow?: false)
 
     deps = %{
       one_shot_run: fn opts ->
@@ -25,6 +25,41 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
                       issue_id: "issue-123",
                       confirm_state_write: false
                     ]}
+  end
+
+  test "dry-run text output is marked as shadow no-write diagnostic evidence" do
+    report = fake_report("issue-shadow", shadow?: true)
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-shadow"], deps: %{one_shot_run: fn _opts -> report end})
+
+    for line <- String.split(String.trim(stdout), "\n") do
+      assert String.starts_with?(line, "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]")
+      assert line =~ "shadow_run_id=shadow-test-run"
+      assert line =~ "shadow_authority=diagnostic_only"
+    end
+  end
+
+  test "dry-run json output carries shadow no-write isolation metadata" do
+    report = fake_report("issue-shadow-json", shadow?: true)
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-shadow-json", "--json"],
+               deps: %{one_shot_run: fn _opts -> report end}
+             )
+
+    decoded = Jason.decode!(stdout)
+
+    assert decoded["shadow"]["prefix"] == "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    assert decoded["shadow"]["run_id"] == "shadow-test-run"
+    assert decoded["shadow"]["authority"] == "diagnostic_only"
+    assert decoded["shadow"]["canonical_authority"] == false
+
+    assert decoded["shadow"]["allowed_destinations"] == [
+             "diagnostic_logs",
+             "review_packets",
+             "non_authoritative_evidence"
+           ]
   end
 
   test "rejects non-keyword command opts without leaking raw opts" do
@@ -78,14 +113,15 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
   end
 
   defp valid_deps do
-    %{one_shot_run: fn _opts -> fake_report("issue-123") end}
+    %{one_shot_run: fn _opts -> fake_report("issue-123", shadow?: false) end}
   end
 
-  defp fake_report(issue_id) do
+  defp fake_report(issue_id, opts) do
     %{
       ok: true,
       issue_id: issue_id,
       mode: "dry_run",
+      shadow: shadow(opts),
       tracker_kind: "memory",
       repo_provider_kind: "memory",
       before_state: "In Review",
@@ -94,5 +130,18 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
       transition: nil,
       probes: []
     }
+  end
+
+  defp shadow(opts) do
+    if Keyword.fetch!(opts, :shadow?) do
+      %{
+        "prefix" => "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]",
+        "run_id" => "shadow-test-run",
+        "mode" => "shadow_no_write",
+        "authority" => "diagnostic_only",
+        "canonical_authority" => false,
+        "allowed_destinations" => ["diagnostic_logs", "review_packets", "non_authoritative_evidence"]
+      }
+    end
   end
 end
