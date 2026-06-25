@@ -24,6 +24,37 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
              "tapd_cnb_shadow",
              "linear_cnb_shadow"
            ]
+
+    assert [
+             %{
+               "template" => "linear_github_ready",
+               "read_only_preflight" => %{
+                 "status" => "not_run",
+                 "commands" => [
+                   %{"provider_kind" => "linear", "does_not_write" => true},
+                   %{"provider_kind" => "github", "required_auth" => ["gh auth status"]}
+                 ]
+               }
+             },
+             %{
+               "template" => "tapd_cnb_shadow",
+               "read_only_preflight" => %{
+                 "commands" => [
+                   %{"provider_kind" => "tapd", "required_env" => ["TAPD_API_USER", "TAPD_API_PASSWORD", "TAPD_WORKSPACE_ID"]},
+                   %{"provider_kind" => "cnb", "required_env" => ["CNB_TOKEN"]}
+                 ]
+               }
+             },
+             %{
+               "template" => "linear_cnb_shadow",
+               "read_only_preflight" => %{
+                 "commands" => [
+                   %{"provider_kind" => "linear", "required_env" => ["LINEAR_API_KEY", "LINEAR_PROJECT_SLUG"]},
+                   %{"provider_kind" => "cnb", "does_not_write" => true}
+                 ]
+               }
+             }
+           ] = payload["provider_plans"]
   end
 
   test "exports a Phase 4 review plan with custom shadow run ids" do

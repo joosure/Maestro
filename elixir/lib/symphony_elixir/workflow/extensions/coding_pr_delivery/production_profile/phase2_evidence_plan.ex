@@ -153,9 +153,84 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "evidence_packet_template" => evidence_template,
       "scenario_count" => scenario_count(runbook_entries),
       "live_evidence_status" => "not_collected",
+      "read_only_preflight" => read_only_preflight(template_id),
       "evidence_packet_required_before_review" => true,
       "does_not_collect_live_evidence" => true,
       "does_not_enable_production" => true
+    }
+  end
+
+  defp read_only_preflight(template_id) do
+    %{
+      "status" => "not_run",
+      "does_not_collect_live_evidence" => true,
+      "does_not_mutate_workflow_state" => true,
+      "does_not_enable_production" => true,
+      "commands" => preflight_commands(template_id)
+    }
+  end
+
+  defp preflight_commands("linear_github_ready") do
+    [
+      tracker_preflight("linear", "linear/github/opencode", ["LINEAR_API_KEY", "LINEAR_PROJECT_SLUG"]),
+      repo_provider_preflight(
+        "github",
+        "mise exec -- mix repo_provider.smoke --provider github --repo <owner/name> --pr <pr-number> --json",
+        [],
+        ["gh auth status"]
+      )
+    ]
+  end
+
+  defp preflight_commands("tapd_cnb_shadow") do
+    [
+      tracker_preflight("tapd", "tapd/cnb/opencode", ["TAPD_API_USER", "TAPD_API_PASSWORD", "TAPD_WORKSPACE_ID"]),
+      repo_provider_preflight(
+        "cnb",
+        "mise exec -- mix repo_provider.smoke --provider cnb --repo <owner/name> --pr <pr-number> --json",
+        ["CNB_TOKEN"],
+        []
+      )
+    ]
+  end
+
+  defp preflight_commands("linear_cnb_shadow") do
+    [
+      tracker_preflight("linear", "linear/github/opencode", ["LINEAR_API_KEY", "LINEAR_PROJECT_SLUG"]),
+      repo_provider_preflight(
+        "cnb",
+        "mise exec -- mix repo_provider.smoke --provider cnb --repo <owner/name> --pr <pr-number> --json",
+        ["CNB_TOKEN"],
+        []
+      )
+    ]
+  end
+
+  defp tracker_preflight(provider_kind, template, required_env) do
+    %{
+      "id" => "#{provider_kind}-tracker-read-only-smoke",
+      "target" => "tracker",
+      "provider_kind" => provider_kind,
+      "command" => "mise exec -- mix tracker.smoke --template #{template} --json",
+      "required_env" => required_env,
+      "required_auth" => [],
+      "side_effect_mode" => "read_only",
+      "requires_write_confirmation" => false,
+      "does_not_write" => true
+    }
+  end
+
+  defp repo_provider_preflight(provider_kind, command, required_env, required_auth) do
+    %{
+      "id" => "#{provider_kind}-repo-provider-read-only-smoke",
+      "target" => "repo_provider",
+      "provider_kind" => provider_kind,
+      "command" => command,
+      "required_env" => required_env,
+      "required_auth" => required_auth,
+      "side_effect_mode" => "read_only",
+      "requires_destructive_flag" => false,
+      "does_not_write" => true
     }
   end
 

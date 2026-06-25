@@ -31,6 +31,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert ready["live_evidence_status"] == "not_collected"
     assert ready["evidence_packet_required_before_review"] == true
     assert ready["scenario_count"] > 0
+    assert_read_only_preflight(ready, "linear", "github")
 
     assert tapd_cnb["tier"] == "tier_2_cnb_shadow"
     assert tapd_cnb["template"] == "tapd_cnb_shadow"
@@ -38,6 +39,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert tapd_cnb["tracker_kinds"] == ["tapd"]
     assert tapd_cnb["repo_provider_kinds"] == ["cnb"]
     assert tapd_cnb["side_effect_modes"] == [OneShotContract.shadow_mode()]
+    assert_read_only_preflight(tapd_cnb, "tapd", "cnb")
 
     assert linear_cnb["tier"] == "tier_2_cnb_shadow"
     assert linear_cnb["template"] == "linear_cnb_shadow"
@@ -45,6 +47,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert linear_cnb["tracker_kinds"] == ["linear"]
     assert linear_cnb["repo_provider_kinds"] == ["cnb"]
     assert linear_cnb["side_effect_modes"] == [OneShotContract.shadow_mode()]
+    assert_read_only_preflight(linear_cnb, "linear", "cnb")
 
     assert_shadow_plan(tapd_cnb, "tapd-cnb-shadow", "shadow-run-tapd-cnb-42")
     assert_shadow_plan(linear_cnb, "linear-cnb-shadow", "shadow-run-linear-cnb-42")
@@ -99,5 +102,49 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
              "production_write_performed" => false,
              "canonical_surface_mutated" => false
            }
+  end
+
+  defp assert_read_only_preflight(plan, tracker_kind, repo_provider_kind) do
+    assert %{
+             "status" => "not_run",
+             "does_not_collect_live_evidence" => true,
+             "does_not_mutate_workflow_state" => true,
+             "does_not_enable_production" => true,
+             "commands" => commands
+           } = plan["read_only_preflight"]
+
+    assert [%{"target" => "tracker"} = tracker, %{"target" => "repo_provider"} = repo_provider] = commands
+
+    assert tracker["provider_kind"] == tracker_kind
+    assert tracker["side_effect_mode"] == "read_only"
+    assert tracker["requires_write_confirmation"] == false
+    assert tracker["does_not_write"] == true
+    assert tracker["command"] =~ "mix tracker.smoke"
+    assert_required_tracker_env(tracker_kind, tracker["required_env"])
+
+    assert repo_provider["provider_kind"] == repo_provider_kind
+    assert repo_provider["side_effect_mode"] == "read_only"
+    assert repo_provider["requires_destructive_flag"] == false
+    assert repo_provider["does_not_write"] == true
+    assert repo_provider["command"] =~ "mix repo_provider.smoke"
+    assert_required_repo_provider_auth(repo_provider_kind, repo_provider)
+  end
+
+  defp assert_required_tracker_env("linear", required_env) do
+    assert required_env == ["LINEAR_API_KEY", "LINEAR_PROJECT_SLUG"]
+  end
+
+  defp assert_required_tracker_env("tapd", required_env) do
+    assert required_env == ["TAPD_API_USER", "TAPD_API_PASSWORD", "TAPD_WORKSPACE_ID"]
+  end
+
+  defp assert_required_repo_provider_auth("github", repo_provider) do
+    assert repo_provider["required_env"] == []
+    assert repo_provider["required_auth"] == ["gh auth status"]
+  end
+
+  defp assert_required_repo_provider_auth("cnb", repo_provider) do
+    assert repo_provider["required_env"] == ["CNB_TOKEN"]
+    assert repo_provider["required_auth"] == []
   end
 end
