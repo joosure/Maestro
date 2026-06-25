@@ -54,6 +54,25 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.KnownTargetTest do
              KnownTarget.new(attrs, now_ms: 1_000)
   end
 
+  test "new preserves Linear + CNB provider identity without retaining raw provider payloads" do
+    attrs = Map.put(linear_cnb_attrs(), "raw_provider_payload", %{"authorization" => "Bearer secret-token"})
+
+    assert {:ok,
+            %KnownTarget{
+              issue_id: "LIN-42",
+              tracker_kind: "linear",
+              repo_provider_kind: "cnb",
+              repository: "cnb/acme/widgets",
+              number: "42",
+              url: "https://cnb.cool/acme/widgets/-/merge_requests/42",
+              branch: "feature/linear-cnb-shadow",
+              head_sha: "abc123"
+            } = target} = KnownTarget.new(attrs, now_ms: 1_000)
+
+    refute inspect(target) =~ "raw_provider_payload"
+    refute inspect(target) =~ "secret-token"
+  end
+
   test "merge rejects non-keyword opts and returns merged target on valid opts" do
     {:ok, existing} = KnownTarget.new(valid_attrs(), now_ms: 1_000)
     {:ok, incoming} = KnownTarget.new(Map.put(valid_attrs(), Fields.branch(), "feature/demo"), now_ms: 1_001)
@@ -88,6 +107,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.KnownTargetTest do
       Fields.issue_id() => "issue-1",
       Fields.number() => "42",
       Fields.repository() => "acme/widgets"
+    }
+  end
+
+  defp linear_cnb_attrs do
+    %{
+      Fields.issue_id() => "LIN-42",
+      Fields.tracker_kind() => "linear",
+      Fields.repo_provider_kind() => "cnb",
+      Fields.repository() => "cnb/acme/widgets",
+      Fields.number() => "42",
+      Fields.url() => "https://cnb.cool/acme/widgets/-/merge_requests/42",
+      Fields.branch() => "feature/linear-cnb-shadow",
+      Fields.head_sha() => "abc123"
     }
   end
 end
