@@ -29,6 +29,34 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(errors, &(&1.code == "missing_preflight_result"))
   end
 
+  test "requires bounded evidence refs for passed preflight results" do
+    assert {:ok, phase2_plan} = Phase2EvidencePlan.build(:linear_cnb_shadow)
+
+    report =
+      %{
+        "schema" => "coding_pr_delivery.provider_preflight_report.v1",
+        "phase2_evidence_plan" => phase2_plan,
+        "provider_preflight_results" => passed_results_without_evidence(phase2_plan),
+        "explicit_non_claims" => [
+          "preflight_report_does_not_collect_live_provider_evidence",
+          "preflight_report_does_not_enable_production"
+        ]
+      }
+
+    assert {:error, %{errors: missing_errors}} = PreflightReport.validate(report)
+    assert Enum.any?(missing_errors, &(&1.code == "invalid_string_list" and List.last(&1.path) == "evidence_files"))
+
+    invalid_report =
+      put_in(report, ["provider_preflight_results", Access.at(0), "evidence_files"], [
+        "fill-preflight-evidence.md",
+        "file:///var/tmp/preflight.txt"
+      ])
+
+    assert {:error, %{errors: invalid_errors}} = PreflightReport.validate(invalid_report)
+    assert Enum.any?(invalid_errors, &(&1.code == "invalid_evidence_ref"))
+    assert Enum.any?(invalid_errors, &(&1.code == "placeholder_evidence_ref"))
+  end
+
   test "requires the preflight report schema" do
     report = Map.delete(blocked_report(), "schema")
 
@@ -42,7 +70,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       blocked_report()
       |> update_in(["provider_preflight_results", Access.at(0)], fn result ->
         result
-        |> Map.put("missing_prerequisites", ["UNDECLARED_SECRET"])
+        |> Map.put("missing_prerequisites", ["UNDECLARED_PREREQUISITE"])
         |> Map.put("stdout", "raw provider output")
       end)
 
@@ -107,6 +135,33 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "status" => "blocked",
       "blocker_code" => "missing_preflight_prerequisite",
       "missing_prerequisites" => [first_prerequisite(command)],
+      "ran_at" => "2026-06-26T03:10:00Z",
+      "side_effect_mode" => "read_only",
+      "write_performed" => false,
+      "production_enabled" => false,
+      "evidence_files" => ["evidence/preflight/#{template}/#{Map.fetch!(command, "id")}.md"]
+    }
+  end
+
+  defp passed_results_without_evidence(phase2_plan) do
+    phase2_plan
+    |> Map.fetch!("provider_plans")
+    |> Enum.flat_map(fn provider_plan ->
+      template = Map.fetch!(provider_plan, "template")
+
+      provider_plan
+      |> get_in(["read_only_preflight", "commands"])
+      |> Enum.map(&passed_result_without_evidence(template, &1))
+    end)
+  end
+
+  defp passed_result_without_evidence(template, command) do
+    %{
+      "template" => template,
+      "command_id" => Map.fetch!(command, "id"),
+      "target" => Map.fetch!(command, "target"),
+      "provider_kind" => Map.fetch!(command, "provider_kind"),
+      "status" => "passed",
       "ran_at" => "2026-06-26T03:10:00Z",
       "side_effect_mode" => "read_only",
       "write_performed" => false,

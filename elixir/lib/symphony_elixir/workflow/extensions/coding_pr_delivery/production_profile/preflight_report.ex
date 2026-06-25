@@ -12,6 +12,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   @error_code "coding_pr_delivery_preflight_report_invalid"
   @statuses ["passed", "blocked"]
   @raw_output_fields ["stdout", "stderr", "raw_output", "raw_payload", "environment", "env", "token"]
+  @placeholder_tokens ["fill-", "TODO", "REPLACE", "<", ">"]
 
   @type validation_result :: {:ok, map()} | {:error, map()}
 
@@ -125,6 +126,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       issue("preflight_enabled_production", path ++ ["production_enabled"], "Preflight results must not enable production.")
     )
     |> collect_blocker(result, expected, path)
+    |> collect_preflight_evidence_files(result, path, status)
     |> collect_raw_output_fields(result, path)
   end
 
@@ -191,6 +193,67 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   end
 
   defp collect_known_missing_prerequisites(errors, _missing, _expected, _path), do: errors
+
+  defp collect_preflight_evidence_files(errors, result, path, "passed") do
+    collect_evidence_files(errors, result, path ++ ["evidence_files"], true)
+  end
+
+  defp collect_preflight_evidence_files(errors, result, path, _status) do
+    collect_evidence_files(errors, result, path ++ ["evidence_files"], false)
+  end
+
+  defp collect_evidence_files(errors, result, path, required?) do
+    evidence_files = value_at(result, [List.last(path)])
+
+    errors =
+      cond do
+        required? ->
+          collect_string_list_field(errors, result, path, List.last(path), "Passed preflight results must cite bounded evidence references.")
+
+        is_nil(evidence_files) ->
+          errors
+
+        true ->
+          collect_string_list_field(errors, result, path, List.last(path), "Preflight evidence references must be a non-empty string array when present.")
+      end
+
+    if is_list(evidence_files) do
+      evidence_files
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {evidence_ref, index} -> evidence_ref_errors(evidence_ref, path ++ [index]) end)
+      |> then(&(errors ++ &1))
+    else
+      errors
+    end
+  end
+
+  defp evidence_ref_errors(evidence_ref, path) do
+    []
+    |> maybe_add(
+      non_empty_string?(evidence_ref) and not allowed_evidence_ref?(evidence_ref),
+      issue("invalid_evidence_ref", path, "Preflight evidence references must be repository evidence paths or HTTP(S) links.")
+    )
+    |> maybe_add(
+      non_empty_string?(evidence_ref) and placeholder_evidence_ref?(evidence_ref),
+      issue("placeholder_evidence_ref", path, "Preflight evidence references must not contain placeholders.")
+    )
+  end
+
+  defp allowed_evidence_ref?(evidence_ref) do
+    String.starts_with?(evidence_ref, "evidence/") or
+      String.starts_with?(evidence_ref, "https://") or
+      String.starts_with?(evidence_ref, "http://")
+  end
+
+  defp placeholder_evidence_ref?(evidence_ref) do
+    downcased = String.downcase(evidence_ref)
+
+    String.starts_with?(downcased, "/tmp/") or
+      String.starts_with?(downcased, "tmp/") or
+      String.starts_with?(downcased, "/var/") or
+      String.starts_with?(downcased, "file://") or
+      Enum.any?(@placeholder_tokens, &String.contains?(downcased, String.downcase(&1)))
+  end
 
   defp collect_raw_output_fields(errors, result, path) do
     @raw_output_fields

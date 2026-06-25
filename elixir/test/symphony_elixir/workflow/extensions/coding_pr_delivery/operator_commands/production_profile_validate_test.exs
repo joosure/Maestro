@@ -196,7 +196,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       "ran_at" => "2026-06-26T03:20:00Z",
       "side_effect_mode" => "read_only",
       "write_performed" => false,
-      "production_enabled" => false
+      "production_enabled" => false,
+      "evidence_files" => ["evidence/preflight/#{template}/#{Map.fetch!(command, "id")}.md"]
     }
   end
 

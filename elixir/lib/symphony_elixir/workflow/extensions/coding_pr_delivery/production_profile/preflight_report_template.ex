@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   @phase2_schema "coding_pr_delivery.phase2_evidence_plan.v1"
   @error_code "coding_pr_delivery_preflight_report_template_invalid"
   @status_options ["passed", "blocked"]
+  @allowed_evidence_ref_prefixes ["evidence/", "https://", "http://"]
   @non_claims [
     "preflight_report_does_not_collect_live_provider_evidence",
     "preflight_report_does_not_enable_production"
@@ -236,7 +237,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "write_performed" => false,
       "production_enabled" => false,
       "raw_output_allowed" => false,
-      "fields_to_complete" => ["status", "ran_at"],
+      "allowed_evidence_ref_prefixes" => @allowed_evidence_ref_prefixes,
+      "evidence_files" => evidence_files(template, Map.get(command, "id")),
+      "fields_to_complete" => ["status", "ran_at", "evidence_files"],
       "blocked_fields_to_complete" => ["blocker_code", "missing_prerequisites"]
     }
   end
@@ -252,9 +255,14 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "side_effect_mode" => "read_only",
       "write_performed" => false,
       "production_enabled" => false,
+      "evidence_files" => Map.get(requirement, "evidence_files", []),
       "blocker_code" => "fill-when-blocked",
       "missing_prerequisites" => []
     }
+  end
+
+  defp evidence_files(template, command_id) do
+    ["evidence/preflight/#{template}/#{command_id}.md"]
   end
 
   defp invalid(errors) do

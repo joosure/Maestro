@@ -33,6 +33,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.all?(requirements, &(&1["required_side_effect_mode"] == "read_only"))
     assert Enum.all?(requirements, &(&1["write_performed"] == false))
     assert Enum.all?(requirements, &(&1["production_enabled"] == false))
+    assert Enum.all?(requirements, &(&1["allowed_evidence_ref_prefixes"] == ["evidence/", "https://", "http://"]))
+    assert Enum.all?(requirements, &(List.first(&1["evidence_files"]) =~ "evidence/preflight/"))
 
     field_template = template["preflight_report_field_template"]
     refute Map.has_key?(field_template["phase2_evidence_plan"], "raw_payload")
@@ -83,7 +85,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "ran_at" => "2026-06-26T04:30:00Z",
         "side_effect_mode" => "read_only",
         "write_performed" => false,
-        "production_enabled" => false
+        "production_enabled" => false,
+        "evidence_files" => requirement["evidence_files"]
       }
     end)
   end
