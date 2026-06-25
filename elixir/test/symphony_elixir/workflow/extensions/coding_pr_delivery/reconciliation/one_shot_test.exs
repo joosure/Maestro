@@ -40,6 +40,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
     assert report.ok
     assert report.mode == "dry_run"
+    assert report.shadow["prefix"] == "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    assert report.shadow["mode"] == "shadow_no_write"
+    assert report.shadow["run_id"] =~ ~r/^shadow-/
+    assert report.shadow["authority"] == "diagnostic_only"
+    assert report.shadow["canonical_authority"] == false
+    assert "diagnostic_logs" in report.shadow["allowed_destinations"]
     assert report.candidate_discovery == "runtime_targeted"
     assert report.before_state == "In Review"
     assert report.after_state == "In Review"
@@ -51,6 +57,14 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
     refute_receive {:memory_tracker_state_update, "issue-one-shot-dry-run", _state}, 50
     assert {:ok, [%Issue{state: "In Review"}]} = Tracker.fetch_issue_states_by_ids(["issue-one-shot-dry-run"])
+
+    text = OneShot.format_text(report)
+
+    for line <- String.split(String.trim(text), "\n") do
+      assert String.starts_with?(line, "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]")
+      assert line =~ "shadow_run_id=#{report.shadow["run_id"]}"
+      assert line =~ "shadow_authority=diagnostic_only"
+    end
   end
 
   test "confirmed one-shot writes through normal reconciliation preconditions" do
@@ -70,6 +84,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
     assert report.ok
     assert report.mode == "state_write"
+    assert report.shadow == nil
+    refute OneShot.format_text(report) =~ "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
     assert report.before_state == "In Review"
     assert report.after_state == "Merging"
     assert report.state_changed
@@ -145,6 +161,129 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
     assert error =~ "code=invalid_one_shot_options"
     assert error =~ "value_type=list"
     refute error =~ "not_a_keyword"
+  end
+
+  test "one-shot report output scrubs diagnostic secret strings" do
+    report = %{
+      ok: false,
+      issue_id: "issue-secret-output",
+      mode: "dry_run",
+      shadow: nil,
+      tracker_kind: "memory",
+      repo_provider_kind: "memory",
+      before_state: "In Review",
+      after_state: "In Review",
+      decision: %{"decision" => "blocked", "reason" => "token=ghp_secret123", "target_route" => nil},
+      transition: %{"event" => "change_proposal_transition_failed", "skip_reason" => nil, "target_state" => "Merging"},
+      probes: [
+        %{
+          id: "diagnostic-probe",
+          ok: false,
+          summary: "Authorization: Bearer bearer-secret",
+          error: "LINEAR_API_KEY=lin-secret",
+          duration_ms: 3
+        }
+      ]
+    }
+
+    text = OneShot.format_text(report)
+    encoded_map = inspect(OneShot.to_map(report))
+
+    assert text =~ "token=[REDACTED]"
+    assert text =~ "Authorization: [REDACTED]"
+    assert text =~ "LINEAR_API_KEY=[REDACTED]"
+    refute text =~ "ghp_secret123"
+    refute text =~ "bearer-secret"
+    refute text =~ "lin-secret"
+    refute encoded_map =~ "ghp_secret123"
+    refute encoded_map =~ "bearer-secret"
+    refute encoded_map =~ "lin-secret"
+  end
+
+  test "one-shot shadow report preserves Linear + CNB diagnostic provider identity" do
+    report = %{
+      ok: true,
+      issue_id: "issue-linear-cnb-shadow",
+      mode: "dry_run",
+      shadow: %{
+        "prefix" => "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]",
+        "run_id" => "shadow-linear-cnb-42",
+        "mode" => "shadow_no_write",
+        "authority" => "diagnostic_only",
+        "canonical_authority" => false,
+        "allowed_destinations" => ["diagnostic_logs", "review_packets", "non_authoritative_evidence"]
+      },
+      tracker_kind: "linear",
+      repo_provider_kind: "cnb",
+      before_state: "In Review",
+      after_state: "In Review",
+      decision: %{"decision" => "ready_to_land", "reason" => "ready_to_land", "target_route" => "merging"},
+      transition: %{"event" => "change_proposal_transition_skipped", "skip_reason" => "dry_run", "target_state" => "Merging"},
+      probes: [
+        %{
+          id: "targeted-reconcile",
+          ok: true,
+          summary: "Linear + CNB shadow evidence remains diagnostic-only",
+          error: nil,
+          duration_ms: 3
+        }
+      ]
+    }
+
+    text = OneShot.format_text(report)
+    encoded = OneShot.to_map(report)
+
+    for line <- String.split(String.trim(text), "\n") do
+      assert String.starts_with?(line, "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]")
+      assert line =~ "shadow_run_id=shadow-linear-cnb-42"
+      assert line =~ "shadow_authority=diagnostic_only"
+    end
+
+    assert text =~ "tracker=linear repo_provider=cnb"
+    assert encoded.tracker_kind == "linear"
+    assert encoded.repo_provider_kind == "cnb"
+    assert encoded.shadow["canonical_authority"] == false
+    assert encoded.shadow["allowed_destinations"] == ["diagnostic_logs", "review_packets", "non_authoritative_evidence"]
+  end
+
+  test "one-shot confirmed report preserves Linear + CNB provider identity without shadow metadata" do
+    report = %{
+      ok: true,
+      issue_id: "issue-linear-cnb-write",
+      mode: "state_write",
+      shadow: nil,
+      tracker_kind: "linear",
+      repo_provider_kind: "cnb",
+      before_state: "In Review",
+      after_state: "Merging",
+      decision: %{"decision" => "ready_to_land", "reason" => "ready_to_land", "target_route" => "merging"},
+      transition: %{"event" => "change_proposal_transition_succeeded", "skip_reason" => nil, "target_state" => "Merging"},
+      probes: [
+        %{
+          id: "targeted-reconcile",
+          ok: true,
+          summary: "Linear + CNB confirmed output is not shadow evidence",
+          error: nil,
+          duration_ms: 3
+        }
+      ]
+    }
+
+    text = OneShot.format_text(report)
+    encoded = OneShot.to_map(report)
+
+    assert text =~ "issue=issue-linear-cnb-write"
+    assert text =~ "mode=state_write"
+    assert text =~ "tracker=linear repo_provider=cnb"
+    assert text =~ "transition=change_proposal_transition_succeeded"
+    refute text =~ "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    refute text =~ "shadow_run_id="
+    refute text =~ "shadow_authority=diagnostic_only"
+
+    assert encoded.mode == "state_write"
+    assert encoded.tracker_kind == "linear"
+    assert encoded.repo_provider_kind == "cnb"
+    assert encoded.shadow == nil
   end
 
   test "probe exception diagnostics do not expose exception messages" do

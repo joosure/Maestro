@@ -12,6 +12,10 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
   @mode_dry_run "dry_run"
   @mode_invalid "invalid"
   @mode_state_write "state_write"
+  @shadow_prefix "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+  @shadow_mode "shadow_no_write"
+  @shadow_authority "diagnostic_only"
+  @shadow_allowed_destinations ["diagnostic_logs", "review_packets", "non_authoritative_evidence"]
 
   @spec probe_id(
           :config_validation
@@ -39,4 +43,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
   def mode_from_options(opts) when is_list(opts) do
     if Keyword.get(opts, :confirm_state_write, false), do: @mode_state_write, else: @mode_dry_run
   end
+
+  @spec shadow_prefix() :: String.t()
+  def shadow_prefix, do: @shadow_prefix
+
+  @spec shadow_mode() :: String.t()
+  def shadow_mode, do: @shadow_mode
+
+  @spec shadow_authority() :: String.t()
+  def shadow_authority, do: @shadow_authority
+
+  @spec shadow_allowed_destinations() :: [String.t()]
+  def shadow_allowed_destinations, do: @shadow_allowed_destinations
+
+  @spec shadow_mode?(String.t()) :: boolean()
+  def shadow_mode?(mode), do: mode == @mode_dry_run
 end

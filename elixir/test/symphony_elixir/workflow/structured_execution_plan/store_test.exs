@@ -3,6 +3,9 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
 
   alias SymphonyElixir.Agent.ExecutionPlan.ErrorCodes.StatusMachine, as: StatusMachineErrorCodes
   alias SymphonyElixir.Agent.ExecutionPlan.Store, as: AgentStore
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderSessionEvent
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderSessionEvent.Contract, as: ProviderSessionEventContract
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProviderSessionEvent.Values, as: ProviderSessionEventValues
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Workpad.Renderer
 
@@ -126,6 +129,102 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
              Store.append_evidence_ref("plan-test-1", "agent.plan", changed_ref, 2, server: store)
   end
 
+  test "append evidence ref scrubs payload before storage", %{store: store} do
+    assert {:ok, _plan} = Store.create(minimal_plan(), server: store)
+
+    metadata_key = "api" <> "_key"
+    metadata_value = "fixture-value"
+
+    secret_ref =
+      put_in(evidence_ref(), ["payload"], %{
+        "branch" => "feature/demo",
+        "head_sha" => "abc123",
+        "summary" => "Authorization: Bearer bearer-secret token=ghp_secret123",
+        "metadata" => %{metadata_key => metadata_value}
+      })
+
+    assert {:ok, %{"items" => [%{"evidence_refs" => [stored_ref]}]}} =
+             Store.append_evidence_ref("plan-test-1", "agent.plan", secret_ref, 1, server: store)
+
+    payload = stored_ref["payload"]
+
+    assert payload["branch"] == "feature/demo"
+    assert payload["head_sha"] == "abc123"
+    assert payload["summary"] =~ "Authorization: [REDACTED]"
+    assert payload["summary"] =~ "token=[REDACTED]"
+    assert payload["metadata"]["api_key"] == "[REDACTED]"
+    refute inspect(payload) =~ "bearer-secret"
+    refute inspect(payload) =~ "ghp_secret123"
+    refute inspect(payload) =~ "fixture-value"
+  end
+
+  test "record evidence refs scrubs matching refs before storage", %{store: store} do
+    assert {:ok, _plan} = Store.create(minimal_plan_with_required_evidence(), server: store)
+
+    validation_result =
+      "LINEAR" <>
+        "_API_KEY=lin" <>
+        "-secret Authorization: Bearer bear" <>
+        "er-secret"
+
+    secret_ref =
+      put_in(evidence_ref(), ["payload"], %{
+        "branch" => "feature/demo",
+        "head_sha" => "abc123",
+        "published_head_sha" => "abc123",
+        "validation_result" => validation_result
+      })
+
+    assert {:ok, %{"items" => [%{"evidence_refs" => [stored_ref]}]}} =
+             Store.record_evidence_refs("plan-test-1", [secret_ref], server: store)
+
+    payload = stored_ref["payload"]
+
+    assert payload["validation_result"] =~ "LINEAR_API_KEY=[REDACTED]"
+    assert payload["validation_result"] =~ "Authorization: [REDACTED]"
+    refute inspect(payload) =~ "lin-secret"
+    refute inspect(payload) =~ "bearer-secret"
+  end
+
+  test "evidence ref storage fails closed when scrubbing backend is unavailable", %{store: store} do
+    assert {:ok, _plan} = Store.create(minimal_plan(), server: store)
+
+    assert {:error, %{code: "redaction_failed"}} =
+             Store.append_evidence_ref(
+               "plan-test-1",
+               "agent.plan",
+               evidence_ref(),
+               1,
+               server: store,
+               storage_redaction_backend: __MODULE__.MissingRedactionCallbackBackend
+             )
+
+    assert {:ok, %{"revision" => 1, "items" => [%{"evidence_refs" => []}]}} = Store.fetch("plan-test-1", server: store)
+  end
+
+  test "provider session events are scrubbed before storage", %{store: store} do
+    assert {:ok, _plan} = Store.create(minimal_plan(), server: store)
+
+    event = provider_session_event("token=ghp_secret123 Authorization: Bearer bearer-secret")
+
+    assert {:ok, %{"extensions" => extensions}} = Store.record_provider_session_event("plan-test-1", event, 1, server: store)
+
+    assert [
+             %{
+               "tasks" => [
+                 %{
+                   "note" => note
+                 }
+               ]
+             }
+           ] = Map.fetch!(extensions, ProviderSessionEvent.extension_key())
+
+    assert note =~ "token=[REDACTED]"
+    assert note =~ "Authorization: [REDACTED]"
+    refute inspect(extensions) =~ "ghp_secret123"
+    refute inspect(extensions) =~ "bearer-secret"
+  end
+
   test "render markers are stored without changing canonical plan revision", %{store: store} do
     plan = minimal_plan()
 
@@ -158,6 +257,11 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
     }
   end
 
+  defp minimal_plan_with_required_evidence do
+    minimal_plan()
+    |> Map.put("items", [required_evidence_item()])
+  end
+
   defp minimal_item do
     %{
       "item_id" => "agent.plan",
@@ -178,6 +282,17 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
     }
   end
 
+  defp required_evidence_item do
+    minimal_item()
+    |> Map.put("evidence_requirements", [
+      %{
+        "evidence_kind" => "repo_push",
+        "required_fields" => ["branch", "head_sha", "published_head_sha"],
+        "trust_classes" => ["tool_generated"]
+      }
+    ])
+  end
+
   defp evidence_ref do
     %{
       "evidence_id" => "evidence-test-1",
@@ -188,6 +303,27 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
       "issue_id" => "TES-79",
       "observed_at" => "2026-05-20T00:00:01Z",
       "payload" => %{"branch" => "feature/demo", "head_sha" => "abc123"}
+    }
+  end
+
+  defp provider_session_event(note) do
+    %{
+      ProviderSessionEventContract.schema_key() => ProviderSessionEventContract.schema_id(),
+      ProviderSessionEventContract.authority_key() => ProviderSessionEventValues.authority(),
+      ProviderSessionEventContract.trust_class_key() => ProviderSessionEventValues.default_trust_class(),
+      ProviderSessionEventContract.provider_kind_key() => "codex",
+      ProviderSessionEventContract.surface_key() => ProviderSessionEventValues.provider_session_tasks_surface(),
+      ProviderSessionEventContract.event_id_key() => "provider-event-1",
+      ProviderSessionEventContract.run_id_key() => "run-test-1",
+      ProviderSessionEventContract.observed_at_key() => "2026-05-20T00:00:01Z",
+      ProviderSessionEventContract.tasks_key() => [
+        %{
+          ProviderSessionEventContract.provider_task_id_key() => "task-1",
+          ProviderSessionEventContract.title_key() => "Review",
+          ProviderSessionEventContract.requested_status_key() => "completed",
+          ProviderSessionEventContract.note_key() => note
+        }
+      ]
     }
   end
 
@@ -208,5 +344,9 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
       "updated_at" => "2026-05-20T00:00:00Z",
       "revision" => 1
     }
+  end
+
+  defmodule MissingRedactionCallbackBackend do
+    @moduledoc false
   end
 end

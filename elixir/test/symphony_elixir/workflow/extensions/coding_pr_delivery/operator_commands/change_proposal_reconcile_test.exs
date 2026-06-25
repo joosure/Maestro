@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
 
   test "runs one-shot command through validated deps" do
     parent = self()
-    report = fake_report("issue-123")
+    report = fake_report("issue-123", shadow?: false)
 
     deps = %{
       one_shot_run: fn opts ->
@@ -25,6 +25,142 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
                       issue_id: "issue-123",
                       confirm_state_write: false
                     ]}
+  end
+
+  test "dry-run text output is marked as shadow no-write diagnostic evidence" do
+    report = fake_report("issue-shadow", shadow?: true)
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-shadow"], deps: %{one_shot_run: fn _opts -> report end})
+
+    for line <- String.split(String.trim(stdout), "\n") do
+      assert String.starts_with?(line, "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]")
+      assert line =~ "shadow_run_id=shadow-test-run"
+      assert line =~ "shadow_authority=diagnostic_only"
+    end
+  end
+
+  test "dry-run text output preserves Linear + CNB shadow provider identity" do
+    report = fake_report("issue-linear-cnb-shadow", shadow?: true, tracker_kind: "linear", repo_provider_kind: "cnb")
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-linear-cnb-shadow"],
+               deps: %{one_shot_run: fn _opts -> report end}
+             )
+
+    for line <- String.split(String.trim(stdout), "\n") do
+      assert String.starts_with?(line, "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]")
+      assert line =~ "shadow_run_id=shadow-test-run"
+      assert line =~ "shadow_authority=diagnostic_only"
+    end
+
+    assert stdout =~ "issue=issue-linear-cnb-shadow"
+    assert stdout =~ "tracker=linear repo_provider=cnb"
+    refute stdout =~ "state_write"
+  end
+
+  test "dry-run json output carries shadow no-write isolation metadata" do
+    report = fake_report("issue-shadow-json", shadow?: true)
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-shadow-json", "--json"],
+               deps: %{one_shot_run: fn _opts -> report end}
+             )
+
+    decoded = Jason.decode!(stdout)
+
+    assert decoded["shadow"]["prefix"] == "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    assert decoded["shadow"]["run_id"] == "shadow-test-run"
+    assert decoded["shadow"]["authority"] == "diagnostic_only"
+    assert decoded["shadow"]["canonical_authority"] == false
+
+    assert decoded["shadow"]["allowed_destinations"] == [
+             "diagnostic_logs",
+             "review_packets",
+             "non_authoritative_evidence"
+           ]
+  end
+
+  test "dry-run json output preserves Linear + CNB shadow provider identity" do
+    report = fake_report("issue-linear-cnb-shadow-json", shadow?: true, tracker_kind: "linear", repo_provider_kind: "cnb")
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-linear-cnb-shadow-json", "--json"],
+               deps: %{one_shot_run: fn _opts -> report end}
+             )
+
+    decoded = Jason.decode!(stdout)
+
+    assert decoded["issue_id"] == "issue-linear-cnb-shadow-json"
+    assert decoded["mode"] == "dry_run"
+    assert decoded["tracker_kind"] == "linear"
+    assert decoded["repo_provider_kind"] == "cnb"
+    assert decoded["shadow"]["prefix"] == "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    assert decoded["shadow"]["run_id"] == "shadow-test-run"
+    assert decoded["shadow"]["authority"] == "diagnostic_only"
+    assert decoded["shadow"]["canonical_authority"] == false
+    refute stdout =~ "state_write"
+  end
+
+  test "confirmed json output for Linear + CNB omits shadow metadata" do
+    parent = self()
+    report = fake_report("issue-linear-cnb-write-json", shadow?: false, mode: "state_write", tracker_kind: "linear", repo_provider_kind: "cnb")
+
+    deps = %{
+      one_shot_run: fn opts ->
+        send(parent, {:one_shot_opts, opts})
+        report
+      end
+    }
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-linear-cnb-write-json", "--confirm-state-write", "--json"],
+               deps: deps
+             )
+
+    decoded = Jason.decode!(stdout)
+
+    assert_receive {:one_shot_opts,
+                    [
+                      issue_id: "issue-linear-cnb-write-json",
+                      confirm_state_write: true
+                    ]}
+
+    assert decoded["issue_id"] == "issue-linear-cnb-write-json"
+    assert decoded["mode"] == "state_write"
+    assert decoded["tracker_kind"] == "linear"
+    assert decoded["repo_provider_kind"] == "cnb"
+    assert decoded["shadow"] == nil
+    refute stdout =~ "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    refute stdout =~ "shadow-test-run"
+  end
+
+  test "confirmed text output for Linear + CNB omits shadow metadata" do
+    parent = self()
+    report = fake_report("issue-linear-cnb-write", shadow?: false, mode: "state_write", tracker_kind: "linear", repo_provider_kind: "cnb")
+
+    deps = %{
+      one_shot_run: fn opts ->
+        send(parent, {:one_shot_opts, opts})
+        report
+      end
+    }
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-linear-cnb-write", "--confirm-state-write"], deps: deps)
+
+    assert_receive {:one_shot_opts,
+                    [
+                      issue_id: "issue-linear-cnb-write",
+                      confirm_state_write: true
+                    ]}
+
+    assert stdout =~ "issue=issue-linear-cnb-write"
+    assert stdout =~ "mode=state_write"
+    assert stdout =~ "tracker=linear repo_provider=cnb"
+    refute stdout =~ "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    refute stdout =~ "shadow-test-run"
+    refute stdout =~ "shadow_authority=diagnostic_only"
   end
 
   test "rejects non-keyword command opts without leaking raw opts" do
@@ -78,21 +214,35 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
   end
 
   defp valid_deps do
-    %{one_shot_run: fn _opts -> fake_report("issue-123") end}
+    %{one_shot_run: fn _opts -> fake_report("issue-123", shadow?: false) end}
   end
 
-  defp fake_report(issue_id) do
+  defp fake_report(issue_id, opts) do
     %{
       ok: true,
       issue_id: issue_id,
-      mode: "dry_run",
-      tracker_kind: "memory",
-      repo_provider_kind: "memory",
+      mode: Keyword.get(opts, :mode, "dry_run"),
+      shadow: shadow(opts),
+      tracker_kind: Keyword.get(opts, :tracker_kind, "memory"),
+      repo_provider_kind: Keyword.get(opts, :repo_provider_kind, "memory"),
       before_state: "In Review",
       after_state: "In Review",
       decision: nil,
       transition: nil,
       probes: []
     }
+  end
+
+  defp shadow(opts) do
+    if Keyword.fetch!(opts, :shadow?) do
+      %{
+        "prefix" => "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]",
+        "run_id" => "shadow-test-run",
+        "mode" => "shadow_no_write",
+        "authority" => "diagnostic_only",
+        "canonical_authority" => false,
+        "allowed_destinations" => ["diagnostic_logs", "review_packets", "non_authoritative_evidence"]
+      }
+    end
   end
 end

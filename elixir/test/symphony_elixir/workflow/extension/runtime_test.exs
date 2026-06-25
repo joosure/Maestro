@@ -103,7 +103,15 @@ defmodule SymphonyElixir.Workflow.Extension.RuntimeTest do
     assert {:ok, entries} = OperatorCommandRegistry.entries(entries: [CodingPrDelivery])
 
     assert Enum.map(entries, & &1.id) == [
-             "symphony.workflow.extension.coding_pr_delivery.change_proposal_reconcile"
+             "symphony.workflow.extension.coding_pr_delivery.change_proposal_reconcile",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_plan",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_evidence_request",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_evidence_bundle",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_evidence_handoff",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_validate",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_template",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_preflight_collect",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_status"
            ]
   end
 
@@ -191,7 +199,7 @@ defmodule SymphonyElixir.Workflow.Extension.RuntimeTest do
              OperatorCommandDispatcher.evaluate(
                "test.operator.echo",
                [],
-               registry_opts: %{entries: [__MODULE__.CommandExtension], secret: "private-registry-payload"}
+               registry_opts: %{entries: [__MODULE__.CommandExtension], payload_marker: "private-registry-payload"}
              )
 
     assert message =~ "Workflow extension operator command registration is invalid"
@@ -202,7 +210,7 @@ defmodule SymphonyElixir.Workflow.Extension.RuntimeTest do
              OperatorCommandDispatcher.evaluate(
                "test.operator.echo",
                [],
-               command_opts: [{"secret", "private-command-payload"}]
+               command_opts: [{"payload_marker", "private-command-payload"}]
              )
 
     assert message =~ "Workflow extension operator command registration is invalid"
@@ -235,10 +243,10 @@ defmodule SymphonyElixir.Workflow.Extension.RuntimeTest do
             } = error} =
              ToolResultRecorderDispatcher.record_tool_result(
                "tracker",
-               %{private_context: "secret-value"},
+               %{private_context: "private-value"},
                "tracker_attach_external_reference",
-               %{"secret" => "argument"},
-               {:success, %{"secret" => "payload"}},
+               %{"private_marker" => "argument"},
+               {:success, %{"private_marker" => "payload"}},
                tool_result_recorder_registry_opts: [recorder_modules: [__MODULE__.RaisingToolResultRecorder]]
              )
 

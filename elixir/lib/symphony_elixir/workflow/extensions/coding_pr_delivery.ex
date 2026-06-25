@@ -14,7 +14,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery do
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.CompletionValidator
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ConfigValidator
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Manifest
-  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.ChangeProposalReconcile
+
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.{
+    ChangeProposalReconcile,
+    ProductionProfileEvidenceBundle,
+    ProductionProfileEvidenceHandoff,
+    ProductionProfileEvidenceRequest,
+    ProductionProfilePlan,
+    ProductionProfilePreflightCollect,
+    ProductionProfileStatus,
+    ProductionProfileTemplate,
+    ProductionProfileValidate
+  }
+
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Profile
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Runtime
@@ -35,7 +47,18 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery do
   end
 
   @impl true
-  def operator_commands, do: [ChangeProposalReconcile]
+  def operator_commands,
+    do: [
+      ChangeProposalReconcile,
+      ProductionProfilePlan,
+      ProductionProfileEvidenceRequest,
+      ProductionProfileEvidenceBundle,
+      ProductionProfileEvidenceHandoff,
+      ProductionProfileValidate,
+      ProductionProfileTemplate,
+      ProductionProfilePreflightCollect,
+      ProductionProfileStatus
+    ]
 
   @impl true
   def tool_result_recorders, do: [ToolResultRecorder]

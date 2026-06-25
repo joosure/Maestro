@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Storage.Redaction.DefaultBackend do
 
   @behaviour SymphonyElixir.Storage.Redaction
 
+  alias SymphonyElixir.Observability.Redaction, as: ObservabilityRedaction
+
   @redacted "[REDACTED]"
   @sensitive_key_patterns [
     ~r/password/i,
@@ -49,6 +51,7 @@ defmodule SymphonyElixir.Storage.Redaction.DefaultBackend do
   end
 
   defp redact_value(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> redact_value() |> List.to_tuple()
+  defp redact_value(value) when is_binary(value), do: ObservabilityRedaction.redact_string(value)
   defp redact_value(value), do: value
 
   defp sensitive_key?(key) when is_atom(key), do: key |> Atom.to_string() |> sensitive_key?()

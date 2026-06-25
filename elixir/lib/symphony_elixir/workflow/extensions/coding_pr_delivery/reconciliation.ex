@@ -18,6 +18,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation do
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.KnownTarget.Registration
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.Producer
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.Reconciler
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.RuntimeTopology
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Runtime.Input, as: RuntimeInput
 
   @spec reconcile_runtime(map(), RuntimeInput.t(), keyword()) :: Reconciler.result()
@@ -35,4 +36,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation do
 
   @spec run_known_target_watcher_once(keyword()) :: Producer.Watcher.run_result()
   defdelegate run_known_target_watcher_once(opts \\ []), to: Producer.Watcher, as: :run_once
+
+  @spec runtime_topology_readiness(term()) :: RuntimeTopology.readiness()
+  defdelegate runtime_topology_readiness(opts \\ []), to: RuntimeTopology, as: :readiness
 end
