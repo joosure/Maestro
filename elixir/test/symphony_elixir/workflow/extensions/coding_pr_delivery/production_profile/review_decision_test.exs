@@ -2,6 +2,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   use ExUnit.Case, async: true
 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.EvidenceRunbook
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.Phase2EvidencePlan
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.ReviewDecision
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.OneShot.Contract, as: OneShotContract
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
@@ -102,6 +103,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "implementation_refs" => ["commit:6505ae0"],
       "deterministic_test_matrix" => [%{"command" => "mise exec -- mix test", "status" => "passed"}],
       "evidence_packet" => complete_evidence_packet(entry_id, tracker_kind, shadow_run_id),
+      "provider_preflight_reports" => [passed_preflight_report(entry_id, shadow_run_id)],
       "rollback_instructions" => %{
         "owner" => "workflow-runtime",
         "external_transition_readiness_gate" => Gates.transition_readiness_required_gate_key(),
@@ -160,6 +162,57 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "production_claim" => claim,
       "scenario_evidence" => scenario_evidence(runbook),
       "non_claim_acknowledgements" => non_claim_acknowledgements(runbook)
+    }
+  end
+
+  defp passed_preflight_report(entry_id, shadow_run_id) do
+    assert {:ok, phase2_plan} = build_phase2_plan(phase2_template(entry_id), shadow_run_id)
+
+    %{
+      "schema" => "coding_pr_delivery.provider_preflight_report.v1",
+      "phase2_evidence_plan" => phase2_plan,
+      "provider_preflight_results" => preflight_results(phase2_plan),
+      "explicit_non_claims" => [
+        "preflight_report_does_not_collect_live_provider_evidence",
+        "preflight_report_does_not_enable_production"
+      ]
+    }
+  end
+
+  defp build_phase2_plan(:tapd_cnb_shadow, shadow_run_id) do
+    Phase2EvidencePlan.build(:tapd_cnb_shadow, tapd_cnb_shadow_run_id: shadow_run_id)
+  end
+
+  defp build_phase2_plan(:linear_cnb_shadow, shadow_run_id) do
+    Phase2EvidencePlan.build(:linear_cnb_shadow, linear_cnb_shadow_run_id: shadow_run_id)
+  end
+
+  defp phase2_template("tapd-cnb-shadow"), do: :tapd_cnb_shadow
+  defp phase2_template("linear-cnb-shadow"), do: :linear_cnb_shadow
+
+  defp preflight_results(phase2_plan) do
+    phase2_plan
+    |> Map.fetch!("provider_plans")
+    |> Enum.flat_map(fn provider_plan ->
+      template = Map.fetch!(provider_plan, "template")
+
+      provider_plan
+      |> get_in(["read_only_preflight", "commands"])
+      |> Enum.map(&preflight_result(template, &1))
+    end)
+  end
+
+  defp preflight_result(template, command) do
+    %{
+      "template" => template,
+      "command_id" => Map.fetch!(command, "id"),
+      "target" => Map.fetch!(command, "target"),
+      "provider_kind" => Map.fetch!(command, "provider_kind"),
+      "status" => "passed",
+      "ran_at" => "2026-06-25T00:00:00Z",
+      "side_effect_mode" => "read_only",
+      "write_performed" => false,
+      "production_enabled" => false
     }
   end
 

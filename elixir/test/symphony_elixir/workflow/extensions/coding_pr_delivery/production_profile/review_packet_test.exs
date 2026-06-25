@@ -2,6 +2,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   use ExUnit.Case, async: true
 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.EvidenceRunbook
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.Phase2EvidencePlan
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.ReviewPacket
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.OneShot.Contract, as: OneShotContract
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
@@ -14,6 +15,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert packet["review_packet_id"] == "review-packet-tapd-cnb-shadow"
     assert packet["profile_instance_id"] == "coding-pr-delivery-production"
     assert packet["evidence_packet"]["schema"] == "coding_pr_delivery.production_evidence_packet.v1"
+    assert [%{"schema" => "coding_pr_delivery.provider_preflight_report.v1", "status" => "passed"}] = packet["provider_preflight_reports"]
   end
 
   test "accepts complete Phase 4 production review packets for Linear + CNB shadow evidence" do
@@ -102,6 +104,38 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
            )
   end
 
+  test "requires passed provider preflight reports before final review" do
+    missing = Map.delete(complete_review_packet(), "provider_preflight_reports")
+
+    assert {:error, %{errors: missing_errors}} = ReviewPacket.validate(missing)
+
+    assert Enum.any?(
+             missing_errors,
+             &(&1.code == "required_field_missing" and &1.path == ["provider_preflight_reports"])
+           )
+
+    blocked =
+      complete_review_packet()
+      |> Map.put("provider_preflight_reports", [blocked_preflight_report("tapd-cnb-shadow", "shadow-run-1")])
+
+    assert {:error, %{errors: blocked_errors}} = ReviewPacket.validate(blocked)
+
+    assert Enum.any?(blocked_errors, &(&1.code == "preflight_report_not_passed"))
+  end
+
+  test "requires provider preflight reports to cover evidence packet entries" do
+    packet =
+      complete_review_packet()
+      |> Map.put("provider_preflight_reports", [passed_preflight_report(:linear_cnb_shadow, "shadow-run-linear-cnb-42")])
+
+    assert {:error, %{errors: errors}} = ReviewPacket.validate(packet)
+
+    assert Enum.any?(
+             errors,
+             &(&1.code == "missing_provider_preflight_report" and &1.provider_matrix_entry_id == "tapd-cnb-shadow")
+           )
+  end
+
   defp complete_review_packet(
          entry_id \\ "tapd-cnb-shadow",
          tracker_kind \\ "tapd",
@@ -124,6 +158,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         }
       ],
       "evidence_packet" => complete_evidence_packet(entry_id, tracker_kind, shadow_run_id),
+      "provider_preflight_reports" => [passed_preflight_report(entry_id, shadow_run_id)],
       "rollback_instructions" => %{
         "owner" => "workflow-runtime",
         "external_transition_readiness_gate" => Gates.transition_readiness_required_gate_key(),
@@ -199,6 +234,89 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "scenario_evidence" => scenario_evidence(runbook),
       "non_claim_acknowledgements" => non_claim_acknowledgements(runbook)
     }
+  end
+
+  defp passed_preflight_report(entry_id, shadow_run_id) do
+    preflight_report(entry_id, shadow_run_id, "passed")
+  end
+
+  defp blocked_preflight_report(entry_id, shadow_run_id) do
+    preflight_report(entry_id, shadow_run_id, "blocked")
+  end
+
+  defp preflight_report(entry_id, shadow_run_id, status) do
+    template = phase2_template(entry_id)
+    assert {:ok, phase2_plan} = build_phase2_plan(template, shadow_run_id)
+
+    %{
+      "schema" => "coding_pr_delivery.provider_preflight_report.v1",
+      "phase2_evidence_plan" => phase2_plan,
+      "provider_preflight_results" => preflight_results(phase2_plan, status),
+      "explicit_non_claims" => [
+        "preflight_report_does_not_collect_live_provider_evidence",
+        "preflight_report_does_not_enable_production"
+      ]
+    }
+  end
+
+  defp build_phase2_plan(:tapd_cnb_shadow, shadow_run_id) do
+    Phase2EvidencePlan.build(:tapd_cnb_shadow, tapd_cnb_shadow_run_id: shadow_run_id)
+  end
+
+  defp build_phase2_plan(:linear_cnb_shadow, shadow_run_id) do
+    Phase2EvidencePlan.build(:linear_cnb_shadow, linear_cnb_shadow_run_id: shadow_run_id)
+  end
+
+  defp phase2_template("tapd-cnb-shadow"), do: :tapd_cnb_shadow
+  defp phase2_template("linear-cnb-shadow"), do: :linear_cnb_shadow
+  defp phase2_template(:tapd_cnb_shadow), do: :tapd_cnb_shadow
+  defp phase2_template(:linear_cnb_shadow), do: :linear_cnb_shadow
+
+  defp preflight_results(phase2_plan, status) do
+    phase2_plan
+    |> Map.fetch!("provider_plans")
+    |> Enum.flat_map(fn provider_plan ->
+      template = Map.fetch!(provider_plan, "template")
+
+      provider_plan
+      |> get_in(["read_only_preflight", "commands"])
+      |> Enum.map(&preflight_result(template, &1, status))
+    end)
+  end
+
+  defp preflight_result(template, command, "passed") do
+    %{
+      "template" => template,
+      "command_id" => Map.fetch!(command, "id"),
+      "target" => Map.fetch!(command, "target"),
+      "provider_kind" => Map.fetch!(command, "provider_kind"),
+      "status" => "passed",
+      "ran_at" => "2026-06-25T00:00:00Z",
+      "side_effect_mode" => "read_only",
+      "write_performed" => false,
+      "production_enabled" => false
+    }
+  end
+
+  defp preflight_result(template, command, "blocked") do
+    template
+    |> preflight_result(command, "passed")
+    |> Map.merge(%{
+      "status" => "blocked",
+      "blocker_code" => "missing_preflight_prerequisite",
+      "missing_prerequisites" => [first_prerequisite(command)]
+    })
+  end
+
+  defp first_prerequisite(command) do
+    command
+    |> Map.take(["required_env", "required_auth", "required_targets"])
+    |> Map.values()
+    |> Enum.flat_map(fn
+      values when is_list(values) -> values
+      _value -> []
+    end)
+    |> List.first()
   end
 
   defp scenario_evidence(runbook) do

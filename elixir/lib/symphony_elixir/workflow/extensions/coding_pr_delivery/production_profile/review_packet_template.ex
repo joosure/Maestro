@@ -56,6 +56,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "implementation_refs" => [],
         "deterministic_test_matrix" => [],
         "evidence_packet" => evidence_packet,
+        "provider_preflight_reports" => [],
         "rollback_instructions" => rollback_instructions(provider_entries),
         "scrubbing_pipeline" => scrubbing_pipeline(governance_packets),
         "operator_inspection" => operator_inspection(provider_entries),
@@ -68,6 +69,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "changed_source_specs",
         "implementation_refs",
         "deterministic_test_matrix",
+        "provider_preflight_reports",
         "scrubbing_pipeline.test_results",
         "owner_signoffs"
       ]

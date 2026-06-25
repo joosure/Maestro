@@ -8,7 +8,11 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   workflow state, or enable production gates.
   """
 
-  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.EvidencePacket
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.{
+    EvidencePacket,
+    PreflightReport
+  }
+
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Governance
 
@@ -32,6 +36,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   @spec validate(map()) :: validation_result()
   def validate(packet) when is_map(packet) do
     evidence_result = packet |> value_at(["evidence_packet"]) |> EvidencePacket.validate()
+    preflight_reports_result = packet |> value_at(["provider_preflight_reports"]) |> validate_preflight_reports()
 
     errors =
       []
@@ -40,6 +45,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       |> collect_string_list(packet, ["implementation_refs"], "Implementation refs must be a non-empty string array.")
       |> collect_deterministic_test_matrix(packet)
       |> collect_nested_errors(evidence_result, ["evidence_packet"])
+      |> collect_preflight_reports(preflight_reports_result, evidence_result)
       |> collect_rollback_instructions(packet)
       |> collect_scrubbing_pipeline(packet)
       |> collect_operator_inspection(packet)
@@ -48,7 +54,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       |> collect_owner_signoffs(packet)
 
     if errors == [] do
-      {:ok, normalize(packet, evidence_result)}
+      {:ok, normalize(packet, evidence_result, preflight_reports_result)}
     else
       {:error, invalid(errors)}
     end
@@ -264,6 +270,119 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     [issue("invalid_type", ["owner_signoffs", index], "Owner sign-off must be an object.")]
   end
 
+  defp validate_preflight_reports(reports) do
+    cond do
+      not is_list(reports) or reports == [] ->
+        {:error,
+         [
+           issue(
+             "required_field_missing",
+             ["provider_preflight_reports"],
+             "Provider preflight reports must be a non-empty array."
+           )
+         ]}
+
+      true ->
+        reports
+        |> Enum.with_index()
+        |> Enum.reduce({[], []}, fn {report, index}, {normalized, errors} ->
+          case validate_preflight_report(report, index) do
+            {:ok, normalized_report} -> {[normalized_report | normalized], errors}
+            {:error, report_errors} -> {normalized, errors ++ report_errors}
+          end
+        end)
+        |> case do
+          {normalized, []} -> {:ok, Enum.reverse(normalized)}
+          {_normalized, errors} -> {:error, errors}
+        end
+    end
+  end
+
+  defp validate_preflight_report(report, index) when is_map(report) do
+    case PreflightReport.validate(report) do
+      {:ok, normalized_report} ->
+        {:ok, normalized_report}
+
+      {:error, %{errors: nested_errors}} when is_list(nested_errors) ->
+        {:error, Enum.map(nested_errors, &prefix_error(&1, ["provider_preflight_reports", index]))}
+    end
+  end
+
+  defp validate_preflight_report(_report, index) do
+    {:error, [issue("invalid_type", ["provider_preflight_reports", index], "Provider preflight report must be an object.")]}
+  end
+
+  defp collect_preflight_reports(errors, {:error, preflight_errors}, _evidence_result) do
+    errors ++ preflight_errors
+  end
+
+  defp collect_preflight_reports(errors, {:ok, preflight_reports}, {:ok, evidence_packet}) do
+    errors
+    |> collect_preflight_report_statuses(preflight_reports)
+    |> collect_preflight_report_coverage(preflight_reports, evidence_packet)
+  end
+
+  defp collect_preflight_reports(errors, {:ok, preflight_reports}, _invalid_evidence_result) do
+    collect_preflight_report_statuses(errors, preflight_reports)
+  end
+
+  defp collect_preflight_report_statuses(errors, preflight_reports) do
+    preflight_reports
+    |> Enum.with_index()
+    |> Enum.filter(fn {report, _index} -> Map.get(report, "status") != "passed" end)
+    |> Enum.map(fn {_report, index} ->
+      issue("preflight_report_not_passed", ["provider_preflight_reports", index, "status"], "Provider preflight reports must pass before Phase 4 review.")
+    end)
+    |> then(&(errors ++ &1))
+  end
+
+  defp collect_preflight_report_coverage(errors, preflight_reports, evidence_packet) do
+    covered_entry_ids =
+      preflight_reports
+      |> Enum.flat_map(&preflight_report_provider_entry_ids/1)
+      |> MapSet.new()
+
+    evidence_packet
+    |> value_at(["production_claim", "provider_matrix"])
+    |> case do
+      provider_entries when is_list(provider_entries) ->
+        provider_entries
+        |> Enum.map(&Map.get(&1, "id"))
+        |> Enum.filter(&non_empty_string?/1)
+        |> Enum.reject(&MapSet.member?(covered_entry_ids, &1))
+        |> Enum.map(fn entry_id ->
+          issue(
+            "missing_provider_preflight_report",
+            ["provider_preflight_reports"],
+            "Every provider matrix entry in the evidence packet must have a passed preflight report.",
+            %{provider_matrix_entry_id: entry_id}
+          )
+        end)
+        |> then(&(errors ++ &1))
+
+      _missing ->
+        errors
+    end
+  end
+
+  defp preflight_report_provider_entry_ids(report) do
+    report
+    |> value_at(["phase2_evidence_plan", "provider_plans"])
+    |> case do
+      provider_plans when is_list(provider_plans) ->
+        Enum.flat_map(provider_plans, fn plan ->
+          case Map.get(plan, "provider_matrix_entry_ids") do
+            entry_ids when is_list(entry_ids) -> entry_ids
+            _missing -> []
+          end
+        end)
+
+      _missing ->
+        []
+    end
+    |> Enum.filter(&non_empty_string?/1)
+  end
+
   defp collect_test_results(errors, map, path) do
     results = value_at(map, [List.last(path)])
 
@@ -305,12 +424,13 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     end
   end
 
-  defp normalize(packet, {:ok, evidence_packet}) do
+  defp normalize(packet, {:ok, evidence_packet}, {:ok, preflight_reports}) do
     %{
       "schema" => @schema,
       "review_packet_id" => value_at(packet, ["review_packet_id"]),
       "profile_instance_id" => Map.get(evidence_packet, "profile_instance_id"),
       "evidence_packet" => evidence_packet,
+      "provider_preflight_reports" => preflight_reports,
       "changed_source_specs" => value_at(packet, ["changed_source_specs"]),
       "implementation_refs" => value_at(packet, ["implementation_refs"]),
       "deterministic_test_matrix" => value_at(packet, ["deterministic_test_matrix"]),

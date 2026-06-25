@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.OperatorApplyRecord
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.OperatorApplyRecordTemplate
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.Phase2ClaimTemplate
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.Phase2EvidencePlan
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.ReviewDecision
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.ReviewPacketTemplate
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
@@ -135,13 +136,14 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert {:ok, review_packet_template} =
              ReviewPacketTemplate.build(completed_evidence_packet(template, shadow_run_id))
 
-    review_packet = complete_review_packet(review_packet_template["review_packet_field_template"], entry_id)
+    review_packet =
+      complete_review_packet(review_packet_template["review_packet_field_template"], entry_id, template, shadow_run_id)
 
     assert {:ok, decision} = ReviewDecision.build(review_packet)
     decision
   end
 
-  defp complete_review_packet(field_template, entry_id) do
+  defp complete_review_packet(field_template, entry_id, template, shadow_run_id) do
     field_template
     |> Map.merge(%{
       "review_packet_id" => "review-packet-#{entry_id}",
@@ -156,6 +158,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "deterministic_test_matrix" => [
         %{"command" => "mise exec -- mix test test/symphony_elixir/workflow/extensions/coding_pr_delivery/production_profile", "status" => "passed"}
       ],
+      "provider_preflight_reports" => [passed_preflight_report(template, shadow_run_id)],
       "owner_signoffs" => [
         %{
           "role" => "workflow-runtime-owner",
@@ -168,6 +171,54 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     |> put_in(["scrubbing_pipeline", "test_results"], [
       %{"name" => "scrubber evidence boundaries", "status" => "passed"}
     ])
+  end
+
+  defp passed_preflight_report(:tapd_cnb_shadow, shadow_run_id) do
+    assert {:ok, phase2_plan} = Phase2EvidencePlan.build(:tapd_cnb_shadow, tapd_cnb_shadow_run_id: shadow_run_id)
+    preflight_report(phase2_plan)
+  end
+
+  defp passed_preflight_report(:linear_cnb_shadow, shadow_run_id) do
+    assert {:ok, phase2_plan} = Phase2EvidencePlan.build(:linear_cnb_shadow, linear_cnb_shadow_run_id: shadow_run_id)
+    preflight_report(phase2_plan)
+  end
+
+  defp preflight_report(phase2_plan) do
+    %{
+      "schema" => "coding_pr_delivery.provider_preflight_report.v1",
+      "phase2_evidence_plan" => phase2_plan,
+      "provider_preflight_results" => preflight_results(phase2_plan),
+      "explicit_non_claims" => [
+        "preflight_report_does_not_collect_live_provider_evidence",
+        "preflight_report_does_not_enable_production"
+      ]
+    }
+  end
+
+  defp preflight_results(phase2_plan) do
+    phase2_plan
+    |> Map.fetch!("provider_plans")
+    |> Enum.flat_map(fn provider_plan ->
+      template = Map.fetch!(provider_plan, "template")
+
+      provider_plan
+      |> get_in(["read_only_preflight", "commands"])
+      |> Enum.map(&preflight_result(template, &1))
+    end)
+  end
+
+  defp preflight_result(template, command) do
+    %{
+      "template" => template,
+      "command_id" => Map.fetch!(command, "id"),
+      "target" => Map.fetch!(command, "target"),
+      "provider_kind" => Map.fetch!(command, "provider_kind"),
+      "status" => "passed",
+      "ran_at" => "2026-06-25T00:00:00Z",
+      "side_effect_mode" => "read_only",
+      "write_performed" => false,
+      "production_enabled" => false
+    }
   end
 
   defp completed_evidence_packet(template, shadow_run_id) do
