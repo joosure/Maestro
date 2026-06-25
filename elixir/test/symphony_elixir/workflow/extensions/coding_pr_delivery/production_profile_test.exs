@@ -60,6 +60,35 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfileT
     assert shadow_requirements["canonical_authority"] == false
   end
 
+  test "exposes Linear + CNB shadow admission and runbooks through the facade" do
+    entry = shadow_entry("linear-cnb-shadow", "linear")
+
+    assert {:ok, %{"id" => "linear-cnb-shadow"} = normalized_entry} =
+             ProductionProfile.validate_provider_matrix_entry(entry)
+
+    assert normalized_entry["tracker"]["kind"] == "linear"
+    assert normalized_entry["repo_provider"]["kind"] == "cnb"
+    assert normalized_entry["structured_plan_gates"][Gates.transition_readiness_required_gate_key()] == false
+    assert normalized_entry["shadow"]["canonical_authority"] == false
+
+    assert {:ok, %{"provider_matrix" => [%{"id" => "linear-cnb-shadow"}]}} =
+             ProductionProfile.validate_provider_matrix(provider_matrix_claim(entry))
+
+    assert {:ok, %{"provider_matrix" => [%{"id" => "linear-cnb-shadow"}]}} =
+             ProductionProfile.validate_claim(production_claim(entry))
+
+    assert {:ok, %{"entries" => [runbook_entry]}} =
+             ProductionProfile.build_evidence_runbook(production_claim(entry))
+
+    assert runbook_entry["entry_id"] == "linear-cnb-shadow"
+    assert runbook_entry["tracker"]["kind"] == "linear"
+    assert runbook_entry["repo_provider"]["kind"] == "cnb"
+    assert runbook_entry["shadow_requirements"]["prefix"] == OneShotContract.shadow_prefix()
+    assert runbook_entry["shadow_requirements"]["canonical_authority"] == false
+    assert Enum.any?(runbook_entry["collection_steps"], &(&1["id"] == "verify_shadow_isolation"))
+    assert runbook_entry["evidence_files"]["typed_tool_exceptions"] == []
+  end
+
   test "does not build runbooks for invalid production claims" do
     assert {:error, %{code: "coding_pr_delivery_production_claim_invalid", errors: errors}} =
              ProductionProfile.build_evidence_runbook(%{})
@@ -67,26 +96,26 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfileT
     assert Enum.any?(errors, &(&1.code == "required_field_missing" and &1.path == ["profile_instance_id"]))
   end
 
-  defp production_claim do
+  defp production_claim(entry \\ shadow_entry()) do
     %{
       "profile_instance_id" => "coding-pr-delivery-production",
-      "provider_matrix" => [shadow_entry()],
-      "production_governance" => [governance_packet("tapd-cnb-shadow")]
+      "provider_matrix" => [entry],
+      "production_governance" => [governance_packet(entry["id"])]
     }
   end
 
-  defp provider_matrix_claim do
+  defp provider_matrix_claim(entry \\ shadow_entry()) do
     %{
       "profile_instance_id" => "coding-pr-delivery-production",
-      "provider_matrix" => [shadow_entry()]
+      "provider_matrix" => [entry]
     }
   end
 
-  defp shadow_entry do
+  defp shadow_entry(id \\ "tapd-cnb-shadow", tracker \\ "tapd") do
     %{
-      "id" => "tapd-cnb-shadow",
+      "id" => id,
       "workflow_profile" => %{"kind" => "coding_pr_delivery", "version" => 1},
-      "tracker" => %{"kind" => "tapd"},
+      "tracker" => %{"kind" => tracker},
       "repo_provider" => %{"kind" => "cnb"},
       "agent_provider" => %{"kind" => "codex"},
       "repository_class" => "single_repo_change_proposal",
@@ -114,7 +143,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfileT
         "canonical_authority" => false,
         "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
       },
-      "evidence_files" => ["evidence/provider-matrix/tapd-cnb-shadow.md"],
+      "evidence_files" => ["evidence/provider-matrix/#{id}.md"],
       "recovery" => %{"model" => "operator_one_shot"},
       "rollback" => %{
         "owner" => "workflow-runtime",
