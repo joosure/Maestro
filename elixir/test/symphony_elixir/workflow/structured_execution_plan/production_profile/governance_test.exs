@@ -53,6 +53,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
     packet =
       valid_packet()
       |> put_in(["data_governance", "scrubbing_pipeline", "failure_behavior"], "best_effort")
+      |> update_in(["data_governance", "scrubbing_pipeline", "pattern_catalog_rules"], &List.delete(&1, "jwt"))
       |> put_in(["rollback", "disable_readiness_gate"], "review_handoff_required")
 
     assert {:error, %{errors: errors} = error} = Governance.validate_packet(packet)
@@ -61,6 +62,12 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
              errors,
              &(&1.code == "invalid_scrubbing_failure_behavior" and
                  &1.path == ["data_governance", "scrubbing_pipeline", "failure_behavior"])
+           )
+
+    assert Enum.any?(
+             errors,
+             &(&1.code == "missing_scrubbing_pattern_rule" and
+                 &1.path == ["data_governance", "scrubbing_pipeline", "pattern_catalog_rules", "jwt"])
            )
 
     assert Enum.any?(errors, &(&1.code == "invalid_rollback_gate" and &1.path == ["rollback", "disable_readiness_gate"]))
@@ -96,6 +103,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
         "scrubbing_pipeline" => %{
           "owner" => "workflow-runtime-security",
           "pattern_catalog_version" => "2026-06-25",
+          "pattern_catalog_rules" => Governance.required_scrubbing_pattern_rules(),
           "failure_behavior" => "fail_closed",
           "enforced_boundaries" => [
             "structured_plan_evidence_write",

@@ -177,6 +177,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfileT
         "scrubbing_pipeline" => %{
           "owner" => "workflow-runtime-security",
           "pattern_catalog_version" => "2026-06-25",
+          "pattern_catalog_rules" => Governance.required_scrubbing_pattern_rules(),
           "failure_behavior" => "fail_closed",
           "enforced_boundaries" => [
             "structured_plan_evidence_write",

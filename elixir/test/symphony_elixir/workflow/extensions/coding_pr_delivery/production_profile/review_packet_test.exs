@@ -88,6 +88,20 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(errors, &(&1.code == "signoff_not_approved"))
   end
 
+  test "requires scrubbing pattern catalog rules in review packets" do
+    packet =
+      complete_review_packet()
+      |> update_in(["scrubbing_pipeline", "pattern_catalog_rules"], &List.delete(&1, "private_keys"))
+
+    assert {:error, %{errors: errors}} = ReviewPacket.validate(packet)
+
+    assert Enum.any?(
+             errors,
+             &(&1.code == "missing_scrubbing_pattern_rule" and
+                 &1.path == ["scrubbing_pipeline", "pattern_catalog_rules", "private_keys"])
+           )
+  end
+
   defp complete_review_packet(
          entry_id \\ "tapd-cnb-shadow",
          tracker_kind \\ "tapd",
@@ -124,6 +138,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "scrubbing_pipeline" => %{
         "owner" => "workflow-runtime-security",
         "pattern_catalog_version" => "2026-06-25",
+        "pattern_catalog_rules" => Governance.required_scrubbing_pattern_rules(),
         "failure_behavior" => "fail_closed",
         "enforced_boundaries" => [
           "structured_plan_evidence_write",
@@ -296,6 +311,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "scrubbing_pipeline" => %{
           "owner" => "workflow-runtime-security",
           "pattern_catalog_version" => "2026-06-25",
+          "pattern_catalog_rules" => Governance.required_scrubbing_pattern_rules(),
           "failure_behavior" => "fail_closed",
           "enforced_boundaries" => [
             "structured_plan_evidence_write",

@@ -10,6 +10,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.EvidencePacket
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Governance
 
   @schema "coding_pr_delivery.production_review_packet.v1"
   @error_code "coding_pr_delivery_review_packet_invalid"
@@ -117,6 +118,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     |> collect_required_map(packet, ["scrubbing_pipeline"])
     |> collect_required_string(scrubbing, ["scrubbing_pipeline", "owner"])
     |> collect_required_string(scrubbing, ["scrubbing_pipeline", "pattern_catalog_version"])
+    |> collect_string_list(scrubbing, ["scrubbing_pipeline", "pattern_catalog_rules"], "Scrubbing pattern catalog rules must be a non-empty string array.")
+    |> collect_required_scrubbing_rules(scrubbing)
     |> maybe_add(
       value_at(scrubbing, ["failure_behavior"]) != "fail_closed",
       issue("scrubbing_not_fail_closed", ["scrubbing_pipeline", "failure_behavior"], "Scrubbing pipeline must fail closed.")
@@ -134,6 +137,21 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       |> Enum.reject(&(&1 in boundaries))
       |> Enum.map(fn boundary ->
         issue("missing_scrubbing_boundary", ["scrubbing_pipeline", "enforced_boundaries"], "Required scrubbing boundary is missing.", %{boundary: boundary})
+      end)
+      |> then(&(errors ++ &1))
+    else
+      errors
+    end
+  end
+
+  defp collect_required_scrubbing_rules(errors, scrubbing) do
+    rules = value_at(scrubbing, ["pattern_catalog_rules"])
+
+    if is_list(rules) do
+      Governance.required_scrubbing_pattern_rules()
+      |> Enum.reject(&(&1 in rules))
+      |> Enum.map(fn rule ->
+        issue("missing_scrubbing_pattern_rule", ["scrubbing_pipeline", "pattern_catalog_rules", rule], "Required scrubbing pattern rule is missing.")
       end)
       |> then(&(errors ++ &1))
     else

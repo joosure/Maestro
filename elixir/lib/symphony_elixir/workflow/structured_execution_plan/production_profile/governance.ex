@@ -22,6 +22,16 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
     "tombstoned_by",
     "tombstone_reason"
   ]
+  @required_scrubbing_pattern_rules [
+    "api_keys",
+    "bearer_tokens",
+    "jwt",
+    "passwords",
+    "private_keys",
+    "connection_strings",
+    "cloud_credentials",
+    "provider_auth_material"
+  ]
 
   @type validation_result :: {:ok, map()} | {:error, map()}
 
@@ -30,6 +40,9 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
 
   @spec required_tombstone_fields() :: [String.t()]
   def required_tombstone_fields, do: @required_tombstone_fields
+
+  @spec required_scrubbing_pattern_rules() :: [String.t()]
+  def required_scrubbing_pattern_rules, do: @required_scrubbing_pattern_rules
 
   @spec validate_packet(map()) :: validation_result()
   def validate_packet(packet) when is_map(packet) do
@@ -90,11 +103,28 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
     |> collect_required_map(data_governance, ["scrubbing_pipeline"])
     |> collect_required_string(data_governance, ["scrubbing_pipeline", "owner"])
     |> collect_required_string(data_governance, ["scrubbing_pipeline", "pattern_catalog_version"])
+    |> collect_string_list(data_governance, ["scrubbing_pipeline", "pattern_catalog_rules"], "Scrubbing pattern catalog rules must be a non-empty string array.")
+    |> collect_required_scrubbing_rules(pipeline)
     |> collect_string_list(data_governance, ["scrubbing_pipeline", "enforced_boundaries"], "Scrubbing enforced boundaries must be a non-empty string array.")
     |> maybe_add(
       value_at(pipeline, ["failure_behavior"]) != "fail_closed",
       issue("invalid_scrubbing_failure_behavior", ["data_governance", "scrubbing_pipeline", "failure_behavior"], "Scrubbing failure behavior must fail closed.")
     )
+  end
+
+  defp collect_required_scrubbing_rules(errors, pipeline) do
+    rules = value_at(pipeline, ["pattern_catalog_rules"])
+
+    if is_list(rules) do
+      @required_scrubbing_pattern_rules
+      |> Enum.reject(&(&1 in rules))
+      |> Enum.map(fn rule ->
+        issue("missing_scrubbing_pattern_rule", ["data_governance", "scrubbing_pipeline", "pattern_catalog_rules", rule], "Required scrubbing pattern rule is missing.")
+      end)
+      |> then(&(errors ++ &1))
+    else
+      errors
+    end
   end
 
   defp collect_tombstone(errors, data_governance) do

@@ -10,6 +10,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.Phase2EvidencePlan
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Governance
 
   @schema "coding_pr_delivery.phase4_review_plan.v1"
   @phase2_schema "coding_pr_delivery.phase2_evidence_plan.v1"
@@ -189,6 +190,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         ]
       },
       "scrubbing_pipeline" => %{
+        "owner" => "fill-scrubbing-owner",
+        "pattern_catalog_version" => "fill-pattern-catalog-version",
+        "pattern_catalog_rules" => Governance.required_scrubbing_pattern_rules(),
         "failure_behavior" => "fail_closed",
         "required_boundaries" => @required_scrubbing_boundaries,
         "test_results" => "fill-scrubbing-test-results"

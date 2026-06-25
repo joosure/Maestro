@@ -10,6 +10,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.EvidencePacket
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Governance
 
   @schema "coding_pr_delivery.production_review_packet_template.v1"
   @completed_packet_schema "coding_pr_delivery.production_review_packet.v1"
@@ -101,11 +102,24 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     %{
       "owner" => owner,
       "pattern_catalog_version" => catalog,
+      "pattern_catalog_rules" => scrubbing_pattern_rules(pipelines),
       "failure_behavior" => "fail_closed",
       "enforced_boundaries" => scrubbing_boundaries(pipelines),
       "test_results" => [],
       "source_provider_matrix_entry_ids" => provider_matrix_entry_ids(governance_packets)
     }
+  end
+
+  defp scrubbing_pattern_rules(pipelines) do
+    pipelines
+    |> Enum.flat_map(fn pipeline ->
+      case value_at(pipeline, ["pattern_catalog_rules"]) do
+        rules when is_list(rules) -> rules
+        _missing -> []
+      end
+    end)
+    |> Kernel.++(Governance.required_scrubbing_pattern_rules())
+    |> unique_strings()
   end
 
   defp scrubbing_boundaries(pipelines) do

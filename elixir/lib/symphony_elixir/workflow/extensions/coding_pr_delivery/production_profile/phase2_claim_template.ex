@@ -166,6 +166,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "scrubbing_pipeline" => %{
           "owner" => Keyword.get(opts, :scrubbing_owner, "workflow-runtime-security"),
           "pattern_catalog_version" => Keyword.get(opts, :scrubbing_pattern_catalog_version, @default_scrubbing_catalog),
+          "pattern_catalog_rules" => Governance.required_scrubbing_pattern_rules(),
           "failure_behavior" => "fail_closed",
           "enforced_boundaries" => [
             "structured_plan_evidence_write",

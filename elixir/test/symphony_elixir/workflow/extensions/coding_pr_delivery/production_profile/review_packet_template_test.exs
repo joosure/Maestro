@@ -7,6 +7,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.ReviewPacket
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.ReviewPacketTemplate
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Governance
 
   test "builds a Phase 4 review-packet fill template from completed evidence" do
     assert {:ok, template} = ReviewPacketTemplate.build(completed_evidence_packet())
@@ -23,6 +24,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
     assert field_template["rollback_instructions"]["legacy_review_handoff_required_mapping"] == true
     assert "review_packet_render" in field_template["scrubbing_pipeline"]["enforced_boundaries"]
+    assert field_template["scrubbing_pipeline"]["pattern_catalog_rules"] == Governance.required_scrubbing_pattern_rules()
     assert field_template["operator_inspection"]["contains_raw_evidence_payload"] == false
     assert field_template["authority_boundaries"]["raw_provider_passthrough_authorized"] == false
     assert "owner_signoffs" in template["fields_to_complete"]
