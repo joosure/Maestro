@@ -107,6 +107,7 @@ defmodule SymphonyElixir.Workflow.Extension.RuntimeTest do
              "symphony.workflow.extension.coding_pr_delivery.production_profile_plan",
              "symphony.workflow.extension.coding_pr_delivery.production_profile_evidence_request",
              "symphony.workflow.extension.coding_pr_delivery.production_profile_evidence_bundle",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_evidence_handoff",
              "symphony.workflow.extension.coding_pr_delivery.production_profile_validate",
              "symphony.workflow.extension.coding_pr_delivery.production_profile_template",
              "symphony.workflow.extension.coding_pr_delivery.production_profile_preflight_collect",
