@@ -31,6 +31,27 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(errors, &(&1.code == "overbroad_operation_scope" and &1.path == ["operation_set", "provider_native_cli"]))
   end
 
+  test "rejects Linear + CNB shadow exceptions that attempt raw provider authority" do
+    record =
+      valid_record()
+      |> Map.put("exception_id", "typed-tool-exception-linear-cnb-shadow-raw")
+      |> put_in(["repo_provider", "kind"], "cnb")
+      |> Map.put("raw_provider_passthrough", true)
+      |> Map.put("provider_native_prompt_snippets", true)
+      |> Map.put("operation_set", ["provider_native_api", "repo_provider.change_proposal_snapshot"])
+      |> Map.put("real_integration_evidence", [
+        "evidence/typed-tool-exceptions/linear-cnb-shadow-raw.md"
+      ])
+      |> put_in(["rollback", "instructions"], "Remove linear-cnb-shadow exception and require typed CNB repo-provider tools.")
+
+    assert {:error, %{code: "coding_pr_delivery_typed_tool_exception_invalid", errors: errors}} =
+             TypedToolException.validate_record(record)
+
+    assert Enum.any?(errors, &(&1.code == "raw_provider_passthrough_forbidden" and &1.path == ["raw_provider_passthrough"]))
+    assert Enum.any?(errors, &(&1.code == "provider_native_prompt_snippets_forbidden" and &1.path == ["provider_native_prompt_snippets"]))
+    assert Enum.any?(errors, &(&1.code == "overbroad_operation_scope" and &1.path == ["operation_set", "provider_native_api"]))
+  end
+
   test "rejects missing evidence and missing expiry or re-review trigger" do
     record =
       valid_record()
