@@ -69,6 +69,49 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
              EnablementRequest.validate(enablement_request)
   end
 
+  test "builds a Linear + CNB shadow enablement request template from a ready review decision" do
+    decision = ready_review_decision(:linear_cnb_shadow, "shadow-run-linear-cnb-42")
+
+    assert {:ok, template} =
+             EnablementRequestTemplate.build(decision,
+               provider_matrix_entry_ids: ["linear-cnb-shadow"],
+               repositories: ["acme/widgets"]
+             )
+
+    field_template = template["enablement_request_field_template"]
+
+    assert template["does_not_enable_production"] == true
+
+    assert template["selected_provider_entries"] == [
+             %{
+               "entry_id" => "linear-cnb-shadow",
+               "workflow_profile" => %{"kind" => "coding_pr_delivery", "version" => 1},
+               "tracker" => %{"kind" => "linear"},
+               "repo_provider" => %{"kind" => "cnb"},
+               "agent_provider" => %{"kind" => "codex"},
+               "side_effect_mode" => "shadow_no_write",
+               "topology_mode" => "singleton",
+               "non_claims" => [
+                 "multi_node_ownership",
+                 "automatic_durable_replay",
+                 "automatic_cold_start_provider_rebuild"
+               ]
+             }
+           ]
+
+    assert field_template["scope"] == %{
+             "environment" => "production",
+             "repositories" => ["acme/widgets"],
+             "provider_matrix_entry_ids" => ["linear-cnb-shadow"],
+             "side_effect_mode" => "shadow_no_write"
+           }
+
+    assert field_template["gate_values"][Gates.transition_readiness_required_gate_key()] == false
+    assert field_template["activation_control"]["requires_operator_apply"] == true
+    assert field_template["activation_control"]["applies_immediately"] == false
+    assert "multi_node_ownership" in field_template["acknowledged_non_claims"]
+  end
+
   test "marks ready-to-land templates with transition readiness required" do
     decision =
       ready_review_decision()
@@ -125,18 +168,22 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
              )
   end
 
-  defp ready_review_decision do
-    assert {:ok, review_packet_template} = ReviewPacketTemplate.build(completed_evidence_packet())
-    review_packet = complete_review_packet(review_packet_template["review_packet_field_template"])
+  defp ready_review_decision(template \\ :tapd_cnb_shadow, shadow_run_id \\ "shadow-run-cnb-42") do
+    entry_id = entry_id(template)
+
+    assert {:ok, review_packet_template} =
+             ReviewPacketTemplate.build(completed_evidence_packet(template, shadow_run_id))
+
+    review_packet = complete_review_packet(review_packet_template["review_packet_field_template"], entry_id)
 
     assert {:ok, decision} = ReviewDecision.build(review_packet)
     decision
   end
 
-  defp complete_review_packet(field_template) do
+  defp complete_review_packet(field_template, entry_id) do
     field_template
     |> Map.merge(%{
-      "review_packet_id" => "review-packet-tapd-cnb-shadow",
+      "review_packet_id" => "review-packet-#{entry_id}",
       "changed_source_specs" => [
         "specs/workflow/profiles/coding_pr_delivery/profile_spec.md",
         "specs/workflow/extensions/coding_pr_delivery/reconciliation/production_profile_spec.md"
@@ -162,8 +209,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     ])
   end
 
-  defp completed_evidence_packet do
-    assert {:ok, claim} = Phase2ClaimTemplate.build(:tapd_cnb_shadow, shadow_run_id: "shadow-run-cnb-42")
+  defp completed_evidence_packet(template, shadow_run_id) do
+    assert {:ok, claim} = Phase2ClaimTemplate.build(template, shadow_run_id: shadow_run_id)
     assert {:ok, template} = EvidencePacketTemplate.build(claim)
 
     %{
@@ -202,4 +249,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "acknowledged_at" => "2026-06-25T00:00:00Z"
     }
   end
+
+  defp entry_id(:tapd_cnb_shadow), do: "tapd-cnb-shadow"
+  defp entry_id(:linear_cnb_shadow), do: "linear-cnb-shadow"
 end
