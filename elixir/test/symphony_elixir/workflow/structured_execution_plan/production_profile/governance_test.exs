@@ -74,6 +74,20 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
     refute inspect(error) =~ "best_effort"
   end
 
+  test "rejects unbounded production governance evidence references" do
+    packet =
+      valid_packet()
+      |> Map.put("evidence_files", [
+        "fill-governance-evidence.md",
+        "file:///var/tmp/governance.txt"
+      ])
+
+    assert {:error, %{errors: errors}} = Governance.validate_packet(packet)
+
+    assert Enum.any?(errors, &(&1.code == "invalid_evidence_ref"))
+    assert Enum.any?(errors, &(&1.code == "placeholder_evidence_ref"))
+  end
+
   test "facade exposes production governance validation" do
     assert {:ok, %{"schema" => "workflow.execution_plan.production_governance.v1"}} =
              StructuredExecutionPlan.validate_production_governance(valid_packet())

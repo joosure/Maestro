@@ -99,6 +99,20 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
            )
   end
 
+  test "rejects unbounded provider-matrix evidence references" do
+    entry =
+      shadow_entry("unbounded-evidence", "linear", "cnb")
+      |> Map.put("evidence_files", [
+        "fill-provider-matrix-evidence.md",
+        "file:///var/tmp/provider-matrix.txt"
+      ])
+
+    assert {:error, %{errors: errors}} = ProviderMatrix.validate_claim(production_claim([entry]))
+
+    assert Enum.any?(errors, &(&1.code == "invalid_evidence_ref"))
+    assert Enum.any?(errors, &(&1.code == "placeholder_evidence_ref"))
+  end
+
   test "rejects singleton runtime-targeted entries without readiness proof and does not leak raw values" do
     entry =
       shadow_entry("secret-token=ghp_secret", "tapd", "cnb")

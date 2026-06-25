@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
   @error_code "coding_pr_delivery_typed_tool_exception_invalid"
   @broad_operation_tokens ["*", "all", "any", "raw_provider_passthrough", "provider_native_api", "provider_native_cli"]
+  @placeholder_tokens ["fill-", "TODO", "REPLACE", "<", ">"]
 
   @type validation_result :: {:ok, map()} | {:error, map()}
 
@@ -34,6 +35,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       |> collect_audit_logging(record)
       |> collect_string_list(record, ["deterministic_tests"], "Deterministic tests must be a non-empty string array.")
       |> collect_string_list(record, ["real_integration_evidence"], "Real integration evidence must be a non-empty string array.")
+      |> collect_evidence_refs(record, ["real_integration_evidence"])
       |> collect_operator_observability(record)
       |> collect_rollback(record)
       |> collect_expiry_or_review(record)
@@ -244,6 +246,47 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   defp collect_string_list(errors, map, path, message) do
     value = value_at(map, path)
     maybe_add(errors, not string_list?(value) or value == [], issue("required_field_missing", path, message))
+  end
+
+  defp collect_evidence_refs(errors, map, path) do
+    refs = value_at(map, path)
+
+    if is_list(refs) do
+      refs
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {ref, index} -> evidence_ref_errors(ref, path ++ [index]) end)
+      |> then(&(errors ++ &1))
+    else
+      errors
+    end
+  end
+
+  defp evidence_ref_errors(ref, path) do
+    []
+    |> maybe_add(
+      non_empty_string?(ref) and not allowed_evidence_ref?(ref),
+      issue("invalid_evidence_ref", path, "Evidence references must be repository evidence paths or HTTP(S) links.")
+    )
+    |> maybe_add(
+      non_empty_string?(ref) and placeholder_evidence_ref?(ref),
+      issue("placeholder_evidence_ref", path, "Evidence references must not contain placeholders.")
+    )
+  end
+
+  defp allowed_evidence_ref?(ref) do
+    String.starts_with?(ref, "evidence/") or
+      String.starts_with?(ref, "https://") or
+      String.starts_with?(ref, "http://")
+  end
+
+  defp placeholder_evidence_ref?(ref) do
+    downcased = String.downcase(ref)
+
+    String.starts_with?(downcased, "/tmp/") or
+      String.starts_with?(downcased, "tmp/") or
+      String.starts_with?(downcased, "/var/") or
+      String.starts_with?(downcased, "file://") or
+      Enum.any?(@placeholder_tokens, &String.contains?(downcased, String.downcase(&1)))
   end
 
   defp collect_positive_integer(errors, map, path) do

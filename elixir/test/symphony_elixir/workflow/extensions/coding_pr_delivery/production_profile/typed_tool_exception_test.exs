@@ -66,6 +66,20 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(errors, &(&1.code == "expiry_or_re_review_required" and &1.path == []))
   end
 
+  test "rejects unbounded real integration evidence references" do
+    record =
+      valid_record()
+      |> Map.put("real_integration_evidence", [
+        "fill-real-integration-evidence.md",
+        "file:///var/tmp/typed-tool-exception.txt"
+      ])
+
+    assert {:error, %{errors: errors}} = TypedToolException.validate_record(record)
+
+    assert Enum.any?(errors, &(&1.code == "invalid_evidence_ref"))
+    assert Enum.any?(errors, &(&1.code == "placeholder_evidence_ref"))
+  end
+
   test "accepts a re-review trigger instead of a fixed expiry" do
     record =
       valid_record()

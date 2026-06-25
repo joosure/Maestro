@@ -32,6 +32,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
     "cloud_credentials",
     "provider_auth_material"
   ]
+  @placeholder_tokens ["fill-", "TODO", "REPLACE", "<", ">"]
 
   @type validation_result :: {:ok, map()} | {:error, map()}
 
@@ -53,6 +54,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
       |> collect_data_governance(packet)
       |> collect_rollback(packet)
       |> collect_string_list(packet, ["evidence_files"], "Evidence files must be a non-empty string array.")
+      |> collect_evidence_refs(packet, ["evidence_files"])
 
     if errors == [] do
       {:ok, normalize_packet(packet)}
@@ -224,6 +226,47 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Gove
   defp collect_string_list(errors, map, path, message) do
     value = value_at(map, path)
     maybe_add(errors, not string_list?(value) or value == [], issue("required_field_missing", path, message))
+  end
+
+  defp collect_evidence_refs(errors, map, path) do
+    refs = value_at(map, path)
+
+    if is_list(refs) do
+      refs
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {ref, index} -> evidence_ref_errors(ref, path ++ [index]) end)
+      |> then(&(errors ++ &1))
+    else
+      errors
+    end
+  end
+
+  defp evidence_ref_errors(ref, path) do
+    []
+    |> maybe_add(
+      non_empty_string?(ref) and not allowed_evidence_ref?(ref),
+      issue("invalid_evidence_ref", path, "Evidence references must be repository evidence paths or HTTP(S) links.")
+    )
+    |> maybe_add(
+      non_empty_string?(ref) and placeholder_evidence_ref?(ref),
+      issue("placeholder_evidence_ref", path, "Evidence references must not contain placeholders.")
+    )
+  end
+
+  defp allowed_evidence_ref?(ref) do
+    String.starts_with?(ref, "evidence/") or
+      String.starts_with?(ref, "https://") or
+      String.starts_with?(ref, "http://")
+  end
+
+  defp placeholder_evidence_ref?(ref) do
+    downcased = String.downcase(ref)
+
+    String.starts_with?(downcased, "/tmp/") or
+      String.starts_with?(downcased, "tmp/") or
+      String.starts_with?(downcased, "/var/") or
+      String.starts_with?(downcased, "file://") or
+      Enum.any?(@placeholder_tokens, &String.contains?(downcased, String.downcase(&1)))
   end
 
   defp collect_true(errors, map, value_path, error_path, message) do
