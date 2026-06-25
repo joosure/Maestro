@@ -102,6 +102,67 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
     refute stdout =~ "state_write"
   end
 
+  test "confirmed json output for Linear + CNB omits shadow metadata" do
+    parent = self()
+    report = fake_report("issue-linear-cnb-write-json", shadow?: false, mode: "state_write", tracker_kind: "linear", repo_provider_kind: "cnb")
+
+    deps = %{
+      one_shot_run: fn opts ->
+        send(parent, {:one_shot_opts, opts})
+        report
+      end
+    }
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-linear-cnb-write-json", "--confirm-state-write", "--json"],
+               deps: deps
+             )
+
+    decoded = Jason.decode!(stdout)
+
+    assert_receive {:one_shot_opts,
+                    [
+                      issue_id: "issue-linear-cnb-write-json",
+                      confirm_state_write: true
+                    ]}
+
+    assert decoded["issue_id"] == "issue-linear-cnb-write-json"
+    assert decoded["mode"] == "state_write"
+    assert decoded["tracker_kind"] == "linear"
+    assert decoded["repo_provider_kind"] == "cnb"
+    assert decoded["shadow"] == nil
+    refute stdout =~ "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    refute stdout =~ "shadow-test-run"
+  end
+
+  test "confirmed text output for Linear + CNB omits shadow metadata" do
+    parent = self()
+    report = fake_report("issue-linear-cnb-write", shadow?: false, mode: "state_write", tracker_kind: "linear", repo_provider_kind: "cnb")
+
+    deps = %{
+      one_shot_run: fn opts ->
+        send(parent, {:one_shot_opts, opts})
+        report
+      end
+    }
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-linear-cnb-write", "--confirm-state-write"], deps: deps)
+
+    assert_receive {:one_shot_opts,
+                    [
+                      issue_id: "issue-linear-cnb-write",
+                      confirm_state_write: true
+                    ]}
+
+    assert stdout =~ "issue=issue-linear-cnb-write"
+    assert stdout =~ "mode=state_write"
+    assert stdout =~ "tracker=linear repo_provider=cnb"
+    refute stdout =~ "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    refute stdout =~ "shadow-test-run"
+    refute stdout =~ "shadow_authority=diagnostic_only"
+  end
+
   test "rejects non-keyword command opts without leaking raw opts" do
     assert {"", stderr, 70} = ChangeProposalReconcile.evaluate(["--issue", "issue-123"], [:secret_opts])
 
@@ -160,7 +221,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
     %{
       ok: true,
       issue_id: issue_id,
-      mode: "dry_run",
+      mode: Keyword.get(opts, :mode, "dry_run"),
       shadow: shadow(opts),
       tracker_kind: Keyword.get(opts, :tracker_kind, "memory"),
       repo_provider_kind: Keyword.get(opts, :repo_provider_kind, "memory"),
