@@ -118,7 +118,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       |> update_in(["scenario_evidence", Access.at(0)], fn record ->
         record
         |> Map.put("stdout", "raw provider output")
-        |> Map.put("raw_provider_payload", %{"secret" => "provider-token"})
+        |> Map.put("raw_provider_payload", %{"provider_output" => "raw payload sample"})
         |> Map.put("evidence_files", [
           "fill-live-evidence.md",
           "/tmp/provider-output.json",
