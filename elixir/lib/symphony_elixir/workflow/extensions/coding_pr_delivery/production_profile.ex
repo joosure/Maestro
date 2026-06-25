@@ -14,6 +14,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     EvidencePacket,
     EvidencePacketTemplate,
     EvidenceRunbook,
+    ObservationStatus,
     OperatorApplyRecord,
     OperatorApplyRecordTemplate,
     OperatorApplyPlan,
@@ -80,4 +81,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec operator_apply_record_template(map()) :: validation_result()
   defdelegate operator_apply_record_template(plan), to: OperatorApplyRecordTemplate, as: :build
+
+  @spec validate_observation_status(map()) :: validation_result()
+  defdelegate validate_observation_status(status), to: ObservationStatus, as: :validate
 end
