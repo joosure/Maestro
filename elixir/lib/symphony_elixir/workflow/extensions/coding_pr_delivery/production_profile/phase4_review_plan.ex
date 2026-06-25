@@ -27,8 +27,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   ]
   @source_specs [
     "specs/workflow/profiles/coding_pr_delivery/profile_spec.md",
-    "specs/workflow/extensions/coding_pr_delivery/typed_workflow_tools/conformance_spec.md",
-    "specs/workflow/extensions/coding_pr_delivery/review_handoff_readiness_policy/conformance_spec.md",
+    "specs/workflow/typed_workflow_tools/conformance_spec.md",
+    "specs/workflow/profiles/coding_pr_delivery/review_handoff_readiness_policy/conformance_spec.md",
     "specs/workflow/extensions/coding_pr_delivery/reconciliation/conformance_spec.md",
     "specs/workflow/extensions/coding_pr_delivery/reconciliation/production_profile_spec.md",
     "specs/workflow/execution_plan_adoption/readiness_spec.md",

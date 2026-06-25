@@ -7,6 +7,16 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.OneShot.Contract, as: OneShotContract
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
 
+  @owning_source_specs [
+    "specs/workflow/profiles/coding_pr_delivery/profile_spec.md",
+    "specs/workflow/typed_workflow_tools/conformance_spec.md",
+    "specs/workflow/profiles/coding_pr_delivery/review_handoff_readiness_policy/conformance_spec.md",
+    "specs/workflow/extensions/coding_pr_delivery/reconciliation/conformance_spec.md",
+    "specs/workflow/extensions/coding_pr_delivery/reconciliation/production_profile_spec.md",
+    "specs/workflow/execution_plan_adoption/readiness_spec.md",
+    "specs/workflow/execution_plan_adoption/production_profile_spec.md"
+  ]
+
   test "builds a blocked Phase 4 review plan from tiered Phase 2 evidence plans" do
     assert {:ok, plan} =
              Phase4ReviewPlan.build(:tiered_reference,
@@ -64,6 +74,21 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert evidence_packet["template"] == "linear_cnb_shadow"
     assert evidence_packet["live_evidence_status"] == "not_collected"
     assert evidence_packet["required_evidence_kinds"] == ["shadow_integration"]
+  end
+
+  test "cites the owning specs required by the hardening review packet" do
+    assert {:ok, plan} = Phase4ReviewPlan.build(:tiered_reference)
+
+    source_specs = plan["review_packet_requirements"]["changed_source_specs"]
+
+    assert source_specs == @owning_source_specs
+    assert "specs/workflow/typed_workflow_tools/conformance_spec.md" in source_specs
+
+    assert "specs/workflow/profiles/coding_pr_delivery/review_handoff_readiness_policy/conformance_spec.md" in source_specs
+
+    refute "specs/workflow/extensions/coding_pr_delivery/typed_workflow_tools/conformance_spec.md" in source_specs
+
+    refute "specs/workflow/extensions/coding_pr_delivery/review_handoff_readiness_policy/conformance_spec.md" in source_specs
   end
 
   test "accepts a prebuilt Phase 2 evidence plan" do
