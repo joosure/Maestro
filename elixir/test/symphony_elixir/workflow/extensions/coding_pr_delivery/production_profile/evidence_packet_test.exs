@@ -31,6 +31,31 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert "multi_node_ownership" in non_claims
   end
 
+  test "accepts complete Phase 2 evidence packets for a Linear + CNB shadow claim" do
+    assert {:ok, packet} =
+             EvidencePacket.validate(complete_packet("linear-cnb-shadow", "linear", "shadow-run-linear-cnb-42"))
+
+    assert packet["schema"] == "coding_pr_delivery.production_evidence_packet.v1"
+    assert packet["profile_instance_id"] == "coding-pr-delivery-production"
+
+    assert [
+             %{
+               "provider_matrix_entry_id" => "linear-cnb-shadow",
+               "non_claims" => non_claims
+             }
+           ] = packet["non_claim_acknowledgements"]
+
+    assert "multi_node_ownership" in non_claims
+
+    assert Enum.all?(packet["scenario_evidence"], fn evidence ->
+             evidence["provider_matrix_entry_id"] == "linear-cnb-shadow" and
+               evidence["evidence_kind"] == "shadow_integration" and
+               evidence["production_write_performed"] == false and
+               evidence["canonical_surface_mutated"] == false and
+               evidence["shadow"]["run_id"] == "shadow-run-linear-cnb-42"
+           end)
+  end
+
   test "requires evidence for every runbook scenario" do
     packet = complete_packet()
     [removed | remaining] = packet["scenario_evidence"]
@@ -87,8 +112,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(errors, &(&1.code == "required_field_missing" and &1.path == ["non_claim_acknowledgements"]))
   end
 
-  defp complete_packet do
-    claim = production_claim()
+  defp complete_packet(
+         entry_id \\ "tapd-cnb-shadow",
+         tracker_kind \\ "tapd",
+         shadow_run_id \\ "shadow-run-1"
+       ) do
+    claim = production_claim(entry_id, tracker_kind, shadow_run_id)
     assert {:ok, runbook} = EvidenceRunbook.build(claim)
 
     %{
@@ -113,7 +142,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
           "canonical_surface_mutated" => false,
           "shadow" => %{
             "prefix" => OneShotContract.shadow_prefix(),
-            "run_id" => "shadow-run-1",
+            "run_id" => get_in(entry, ["shadow_requirements", "run_id"]) || "shadow-run-1",
             "authority" => OneShotContract.shadow_authority(),
             "canonical_authority" => false,
             "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
@@ -134,19 +163,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     end)
   end
 
-  defp production_claim do
+  defp production_claim(entry_id, tracker_kind, shadow_run_id) do
     %{
       "profile_instance_id" => "coding-pr-delivery-production",
-      "provider_matrix" => [shadow_entry()],
-      "production_governance" => [governance_packet("tapd-cnb-shadow")]
+      "provider_matrix" => [shadow_entry(entry_id, tracker_kind, shadow_run_id)],
+      "production_governance" => [governance_packet(entry_id)]
     }
   end
 
-  defp shadow_entry do
+  defp shadow_entry(entry_id, tracker_kind, shadow_run_id) do
     %{
-      "id" => "tapd-cnb-shadow",
+      "id" => entry_id,
       "workflow_profile" => %{"kind" => "coding_pr_delivery", "version" => 1},
-      "tracker" => %{"kind" => "tapd"},
+      "tracker" => %{"kind" => tracker_kind},
       "repo_provider" => %{"kind" => "cnb"},
       "agent_provider" => %{"kind" => "codex"},
       "repository_class" => "single_repo_change_proposal",
@@ -169,12 +198,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       },
       "shadow" => %{
         "prefix" => OneShotContract.shadow_prefix(),
-        "run_id" => "shadow-run-1",
+        "run_id" => shadow_run_id,
         "authority" => OneShotContract.shadow_authority(),
         "canonical_authority" => false,
         "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
       },
-      "evidence_files" => ["evidence/provider-matrix/tapd-cnb-shadow.md"],
+      "evidence_files" => ["evidence/provider-matrix/#{entry_id}.md"],
       "recovery" => %{"model" => "operator_one_shot"},
       "rollback" => %{
         "owner" => "workflow-runtime",
