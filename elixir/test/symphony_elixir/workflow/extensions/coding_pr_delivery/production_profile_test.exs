@@ -29,6 +29,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfileT
 
     assert {:error, %{code: "coding_pr_delivery_enablement_request_invalid"}} =
              ProductionProfile.validate_enablement_request(%{})
+
+    assert {:ok, %{"schema" => "coding_pr_delivery.production_operator_apply_plan.v1", "status" => "blocked"}} =
+             ProductionProfile.operator_apply_plan(%{})
   end
 
   test "builds diagnostic runbooks through the facade after claim admission" do

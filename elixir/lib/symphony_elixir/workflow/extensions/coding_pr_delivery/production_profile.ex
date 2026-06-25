@@ -12,6 +12,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     EnablementRequest,
     EvidencePacket,
     EvidenceRunbook,
+    OperatorApplyPlan,
     ProviderMatrix,
     ReviewDecision,
     ReviewPacket,
@@ -49,4 +50,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec validate_enablement_request(map()) :: validation_result()
   defdelegate validate_enablement_request(request), to: EnablementRequest, as: :validate
+
+  @spec operator_apply_plan(map()) :: {:ok, map()}
+  defdelegate operator_apply_plan(request), to: OperatorApplyPlan, as: :build
 end
