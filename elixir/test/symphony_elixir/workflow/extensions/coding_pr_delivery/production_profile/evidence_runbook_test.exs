@@ -31,6 +31,26 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(shadow["collection_steps"], &(&1["id"] == "verify_shadow_isolation"))
   end
 
+  test "builds Linear + CNB shadow evidence runbooks with diagnostic-only requirements" do
+    assert {:ok, %{"entries" => [entry]}} =
+             EvidenceRunbook.build(production_claim([shadow_entry("linear-cnb-shadow", "linear", "cnb")], []))
+
+    assert entry["entry_id"] == "linear-cnb-shadow"
+    assert entry["tracker"]["kind"] == "linear"
+    assert entry["repo_provider"]["kind"] == "cnb"
+    assert entry["side_effect_mode"] == OneShotContract.shadow_mode()
+    assert entry["ready_to_land_requirements"] == nil
+    assert entry["shadow_requirements"]["prefix"] == OneShotContract.shadow_prefix()
+    assert entry["shadow_requirements"]["run_id"] == "shadow-run-1"
+    assert entry["shadow_requirements"]["authority"] == OneShotContract.shadow_authority()
+    assert entry["shadow_requirements"]["canonical_authority"] == false
+    assert "multi_node_ownership" in entry["non_claims"]
+    assert Enum.any?(entry["scenario_checklist"], &(&1["id"] == "shadow_isolation"))
+    assert Enum.any?(entry["collection_steps"], &(&1["id"] == "verify_shadow_isolation"))
+    assert entry["evidence_files"]["provider_matrix"] == ["evidence/provider-matrix/linear-cnb-shadow.md"]
+    assert entry["evidence_files"]["typed_tool_exceptions"] == []
+  end
+
   test "carries evidence destinations and matching exception evidence" do
     assert {:ok, %{"entries" => [ready, shadow]}} = EvidenceRunbook.build(production_claim())
 
@@ -65,11 +85,15 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   defp production_claim do
     entries = [ready_to_land_entry(), shadow_entry("tapd-cnb-shadow", "tapd", "cnb")]
 
+    production_claim(entries, [typed_tool_exception()])
+  end
+
+  defp production_claim(entries, typed_tool_exceptions) do
     %{
       "profile_instance_id" => "coding_pr_delivery.production.claim",
       "provider_matrix" => entries,
       "production_governance" => Enum.map(entries, &governance_packet(&1["id"])),
-      "typed_tool_exceptions" => [typed_tool_exception()]
+      "typed_tool_exceptions" => typed_tool_exceptions
     }
   end
 

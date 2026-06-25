@@ -18,6 +18,22 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert entry["shadow"]["canonical_authority"] == false
   end
 
+  test "accepts Linear + CNB shadow/no-write evidence entries with diagnostic-only metadata" do
+    claim = production_claim([shadow_entry("linear-cnb-shadow", "linear", "cnb")])
+
+    assert {:ok, %{"provider_matrix" => [entry]}} = ProviderMatrix.validate_claim(claim)
+
+    assert entry["id"] == "linear-cnb-shadow"
+    assert entry["tracker"]["kind"] == "linear"
+    assert entry["repo_provider"]["kind"] == "cnb"
+    assert entry["side_effect_mode"] == OneShotContract.shadow_mode()
+    assert entry["structured_plan_gates"][Gates.transition_readiness_required_gate_key()] == false
+    assert entry["deployment_topology"]["mode"] == "singleton"
+    assert entry["shadow"]["prefix"] == OneShotContract.shadow_prefix()
+    assert entry["shadow"]["authority"] == OneShotContract.shadow_authority()
+    assert entry["shadow"]["canonical_authority"] == false
+  end
+
   test "accepts ready-to-land entries only when production gates and ownership are explicit" do
     claim = production_claim([ready_to_land_entry()])
 

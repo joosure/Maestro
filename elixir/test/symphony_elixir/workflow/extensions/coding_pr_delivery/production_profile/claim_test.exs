@@ -21,6 +21,20 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert [%{"exception_id" => "typed-tool-exception-linear-github-1"}] = normalized["typed_tool_exceptions"]
   end
 
+  test "accepts Linear + CNB shadow claim packets with matching governance" do
+    claim = production_claim([shadow_entry("linear-cnb-shadow", "linear", "cnb")])
+
+    assert {:ok, normalized} = Claim.validate(claim)
+
+    assert normalized["profile_instance_id"] == "coding_pr_delivery.production.claim"
+    assert [%{"id" => "linear-cnb-shadow"} = entry] = normalized["provider_matrix"]
+    assert entry["tracker"]["kind"] == "linear"
+    assert entry["repo_provider"]["kind"] == "cnb"
+    assert entry["structured_plan_gates"][Gates.transition_readiness_required_gate_key()] == false
+    assert [%{"provider_matrix_entry_id" => "linear-cnb-shadow"}] = normalized["production_governance"]
+    assert normalized["typed_tool_exceptions"] == []
+  end
+
   test "rejects provider entries without matching governance packets" do
     claim =
       production_claim([ready_to_land_entry(), shadow_entry("tapd-cnb-shadow", "tapd", "cnb")])
