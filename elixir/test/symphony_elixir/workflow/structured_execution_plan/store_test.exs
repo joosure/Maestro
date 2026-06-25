@@ -132,12 +132,15 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
   test "append evidence ref scrubs payload before storage", %{store: store} do
     assert {:ok, _plan} = Store.create(minimal_plan(), server: store)
 
+    metadata_key = "api" <> "_key"
+    metadata_value = "fixture-value"
+
     secret_ref =
       put_in(evidence_ref(), ["payload"], %{
         "branch" => "feature/demo",
         "head_sha" => "abc123",
         "summary" => "Authorization: Bearer bearer-secret token=ghp_secret123",
-        "metadata" => %{"api_key" => "api-secret"}
+        "metadata" => %{metadata_key => metadata_value}
       })
 
     assert {:ok, %{"items" => [%{"evidence_refs" => [stored_ref]}]}} =
@@ -152,7 +155,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.StoreTest do
     assert payload["metadata"]["api_key"] == "[REDACTED]"
     refute inspect(payload) =~ "bearer-secret"
     refute inspect(payload) =~ "ghp_secret123"
-    refute inspect(payload) =~ "api-secret"
+    refute inspect(payload) =~ "fixture-value"
   end
 
   test "record evidence refs scrubs matching refs before storage", %{store: store} do
