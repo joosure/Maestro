@@ -81,6 +81,27 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
            ]
   end
 
+  test "dry-run json output preserves Linear + CNB shadow provider identity" do
+    report = fake_report("issue-linear-cnb-shadow-json", shadow?: true, tracker_kind: "linear", repo_provider_kind: "cnb")
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-linear-cnb-shadow-json", "--json"],
+               deps: %{one_shot_run: fn _opts -> report end}
+             )
+
+    decoded = Jason.decode!(stdout)
+
+    assert decoded["issue_id"] == "issue-linear-cnb-shadow-json"
+    assert decoded["mode"] == "dry_run"
+    assert decoded["tracker_kind"] == "linear"
+    assert decoded["repo_provider_kind"] == "cnb"
+    assert decoded["shadow"]["prefix"] == "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    assert decoded["shadow"]["run_id"] == "shadow-test-run"
+    assert decoded["shadow"]["authority"] == "diagnostic_only"
+    assert decoded["shadow"]["canonical_authority"] == false
+    refute stdout =~ "state_write"
+  end
+
   test "rejects non-keyword command opts without leaking raw opts" do
     assert {"", stderr, 70} = ChangeProposalReconcile.evaluate(["--issue", "issue-123"], [:secret_opts])
 
