@@ -351,7 +351,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
   defp allowed_prerequisites(expected) do
     expected
-    |> Map.take(["required_env", "required_auth", "required_targets"])
+    |> Map.take(["required_env", "required_auth", "required_targets", "required_runtime"])
     |> Map.values()
     |> Enum.flat_map(fn
       values when is_list(values) -> values

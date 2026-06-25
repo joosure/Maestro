@@ -120,6 +120,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert tracker["requires_write_confirmation"] == false
     assert tracker["does_not_write"] == true
     assert tracker["command"] =~ "mix tracker.smoke"
+    assert tracker["required_runtime"] == ["provider_read_only_smoke"]
     assert_required_tracker_env(tracker_kind, tracker["required_env"])
 
     assert repo_provider["provider_kind"] == repo_provider_kind
@@ -127,6 +128,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert repo_provider["requires_destructive_flag"] == false
     assert repo_provider["does_not_write"] == true
     assert repo_provider["command"] =~ "mix repo_provider.smoke"
+    assert repo_provider["required_runtime"] == ["provider_read_only_smoke"]
     assert_required_repo_provider_auth(repo_provider_kind, repo_provider)
   end
 

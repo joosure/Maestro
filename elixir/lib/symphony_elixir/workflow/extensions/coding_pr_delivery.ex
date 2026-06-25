@@ -18,6 +18,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery do
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.{
     ChangeProposalReconcile,
     ProductionProfilePlan,
+    ProductionProfilePreflightCollect,
     ProductionProfileTemplate,
     ProductionProfileValidate
   }
@@ -42,7 +43,14 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery do
   end
 
   @impl true
-  def operator_commands, do: [ChangeProposalReconcile, ProductionProfilePlan, ProductionProfileValidate, ProductionProfileTemplate]
+  def operator_commands,
+    do: [
+      ChangeProposalReconcile,
+      ProductionProfilePlan,
+      ProductionProfileValidate,
+      ProductionProfileTemplate,
+      ProductionProfilePreflightCollect
+    ]
 
   @impl true
   def tool_result_recorders, do: [ToolResultRecorder]

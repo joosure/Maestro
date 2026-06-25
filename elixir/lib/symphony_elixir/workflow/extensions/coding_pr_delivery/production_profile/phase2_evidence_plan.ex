@@ -218,6 +218,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "required_env" => required_env,
       "required_auth" => [],
       "required_targets" => [],
+      "required_runtime" => ["provider_read_only_smoke"],
       "side_effect_mode" => "read_only",
       "requires_write_confirmation" => false,
       "does_not_write" => true
@@ -233,6 +234,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "required_env" => required_env,
       "required_auth" => required_auth,
       "required_targets" => required_targets,
+      "required_runtime" => ["provider_read_only_smoke"],
       "side_effect_mode" => "read_only",
       "requires_destructive_flag" => false,
       "does_not_write" => true
