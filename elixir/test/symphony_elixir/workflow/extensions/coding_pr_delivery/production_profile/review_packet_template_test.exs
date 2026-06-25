@@ -63,6 +63,31 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
              ReviewPacket.validate(review_packet)
   end
 
+  test "builds a Linear + CNB shadow review template with bounded operator inspection" do
+    assert {:ok, template} =
+             ReviewPacketTemplate.build(completed_evidence_packet(:linear_cnb_shadow, "shadow-run-linear-cnb-42"))
+
+    field_template = template["review_packet_field_template"]
+    inspection = field_template["operator_inspection"]
+
+    assert template["does_not_read_evidence_files"] == true
+    assert inspection["contains_raw_evidence_payload"] == false
+    assert inspection["workpad_markdown_authoritative"] == false
+    assert inspection["gate_values"][Gates.transition_readiness_required_gate_key()] == false
+
+    assert [
+             %{
+               "provider_matrix_entry_id" => "linear-cnb-shadow",
+               "gate_values" => linear_cnb_gates
+             }
+           ] = inspection["candidate_gate_values_by_entry"]
+
+    assert linear_cnb_gates[Gates.transition_readiness_required_gate_key()] == false
+    assert field_template["scrubbing_pipeline"]["source_provider_matrix_entry_ids"] == ["linear-cnb-shadow"]
+    assert field_template["retention_policy"]["source_provider_matrix_entry_ids"] == ["linear-cnb-shadow"]
+    assert field_template["authority_boundaries"]["raw_provider_passthrough_authorized"] == false
+  end
+
   test "rejects invalid evidence packets before building a review template" do
     assert {:error, %{code: "coding_pr_delivery_evidence_packet_invalid", errors: errors}} =
              ReviewPacketTemplate.build(%{})
@@ -75,8 +100,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
              ProductionProfile.phase4_review_packet_template(completed_evidence_packet())
   end
 
-  defp completed_evidence_packet do
-    assert {:ok, claim} = Phase2ClaimTemplate.build(:tapd_cnb_shadow, shadow_run_id: "shadow-run-cnb-42")
+  defp completed_evidence_packet(template \\ :tapd_cnb_shadow, shadow_run_id \\ "shadow-run-cnb-42") do
+    assert {:ok, claim} = Phase2ClaimTemplate.build(template, shadow_run_id: shadow_run_id)
     assert {:ok, template} = EvidencePacketTemplate.build(claim)
 
     %{
