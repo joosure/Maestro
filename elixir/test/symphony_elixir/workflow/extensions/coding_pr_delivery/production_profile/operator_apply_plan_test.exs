@@ -22,6 +22,33 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(plan["rollback_steps"], &(&1["gate"] == Gates.transition_readiness_required_gate_key()))
   end
 
+  test "builds Linear + CNB shadow operator apply plans from accepted enablement requests" do
+    assert {:ok, plan} = OperatorApplyPlan.build(valid_request("linear-cnb-shadow", "linear"))
+
+    assert plan["schema"] == "coding_pr_delivery.production_operator_apply_plan.v1"
+    assert plan["status"] == "ready_for_operator_apply"
+    assert plan["enablement_request_id"] == "enablement-linear-cnb-shadow"
+    assert plan["profile_instance_id"] == "coding-pr-delivery-production"
+    assert plan["review_packet_id"] == "review-packet-linear-cnb-shadow"
+    assert plan["does_not_apply_settings"] == true
+    assert plan["requires_operator_confirmation"] == true
+    assert plan["can_apply_automatically"] == false
+    assert plan["blockers"] == []
+
+    assert plan["scope"] == %{
+             "environment" => "production",
+             "repositories" => ["acme/widgets"],
+             "provider_matrix_entry_ids" => ["linear-cnb-shadow"],
+             "side_effect_mode" => "shadow_no_write"
+           }
+
+    assert plan["gate_values"][Gates.transition_readiness_required_gate_key()] == false
+    assert plan["activation_control"]["applies_immediately"] == false
+    assert Enum.any?(plan["operator_steps"], &(&1["id"] == "verify_scope" and &1["scope"] == plan["scope"]))
+    assert Enum.any?(plan["operator_steps"], &(&1["id"] == "apply_gate_values" and &1["gate_values"] == plan["gate_values"]))
+    assert Enum.any?(plan["rollback_steps"], &(&1["gate"] == Gates.transition_readiness_required_gate_key()))
+  end
+
   test "projects invalid enablement requests into blocked apply plans" do
     request =
       valid_request()
@@ -49,16 +76,16 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert [%{"code" => "invalid_type"}] = plan["blockers"]
   end
 
-  defp valid_request do
+  defp valid_request(entry_id \\ "tapd-cnb-shadow", tracker_kind \\ "tapd") do
     %{
-      "enablement_request_id" => "enablement-tapd-cnb-shadow",
+      "enablement_request_id" => "enablement-#{entry_id}",
       "requested_by" => "release-manager",
       "requested_at" => "2026-06-25T00:00:00Z",
-      "review_decision" => ready_review_decision(),
+      "review_decision" => ready_review_decision(entry_id, tracker_kind),
       "scope" => %{
         "environment" => "production",
         "repositories" => ["acme/widgets"],
-        "provider_matrix_entry_ids" => ["tapd-cnb-shadow"],
+        "provider_matrix_entry_ids" => [entry_id],
         "side_effect_mode" => "shadow_no_write"
       },
       "gate_values" => %{
@@ -98,16 +125,16 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     }
   end
 
-  defp ready_review_decision do
+  defp ready_review_decision(entry_id, tracker_kind) do
     %{
       "schema" => "coding_pr_delivery.production_review_decision.v1",
       "status" => "ready_for_approval",
-      "review_packet_id" => "review-packet-tapd-cnb-shadow",
+      "review_packet_id" => "review-packet-#{entry_id}",
       "profile_instance_id" => "coding-pr-delivery-production",
       "provider_entries" => [
         %{
-          "entry_id" => "tapd-cnb-shadow",
-          "tracker" => %{"kind" => "tapd"},
+          "entry_id" => entry_id,
+          "tracker" => %{"kind" => tracker_kind},
           "repo_provider" => %{"kind" => "cnb"},
           "agent_provider" => %{"kind" => "codex"},
           "side_effect_mode" => "shadow_no_write",
