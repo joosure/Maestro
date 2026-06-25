@@ -64,6 +64,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "required_status" => "passed",
       "required_evidence_kind" => evidence_kind(entry),
       "evidence_files" => ["evidence/live/#{entry_id}/#{Map.get(scenario, "id")}.md"],
+      "allowed_evidence_ref_prefixes" => ["evidence/", "https://", "http://"],
+      "raw_provider_output_allowed" => false,
       "fields_to_complete" => ["collector", "collected_at", "evidence_files"],
       "shadow" => shadow_requirement(entry),
       "no_write_flags" => no_write_flags(entry)

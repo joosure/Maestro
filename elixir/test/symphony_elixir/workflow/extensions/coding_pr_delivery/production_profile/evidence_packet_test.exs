@@ -112,6 +112,39 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(errors, &(&1.code == "required_field_missing" and &1.path == ["non_claim_acknowledgements"]))
   end
 
+  test "rejects raw provider output and invalid evidence references" do
+    packet =
+      complete_packet()
+      |> update_in(["scenario_evidence", Access.at(0)], fn record ->
+        record
+        |> Map.put("stdout", "raw provider output")
+        |> Map.put("raw_provider_payload", %{"secret" => "provider-token"})
+        |> Map.put("evidence_files", [
+          "fill-live-evidence.md",
+          "/tmp/provider-output.json",
+          "file:///var/tmp/provider-output.txt"
+        ])
+      end)
+
+    assert {:error, %{errors: errors}} = EvidencePacket.validate(packet)
+
+    assert Enum.any?(errors, &(&1.code == "raw_evidence_payload_forbidden" and List.last(&1.path) == "stdout"))
+    assert Enum.any?(errors, &(&1.code == "raw_evidence_payload_forbidden" and List.last(&1.path) == "raw_provider_payload"))
+    assert Enum.any?(errors, &(&1.code == "placeholder_evidence_ref"))
+    assert Enum.any?(errors, &(&1.code == "invalid_evidence_ref"))
+  end
+
+  test "accepts HTTP evidence links as bounded references" do
+    packet =
+      complete_packet()
+      |> update_in(["scenario_evidence", Access.at(0), "evidence_files"], fn [_first | rest] ->
+        ["https://github.com/joosure/Maestro/actions/runs/123" | rest]
+      end)
+
+    assert {:ok, %{"schema" => "coding_pr_delivery.production_evidence_packet.v1"}} =
+             EvidencePacket.validate(packet)
+  end
+
   defp complete_packet(
          entry_id \\ "tapd-cnb-shadow",
          tracker_kind \\ "tapd",

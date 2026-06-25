@@ -36,6 +36,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
     assert requirement["required_status"] == "passed"
     assert requirement["required_evidence_kind"] == "real_integration"
+    assert requirement["allowed_evidence_ref_prefixes"] == ["evidence/", "https://", "http://"]
+    assert requirement["raw_provider_output_allowed"] == false
     assert requirement["shadow"] == nil
     assert requirement["no_write_flags"] == nil
   end

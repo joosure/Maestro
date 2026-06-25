@@ -18,6 +18,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   @schema "coding_pr_delivery.production_evidence_packet.v1"
   @error_code "coding_pr_delivery_evidence_packet_invalid"
   @shadow_mode OneShotContract.shadow_mode()
+  @raw_evidence_fields [
+    "stdout",
+    "stderr",
+    "raw_output",
+    "raw_payload",
+    "raw_provider_payload",
+    "raw_evidence_payload",
+    "response_body",
+    "environment",
+    "env",
+    "token"
+  ]
+  @placeholder_tokens ["fill-", "TODO", "REPLACE", "<", ">"]
 
   @type validation_result :: {:ok, map()} | {:error, map()}
 
@@ -94,7 +107,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     |> collect_required_string(record, path ++ ["collector"])
     |> collect_collected_at(record, path)
     |> collect_status(record, path)
-    |> collect_string_list(record, path ++ ["evidence_files"], "Evidence files must be a non-empty string array.")
+    |> collect_evidence_files(record, path ++ ["evidence_files"])
+    |> collect_raw_evidence_fields(record, path)
     |> collect_evidence_kind(record, entry, path)
     |> collect_shadow_boundary(record, entry, path)
   end
@@ -123,6 +137,59 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       non_empty_string?(status) and status != "passed",
       issue("scenario_not_passed", path ++ ["status"], "Production evidence scenarios must be passed.")
     )
+  end
+
+  defp collect_evidence_files(errors, record, path) do
+    evidence_files = value_at(record, [List.last(path)])
+
+    errors =
+      collect_string_list(errors, record, path, "Evidence files must be a non-empty string array.")
+
+    if is_list(evidence_files) do
+      evidence_files
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {evidence_ref, index} -> evidence_ref_errors(evidence_ref, path ++ [index]) end)
+      |> then(&(errors ++ &1))
+    else
+      errors
+    end
+  end
+
+  defp evidence_ref_errors(evidence_ref, path) do
+    []
+    |> maybe_add(
+      non_empty_string?(evidence_ref) and not allowed_evidence_ref?(evidence_ref),
+      issue("invalid_evidence_ref", path, "Evidence references must be repository evidence paths or HTTP(S) links.")
+    )
+    |> maybe_add(
+      non_empty_string?(evidence_ref) and placeholder_evidence_ref?(evidence_ref),
+      issue("placeholder_evidence_ref", path, "Evidence references must not contain placeholders.")
+    )
+  end
+
+  defp allowed_evidence_ref?(evidence_ref) do
+    String.starts_with?(evidence_ref, "evidence/") or
+      String.starts_with?(evidence_ref, "https://") or
+      String.starts_with?(evidence_ref, "http://")
+  end
+
+  defp placeholder_evidence_ref?(evidence_ref) do
+    downcased = String.downcase(evidence_ref)
+
+    String.starts_with?(downcased, "/tmp/") or
+      String.starts_with?(downcased, "tmp/") or
+      String.starts_with?(downcased, "/var/") or
+      String.starts_with?(downcased, "file://") or
+      Enum.any?(@placeholder_tokens, &String.contains?(downcased, String.downcase(&1)))
+  end
+
+  defp collect_raw_evidence_fields(errors, record, path) do
+    @raw_evidence_fields
+    |> Enum.filter(&Map.has_key?(record, &1))
+    |> Enum.map(fn field ->
+      issue("raw_evidence_payload_forbidden", path ++ [field], "Evidence packets must not store raw provider output, environment, or token material.")
+    end)
+    |> then(&(errors ++ &1))
   end
 
   defp collect_evidence_kind(errors, record, %{"side_effect_mode" => @shadow_mode}, path) do
