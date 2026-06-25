@@ -40,6 +40,25 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
     end
   end
 
+  test "dry-run text output preserves Linear + CNB shadow provider identity" do
+    report = fake_report("issue-linear-cnb-shadow", shadow?: true, tracker_kind: "linear", repo_provider_kind: "cnb")
+
+    assert {stdout, "", 0} =
+             ChangeProposalReconcile.evaluate(["--issue", "issue-linear-cnb-shadow"],
+               deps: %{one_shot_run: fn _opts -> report end}
+             )
+
+    for line <- String.split(String.trim(stdout), "\n") do
+      assert String.starts_with?(line, "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]")
+      assert line =~ "shadow_run_id=shadow-test-run"
+      assert line =~ "shadow_authority=diagnostic_only"
+    end
+
+    assert stdout =~ "issue=issue-linear-cnb-shadow"
+    assert stdout =~ "tracker=linear repo_provider=cnb"
+    refute stdout =~ "state_write"
+  end
+
   test "dry-run json output carries shadow no-write isolation metadata" do
     report = fake_report("issue-shadow-json", shadow?: true)
 
@@ -122,8 +141,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.C
       issue_id: issue_id,
       mode: "dry_run",
       shadow: shadow(opts),
-      tracker_kind: "memory",
-      repo_provider_kind: "memory",
+      tracker_kind: Keyword.get(opts, :tracker_kind, "memory"),
+      repo_provider_kind: Keyword.get(opts, :repo_provider_kind, "memory"),
       before_state: "In Review",
       after_state: "In Review",
       decision: nil,

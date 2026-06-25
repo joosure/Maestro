@@ -200,6 +200,52 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
     refute encoded_map =~ "lin-secret"
   end
 
+  test "one-shot shadow report preserves Linear + CNB diagnostic provider identity" do
+    report = %{
+      ok: true,
+      issue_id: "issue-linear-cnb-shadow",
+      mode: "dry_run",
+      shadow: %{
+        "prefix" => "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]",
+        "run_id" => "shadow-linear-cnb-42",
+        "mode" => "shadow_no_write",
+        "authority" => "diagnostic_only",
+        "canonical_authority" => false,
+        "allowed_destinations" => ["diagnostic_logs", "review_packets", "non_authoritative_evidence"]
+      },
+      tracker_kind: "linear",
+      repo_provider_kind: "cnb",
+      before_state: "In Review",
+      after_state: "In Review",
+      decision: %{"decision" => "ready_to_land", "reason" => "ready_to_land", "target_route" => "merging"},
+      transition: %{"event" => "change_proposal_transition_skipped", "skip_reason" => "dry_run", "target_state" => "Merging"},
+      probes: [
+        %{
+          id: "targeted-reconcile",
+          ok: true,
+          summary: "Linear + CNB shadow evidence remains diagnostic-only",
+          error: nil,
+          duration_ms: 3
+        }
+      ]
+    }
+
+    text = OneShot.format_text(report)
+    encoded = OneShot.to_map(report)
+
+    for line <- String.split(String.trim(text), "\n") do
+      assert String.starts_with?(line, "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]")
+      assert line =~ "shadow_run_id=shadow-linear-cnb-42"
+      assert line =~ "shadow_authority=diagnostic_only"
+    end
+
+    assert text =~ "tracker=linear repo_provider=cnb"
+    assert encoded.tracker_kind == "linear"
+    assert encoded.repo_provider_kind == "cnb"
+    assert encoded.shadow["canonical_authority"] == false
+    assert encoded.shadow["allowed_destinations"] == ["diagnostic_logs", "review_packets", "non_authoritative_evidence"]
+  end
+
   test "probe exception diagnostics do not expose exception messages" do
     {probe, {:error, %RuntimeError{}}} =
       Probe.run("bounded-probe", fn -> 1 end, fn ->
