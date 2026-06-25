@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     Claim,
     EnablementRequest,
     EvidencePacket,
+    EvidencePacketTemplate,
     EvidenceRunbook,
     OperatorApplyRecord,
     OperatorApplyPlan,
@@ -18,6 +19,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     ProviderMatrix,
     ReviewDecision,
     ReviewPacket,
+    ReviewPacketTemplate,
     TypedToolException
   }
 
@@ -50,8 +52,14 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
   @spec validate_evidence_packet(map()) :: validation_result()
   defdelegate validate_evidence_packet(packet), to: EvidencePacket, as: :validate
 
+  @spec phase2_evidence_packet_template(map()) :: validation_result()
+  defdelegate phase2_evidence_packet_template(claim), to: EvidencePacketTemplate, as: :build
+
   @spec validate_review_packet(map()) :: validation_result()
   defdelegate validate_review_packet(packet), to: ReviewPacket, as: :validate
+
+  @spec phase4_review_packet_template(map()) :: validation_result()
+  defdelegate phase4_review_packet_template(evidence_packet), to: ReviewPacketTemplate, as: :build
 
   @spec review_decision(map()) :: {:ok, map()}
   defdelegate review_decision(packet), to: ReviewDecision, as: :build

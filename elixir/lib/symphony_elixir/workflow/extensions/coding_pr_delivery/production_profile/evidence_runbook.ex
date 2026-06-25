@@ -76,7 +76,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "rollback" => rollback(entry, governance),
       "scenario_checklist" => scenarios_for(entry),
       "collection_steps" => collection_steps(entry, matching_exceptions),
-      "shadow_requirements" => shadow_requirements(side_effect_mode),
+      "shadow_requirements" => shadow_requirements(entry),
       "ready_to_land_requirements" => ready_to_land_requirements(entry),
       "non_claims" => non_claims(entry)
     }
@@ -168,16 +168,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     end
   end
 
-  defp shadow_requirements("shadow_no_write") do
+  defp shadow_requirements(%{"side_effect_mode" => "shadow_no_write"} = entry) do
+    shadow = Map.get(entry, "shadow", %{})
+
     %{
       "prefix" => OneShotContract.shadow_prefix(),
+      "run_id" => Map.get(shadow, "run_id"),
       "authority" => OneShotContract.shadow_authority(),
       "canonical_authority" => false,
       "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
     }
   end
 
-  defp shadow_requirements(_mode), do: nil
+  defp shadow_requirements(_entry), do: nil
 
   defp ready_to_land_requirements(%{"side_effect_mode" => "ready_to_land_write"} = entry) do
     gates = Map.get(entry, "structured_plan_gates", %{})

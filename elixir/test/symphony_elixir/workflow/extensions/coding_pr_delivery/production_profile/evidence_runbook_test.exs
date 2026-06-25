@@ -24,6 +24,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
     assert shadow["entry_id"] == "tapd-cnb-shadow"
     assert shadow["shadow_requirements"]["prefix"] == OneShotContract.shadow_prefix()
+    assert shadow["shadow_requirements"]["run_id"] == "shadow-run-1"
     assert shadow["shadow_requirements"]["canonical_authority"] == false
     assert "multi_node_ownership" in shadow["non_claims"]
     assert Enum.any?(shadow["scenario_checklist"], &(&1["id"] == "shadow_decision_chain"))
