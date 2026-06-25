@@ -163,6 +163,43 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
     refute error =~ "not_a_keyword"
   end
 
+  test "one-shot report output scrubs diagnostic secret strings" do
+    report = %{
+      ok: false,
+      issue_id: "issue-secret-output",
+      mode: "dry_run",
+      shadow: nil,
+      tracker_kind: "memory",
+      repo_provider_kind: "memory",
+      before_state: "In Review",
+      after_state: "In Review",
+      decision: %{"decision" => "blocked", "reason" => "token=ghp_secret123", "target_route" => nil},
+      transition: %{"event" => "change_proposal_transition_failed", "skip_reason" => nil, "target_state" => "Merging"},
+      probes: [
+        %{
+          id: "diagnostic-probe",
+          ok: false,
+          summary: "Authorization: Bearer bearer-secret",
+          error: "LINEAR_API_KEY=lin-secret",
+          duration_ms: 3
+        }
+      ]
+    }
+
+    text = OneShot.format_text(report)
+    encoded_map = inspect(OneShot.to_map(report))
+
+    assert text =~ "token=[REDACTED]"
+    assert text =~ "Authorization: [REDACTED]"
+    assert text =~ "LINEAR_API_KEY=[REDACTED]"
+    refute text =~ "ghp_secret123"
+    refute text =~ "bearer-secret"
+    refute text =~ "lin-secret"
+    refute encoded_map =~ "ghp_secret123"
+    refute encoded_map =~ "bearer-secret"
+    refute encoded_map =~ "lin-secret"
+  end
+
   test "probe exception diagnostics do not expose exception messages" do
     {probe, {:error, %RuntimeError{}}} =
       Probe.run("bounded-probe", fn -> 1 end, fn ->

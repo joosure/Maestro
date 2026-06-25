@@ -24,6 +24,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Commands do
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Record
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Server.State
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Workpad.Renderer
+  alias SymphonyElixir.Storage.Scrubber
 
   @type reply :: term()
   @type command :: term()
@@ -98,7 +99,8 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Commands do
            :ok <- Guards.plan_mutable(plan),
            :ok <- Guards.revision_matches(plan, expected_revision),
            {:ok, item} <- fetch_item(plan, item_id),
-           {:ok, updated_item} <- Evidence.append_ref(item, evidence_ref) do
+           {:ok, scrubbed_evidence_ref} <- Scrubber.scrub_map(evidence_ref, opts),
+           {:ok, updated_item} <- Evidence.append_ref(item, scrubbed_evidence_ref) do
         if updated_item == item do
           {:ok, state}
         else
@@ -164,7 +166,8 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Commands do
       with {:ok, plan} <- Persistence.fetch(state, plan_id),
            :ok <- Guards.plan_mutable(plan),
            :ok <- Guards.revision_matches(plan, expected_revision),
-           {:ok, valid_event} <- ProviderSessionEvent.validate(event),
+           {:ok, scrubbed_event} <- Scrubber.scrub_map(event, opts),
+           {:ok, valid_event} <- ProviderSessionEvent.validate(scrubbed_event),
            {:ok, updated_plan} <- ProviderSessionEvents.record(plan, valid_event, opts),
            {:ok, valid_plan} <- Schema.validate(updated_plan),
            {:ok, _agent_plan} <- Persistence.replace_projected_plan(state, valid_plan, expected_revision) do

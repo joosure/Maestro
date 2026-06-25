@@ -3,6 +3,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Smoke.ResultStatus
+  alias SymphonyElixir.Storage.Scrubber
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.Config, as: ReconciliationConfig
@@ -98,7 +99,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
       probe_count: length(probes),
       passed_count: passed_count,
       failed_count: failed_count,
-      probes: probes
+      probes: Enum.map(probes, &scrub_map/1)
     }
   end
 
@@ -106,12 +107,13 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
   def format_text(report) when is_map(report) do
     report
     |> text_lines()
+    |> Enum.map(&scrub_text/1)
     |> Enum.join("\n")
     |> Kernel.<>("\n")
   end
 
   @spec to_map(t()) :: map()
-  def to_map(report) when is_map(report), do: report
+  def to_map(report) when is_map(report), do: scrub_map(report)
 
   defp text_lines(report) do
     lines =
@@ -185,6 +187,21 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
   defp summarize_event(event) when is_map(event) do
     Map.take(event, Fields.summary_fields())
+    |> scrub_map()
+  end
+
+  defp scrub_map(map) when is_map(map) do
+    case Scrubber.scrub_map(map) do
+      {:ok, scrubbed} -> scrubbed
+      {:error, reason} -> %{redaction_error: reason}
+    end
+  end
+
+  defp scrub_text(text) when is_binary(text) do
+    case Scrubber.scrub(text) do
+      {:ok, scrubbed} when is_binary(scrubbed) -> scrubbed
+      _result -> "[REDACTED]"
+    end
   end
 
   defp shadow_metadata(mode, run_id) when is_binary(run_id) do

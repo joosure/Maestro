@@ -14,10 +14,12 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.Store.EvidenceRefs do
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Reconciler
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store.ErrorCodes
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Record
+  alias SymphonyElixir.Storage.Scrubber
 
   @spec record_and_reconcile(map(), [map()], keyword()) :: {:ok, map()} | {:error, map()}
   def record_and_reconcile(plan, evidence_refs, opts) when is_map(plan) and is_list(evidence_refs) and is_list(opts) do
-    with {:ok, valid_refs} <- validate_evidence_refs(evidence_refs),
+    with {:ok, scrubbed_refs} <- Scrubber.scrub_map_list(evidence_refs, opts),
+         {:ok, valid_refs} <- validate_evidence_refs(scrubbed_refs),
          :ok <- ensure_scope(plan, valid_refs),
          {:ok, updated_plan} <- record_refs_and_reconcile(plan, valid_refs, opts) do
       {:ok, updated_plan}
