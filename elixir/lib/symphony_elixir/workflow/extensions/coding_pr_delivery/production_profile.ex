@@ -12,6 +12,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     EvidencePacket,
     EvidenceRunbook,
     ProviderMatrix,
+    ReviewDecision,
     ReviewPacket,
     TypedToolException
   }
@@ -41,4 +42,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec validate_review_packet(map()) :: validation_result()
   defdelegate validate_review_packet(packet), to: ReviewPacket, as: :validate
+
+  @spec review_decision(map()) :: {:ok, map()}
+  defdelegate review_decision(packet), to: ReviewDecision, as: :build
 end
