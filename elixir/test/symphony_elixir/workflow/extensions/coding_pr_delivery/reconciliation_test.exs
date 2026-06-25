@@ -654,6 +654,35 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ReconciliationTest
              StateStoreBackend.load(workflow_scope: scope)
   end
 
+  test "known target StateStore storage preserves Linear + CNB provider identity" do
+    scope = workflow_scope("linear-cnb-known-target-state-store")
+
+    attrs =
+      linear_cnb_known_target_attrs("LIN-42")
+      |> Map.put("raw_provider_payload", %{"authorization" => "Bearer secret-token"})
+
+    {:ok, target} = KnownTarget.new(attrs, now_ms: 1_000)
+
+    assert :ok = StateStoreBackend.put(target, workflow_scope: scope, now_ms: 1_001)
+
+    assert {:ok,
+            [
+              %KnownTarget{
+                issue_id: "LIN-42",
+                tracker_kind: "linear",
+                repo_provider_kind: "cnb",
+                repository: "cnb/acme/widgets",
+                number: "42",
+                url: "https://cnb.cool/acme/widgets/-/merge_requests/42",
+                branch: "feature/linear-cnb-shadow",
+                head_sha: "abc123"
+              } = restored
+            ]} = StateStoreBackend.load(workflow_scope: scope, now_ms: 1_002)
+
+    refute inspect(restored) =~ "raw_provider_payload"
+    refute inspect(restored) =~ "secret-token"
+  end
+
   test "known target registration observes runtime inbox drops" do
     registry = start_supervised!({KnownTarget.Registry, name: nil})
     inbox = start_supervised!({Inbox, name: nil, queue_limit: 1})
@@ -2572,6 +2601,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ReconciliationTest
       "repo_provider_kind" => "memory",
       "repository" => "acme/widgets",
       "number" => issue_id |> String.replace("issue-", "") |> Kernel.<>("-35")
+    }
+  end
+
+  defp linear_cnb_known_target_attrs(issue_id) when is_binary(issue_id) do
+    %{
+      "issue_id" => issue_id,
+      "tracker_kind" => "linear",
+      "repo_provider_kind" => "cnb",
+      "repository" => "cnb/acme/widgets",
+      "number" => "42",
+      "url" => "https://cnb.cool/acme/widgets/-/merge_requests/42",
+      "branch" => "feature/linear-cnb-shadow",
+      "head_sha" => "abc123"
     }
   end
 
