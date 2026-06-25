@@ -29,6 +29,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     ReviewDecision,
     ReviewPacket,
     ReviewPacketTemplate,
+    StatusReport,
     TypedToolException
   }
 
@@ -63,6 +64,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec phase4_review_plan(Phase4ReviewPlan.input(), keyword()) :: validation_result()
   defdelegate phase4_review_plan(input, opts \\ []), to: Phase4ReviewPlan, as: :build
+
+  @spec production_status(StatusReport.input(), keyword()) :: validation_result()
+  defdelegate production_status(input, opts \\ []), to: StatusReport, as: :build
 
   @spec validate_preflight_report(map()) :: validation_result()
   defdelegate validate_preflight_report(report), to: PreflightReport, as: :validate

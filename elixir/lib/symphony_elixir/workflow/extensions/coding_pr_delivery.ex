@@ -19,6 +19,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery do
     ChangeProposalReconcile,
     ProductionProfilePlan,
     ProductionProfilePreflightCollect,
+    ProductionProfileStatus,
     ProductionProfileTemplate,
     ProductionProfileValidate
   }
@@ -49,7 +50,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery do
       ProductionProfilePlan,
       ProductionProfileValidate,
       ProductionProfileTemplate,
-      ProductionProfilePreflightCollect
+      ProductionProfilePreflightCollect,
+      ProductionProfileStatus
     ]
 
   @impl true
