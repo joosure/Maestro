@@ -17,6 +17,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery do
 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.{
     ChangeProposalReconcile,
+    ProductionProfileEvidenceBundle,
     ProductionProfileEvidenceRequest,
     ProductionProfilePlan,
     ProductionProfilePreflightCollect,
@@ -50,6 +51,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery do
       ChangeProposalReconcile,
       ProductionProfilePlan,
       ProductionProfileEvidenceRequest,
+      ProductionProfileEvidenceBundle,
       ProductionProfileValidate,
       ProductionProfileTemplate,
       ProductionProfilePreflightCollect,

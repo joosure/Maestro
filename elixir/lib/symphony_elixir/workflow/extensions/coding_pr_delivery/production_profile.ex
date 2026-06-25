@@ -11,6 +11,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     Claim,
     EnablementRequest,
     EnablementRequestTemplate,
+    EvidenceBundle,
     EvidencePacket,
     EvidencePacketTemplate,
     EvidenceRequest,
@@ -65,6 +66,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec production_evidence_request(EvidenceRequest.input(), keyword()) :: validation_result()
   defdelegate production_evidence_request(input, opts \\ []), to: EvidenceRequest, as: :build
+
+  @spec production_evidence_bundle(EvidenceBundle.input(), keyword()) :: validation_result()
+  defdelegate production_evidence_bundle(input, opts \\ []), to: EvidenceBundle, as: :build
 
   @spec phase4_review_plan(Phase4ReviewPlan.input(), keyword()) :: validation_result()
   defdelegate phase4_review_plan(input, opts \\ []), to: Phase4ReviewPlan, as: :build
