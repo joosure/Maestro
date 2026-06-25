@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     EnablementRequestTemplate,
     EvidencePacket,
     EvidencePacketTemplate,
+    EvidenceRequest,
     EvidenceRunbook,
     ObservationDecision,
     ObservationStatus,
@@ -61,6 +62,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec phase2_evidence_plan(Phase2EvidencePlan.plan() | String.t(), keyword()) :: validation_result()
   defdelegate phase2_evidence_plan(plan, opts \\ []), to: Phase2EvidencePlan, as: :build
+
+  @spec production_evidence_request(EvidenceRequest.input(), keyword()) :: validation_result()
+  defdelegate production_evidence_request(input, opts \\ []), to: EvidenceRequest, as: :build
 
   @spec phase4_review_plan(Phase4ReviewPlan.input(), keyword()) :: validation_result()
   defdelegate phase4_review_plan(input, opts \\ []), to: Phase4ReviewPlan, as: :build
