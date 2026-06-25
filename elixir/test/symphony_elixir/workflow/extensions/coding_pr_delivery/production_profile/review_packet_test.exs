@@ -16,6 +16,26 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert packet["evidence_packet"]["schema"] == "coding_pr_delivery.production_evidence_packet.v1"
   end
 
+  test "accepts complete Phase 4 production review packets for Linear + CNB shadow evidence" do
+    assert {:ok, packet} =
+             ReviewPacket.validate(complete_review_packet("linear-cnb-shadow", "linear", "shadow-run-linear-cnb-42"))
+
+    assert packet["schema"] == "coding_pr_delivery.production_review_packet.v1"
+    assert packet["review_packet_id"] == "review-packet-linear-cnb-shadow"
+    assert packet["profile_instance_id"] == "coding-pr-delivery-production"
+    assert packet["operator_inspection"]["contains_raw_evidence_payload"] == false
+    assert packet["operator_inspection"]["gate_values"][Gates.transition_readiness_required_gate_key()] == false
+    assert packet["authority_boundaries"]["raw_provider_passthrough_authorized"] == false
+
+    assert Enum.all?(packet["evidence_packet"]["scenario_evidence"], fn evidence ->
+             evidence["provider_matrix_entry_id"] == "linear-cnb-shadow" and
+               evidence["evidence_kind"] == "shadow_integration" and
+               evidence["production_write_performed"] == false and
+               evidence["canonical_surface_mutated"] == false and
+               evidence["shadow"]["run_id"] == "shadow-run-linear-cnb-42"
+           end)
+  end
+
   test "rejects packets whose nested evidence packet is invalid" do
     packet = Map.put(complete_review_packet(), "evidence_packet", %{})
 
@@ -68,9 +88,13 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert Enum.any?(errors, &(&1.code == "signoff_not_approved"))
   end
 
-  defp complete_review_packet do
+  defp complete_review_packet(
+         entry_id \\ "tapd-cnb-shadow",
+         tracker_kind \\ "tapd",
+         shadow_run_id \\ "shadow-run-1"
+       ) do
     %{
-      "review_packet_id" => "review-packet-tapd-cnb-shadow",
+      "review_packet_id" => "review-packet-#{entry_id}",
       "changed_source_specs" => [
         "specs/workflow/profiles/coding_pr_delivery/profile_spec.md",
         "specs/workflow/extensions/coding_pr_delivery/reconciliation/production_profile_spec.md"
@@ -85,7 +109,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
           "status" => "passed"
         }
       ],
-      "evidence_packet" => complete_evidence_packet(),
+      "evidence_packet" => complete_evidence_packet(entry_id, tracker_kind, shadow_run_id),
       "rollback_instructions" => %{
         "owner" => "workflow-runtime",
         "external_transition_readiness_gate" => Gates.transition_readiness_required_gate_key(),
@@ -116,6 +140,15 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
           Gates.transition_readiness_required_gate_key() => false,
           Gates.enabled_gate_key() => true
         },
+        "candidate_gate_values_by_entry" => [
+          %{
+            "provider_matrix_entry_id" => entry_id,
+            "gate_values" => %{
+              Gates.transition_readiness_required_gate_key() => false,
+              Gates.enabled_gate_key() => true
+            }
+          }
+        ],
         "contains_raw_evidence_payload" => false,
         "workpad_markdown_authoritative" => false
       },
@@ -142,8 +175,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     }
   end
 
-  defp complete_evidence_packet do
-    claim = production_claim()
+  defp complete_evidence_packet(entry_id, tracker_kind, shadow_run_id) do
+    claim = production_claim(entry_id, tracker_kind, shadow_run_id)
     assert {:ok, runbook} = EvidenceRunbook.build(claim)
 
     %{
@@ -168,7 +201,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
           "canonical_surface_mutated" => false,
           "shadow" => %{
             "prefix" => OneShotContract.shadow_prefix(),
-            "run_id" => "shadow-run-1",
+            "run_id" => get_in(entry, ["shadow_requirements", "run_id"]) || "shadow-run-1",
             "authority" => OneShotContract.shadow_authority(),
             "canonical_authority" => false,
             "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
@@ -189,19 +222,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     end)
   end
 
-  defp production_claim do
+  defp production_claim(entry_id, tracker_kind, shadow_run_id) do
     %{
       "profile_instance_id" => "coding-pr-delivery-production",
-      "provider_matrix" => [shadow_entry()],
-      "production_governance" => [governance_packet("tapd-cnb-shadow")]
+      "provider_matrix" => [shadow_entry(entry_id, tracker_kind, shadow_run_id)],
+      "production_governance" => [governance_packet(entry_id)]
     }
   end
 
-  defp shadow_entry do
+  defp shadow_entry(entry_id, tracker_kind, shadow_run_id) do
     %{
-      "id" => "tapd-cnb-shadow",
+      "id" => entry_id,
       "workflow_profile" => %{"kind" => "coding_pr_delivery", "version" => 1},
-      "tracker" => %{"kind" => "tapd"},
+      "tracker" => %{"kind" => tracker_kind},
       "repo_provider" => %{"kind" => "cnb"},
       "agent_provider" => %{"kind" => "codex"},
       "repository_class" => "single_repo_change_proposal",
@@ -224,12 +257,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       },
       "shadow" => %{
         "prefix" => OneShotContract.shadow_prefix(),
-        "run_id" => "shadow-run-1",
+        "run_id" => shadow_run_id,
         "authority" => OneShotContract.shadow_authority(),
         "canonical_authority" => false,
         "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
       },
-      "evidence_files" => ["evidence/provider-matrix/tapd-cnb-shadow.md"],
+      "evidence_files" => ["evidence/provider-matrix/#{entry_id}.md"],
       "recovery" => %{"model" => "operator_one_shot"},
       "rollback" => %{
         "owner" => "workflow-runtime",
