@@ -22,6 +22,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     OperatorApplyRecordTemplate,
     Phase2ClaimTemplate,
     Phase2EvidencePlan,
+    Phase4ReviewPlan,
     ProviderMatrix,
     ReviewDecision,
     ReviewPacket,
@@ -57,6 +58,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec phase2_evidence_plan(Phase2EvidencePlan.plan() | String.t(), keyword()) :: validation_result()
   defdelegate phase2_evidence_plan(plan, opts \\ []), to: Phase2EvidencePlan, as: :build
+
+  @spec phase4_review_plan(Phase4ReviewPlan.input(), keyword()) :: validation_result()
+  defdelegate phase4_review_plan(input, opts \\ []), to: Phase4ReviewPlan, as: :build
 
   @spec build_evidence_runbook(map()) :: validation_result()
   defdelegate build_evidence_runbook(claim), to: EvidenceRunbook, as: :build
