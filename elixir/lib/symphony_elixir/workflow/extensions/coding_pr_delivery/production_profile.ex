@@ -17,10 +17,11 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
     ObservationDecision,
     ObservationStatus,
     ObservationStatusTemplate,
+    OperatorApplyPlan,
     OperatorApplyRecord,
     OperatorApplyRecordTemplate,
-    OperatorApplyPlan,
     Phase2ClaimTemplate,
+    Phase2EvidencePlan,
     ProviderMatrix,
     ReviewDecision,
     ReviewPacket,
@@ -50,6 +51,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec phase2_claim_template(Phase2ClaimTemplate.template() | String.t(), keyword()) :: validation_result()
   defdelegate phase2_claim_template(template, opts \\ []), to: Phase2ClaimTemplate, as: :build
+
+  @spec phase2_evidence_plans() :: [String.t()]
+  defdelegate phase2_evidence_plans, to: Phase2EvidencePlan, as: :plans
+
+  @spec phase2_evidence_plan(Phase2EvidencePlan.plan() | String.t(), keyword()) :: validation_result()
+  defdelegate phase2_evidence_plan(plan, opts \\ []), to: Phase2EvidencePlan, as: :build
 
   @spec build_evidence_runbook(map()) :: validation_result()
   defdelegate build_evidence_runbook(claim), to: EvidenceRunbook, as: :build

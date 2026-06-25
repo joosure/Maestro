@@ -9,12 +9,12 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.Store.EvidenceRefs do
 
   alias SymphonyElixir.Agent.ExecutionPlan.Contract, as: AgentContract
   alias SymphonyElixir.Agent.ExecutionPlan.Fields, as: AgentFields
+  alias SymphonyElixir.Storage.Scrubber
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Evidence
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Fields
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Reconciler
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store.ErrorCodes
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Record
-  alias SymphonyElixir.Storage.Scrubber
 
   @spec record_and_reconcile(map(), [map()], keyword()) :: {:ok, map()} | {:error, map()}
   def record_and_reconcile(plan, evidence_refs, opts) when is_map(plan) and is_list(evidence_refs) and is_list(opts) do

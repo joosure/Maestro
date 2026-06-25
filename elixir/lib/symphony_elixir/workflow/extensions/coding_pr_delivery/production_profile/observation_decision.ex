@@ -109,8 +109,6 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   end
 
   defp blockers(%{errors: errors}) when is_list(errors), do: Enum.map(errors, &blocker/1)
-  defp blockers(%{"errors" => errors}) when is_list(errors), do: Enum.map(errors, &blocker/1)
-  defp blockers(reason), do: [blocker(reason)]
 
   defp blocker(error) when is_map(error) do
     %{

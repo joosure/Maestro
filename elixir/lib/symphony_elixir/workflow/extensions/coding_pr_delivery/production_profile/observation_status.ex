@@ -259,10 +259,6 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     errors ++ Enum.map(nested_errors, &prefix_error(&1, path))
   end
 
-  defp collect_nested_errors(errors, {:error, reason}, path) do
-    errors ++ [issue(error_code(reason), path, error_message(reason))]
-  end
-
   defp prefix_error(error, path) do
     %{
       code: error_code(error),

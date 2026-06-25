@@ -9,11 +9,11 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.Evidence
   package can provide another backend without changing policy code.
   """
 
+  alias SymphonyElixir.Storage.Scrubber
   alias SymphonyElixir.Workflow.Extension.Diagnostics
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.HostAdapters.Readiness.EventEmitterDefaults
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.HostAdapters.Readiness.StateTransitionReadinessBackend
   alias SymphonyElixir.Workflow.StateTransitionReadiness.Contract.Envelope
-  alias SymphonyElixir.Storage.Scrubber
 
   @callback snapshot(term(), keyword()) :: map()
   @callback record(term() | [term()], map(), keyword()) :: :ok

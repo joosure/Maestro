@@ -8,8 +8,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   enable production gates.
   """
 
-  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Profile.Contract, as: ProfileContract
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.Claim
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Profile.Contract, as: ProfileContract
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.OneShot.Contract, as: OneShotContract
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract.Gates
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Governance
@@ -18,7 +18,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   @template_ids ["reference", "linear_github_ready", "tapd_cnb_shadow", "linear_cnb_shadow"]
   @runtime_targeted_discovery "runtime_targeted"
   @default_repository_class "single_repo_change_proposal"
-  @default_agent_provider "codex"
+  @default_agent_provider "configured_agent_provider"
+  @default_storage_backend "workflow_extension_state_store"
   @default_retention_class "workflow_audit_staging"
   @default_retention_days 30
   @default_scrubbing_catalog "2026-06-25"
@@ -145,7 +146,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "provider_matrix_entry_id" => entry_id,
       "profile_instance_id" => profile_instance_id,
       "durability_profile" => %{
-        "storage_backend" => Keyword.get(opts, :storage_backend, "sqlite"),
+        "storage_backend" => Keyword.get(opts, :storage_backend, @default_storage_backend),
         "restart_behavior" => "survives process, worker, and service restarts",
         "backup_restore" => "documented backup and restore drill before production enablement",
         "retention_class" => retention_class,

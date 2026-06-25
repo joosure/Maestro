@@ -15,7 +15,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
 
   @type validation_result :: {:ok, map()} | {:error, map()}
 
-  @spec validate(map()) :: validation_result()
+  @spec validate(term()) :: validation_result()
   def validate(claim) when is_map(claim) do
     profile_instance_id = value_at(claim, ["profile_instance_id"])
     provider_matrix_result = ProviderMatrix.validate_claim(claim)

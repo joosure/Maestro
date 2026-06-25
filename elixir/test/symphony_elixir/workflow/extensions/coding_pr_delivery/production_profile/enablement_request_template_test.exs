@@ -88,7 +88,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
                "workflow_profile" => %{"kind" => "coding_pr_delivery", "version" => 1},
                "tracker" => %{"kind" => "linear"},
                "repo_provider" => %{"kind" => "cnb"},
-               "agent_provider" => %{"kind" => "codex"},
+               "agent_provider" => %{"kind" => "configured_agent_provider"},
                "side_effect_mode" => "shadow_no_write",
                "topology_mode" => "singleton",
                "non_claims" => [

@@ -105,11 +105,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
   @spec format_text(t()) :: String.t()
   def format_text(report) when is_map(report) do
-    report
-    |> text_lines()
-    |> Enum.map(&scrub_text/1)
-    |> Enum.join("\n")
-    |> Kernel.<>("\n")
+    Enum.map_join(text_lines(report), "\n", &scrub_text/1) <> "\n"
   end
 
   @spec to_map(t()) :: map()

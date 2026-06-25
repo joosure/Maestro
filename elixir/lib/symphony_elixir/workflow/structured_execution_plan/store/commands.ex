@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Commands do
   """
 
   alias SymphonyElixir.Agent.ExecutionPlan.Fields, as: AgentFields
+  alias SymphonyElixir.Storage.Scrubber
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Evidence
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Fields
@@ -24,7 +25,6 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Commands do
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Record
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store.Server.State
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Workpad.Renderer
-  alias SymphonyElixir.Storage.Scrubber
 
   @type reply :: term()
   @type command :: term()
