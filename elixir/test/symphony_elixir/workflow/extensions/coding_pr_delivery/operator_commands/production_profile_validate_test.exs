@@ -8,7 +8,10 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
     ProductionProfileValidate
   }
 
-  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.Phase2ClaimTemplate
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.{
+    Phase2ClaimTemplate,
+    Phase2EvidencePlan
+  }
 
   test "is registered as a Coding PR Delivery operator command" do
     assert ProductionProfileValidate in CodingPrDelivery.operator_commands()
@@ -52,6 +55,29 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       assert payload["projection"]["raw_evidence_payload_included"] == false
       assert payload["normalized_packet_included"] == false
       assert payload["does_not_call_providers"] == true
+    end)
+  end
+
+  test "validates preflight reports as bounded blocker metadata" do
+    report = blocked_preflight_report()
+
+    with_json_file!(report, fn path ->
+      assert {stdout, "", 0} =
+               ProductionProfileValidate.evaluate(["--kind", "preflight_report", "--file", path, "--json"])
+
+      payload = Jason.decode!(stdout)
+
+      assert payload["kind"] == "preflight_report"
+      assert payload["status"] == "valid"
+      assert payload["valid"] == true
+      assert payload["summary"]["status"] == "blocked"
+      assert payload["summary"]["phase2_plan_kind"] == "linear_cnb_shadow"
+      assert payload["summary"]["planned_preflight_command_count"] == 2
+      assert payload["summary"]["preflight_result_count"] == 2
+      assert payload["summary"]["raw_output_included"] == false
+      assert payload["does_not_call_providers"] == true
+      assert payload["does_not_enable_production"] == true
+      refute stdout =~ "operator-preflight-shadow"
     end)
   end
 
@@ -134,5 +160,54 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
     after
       File.rm(path)
     end
+  end
+
+  defp blocked_preflight_report do
+    assert {:ok, phase2_plan} =
+             Phase2EvidencePlan.build(:linear_cnb_shadow, linear_cnb_shadow_run_id: "operator-preflight-shadow")
+
+    %{
+      "schema" => "coding_pr_delivery.provider_preflight_report.v1",
+      "phase2_evidence_plan" => phase2_plan,
+      "provider_preflight_results" =>
+        phase2_plan
+        |> Map.fetch!("provider_plans")
+        |> Enum.flat_map(fn provider_plan ->
+          provider_plan
+          |> get_in(["read_only_preflight", "commands"])
+          |> Enum.map(&preflight_result(Map.fetch!(provider_plan, "template"), &1))
+        end),
+      "explicit_non_claims" => [
+        "preflight_report_does_not_collect_live_provider_evidence",
+        "preflight_report_does_not_enable_production"
+      ]
+    }
+  end
+
+  defp preflight_result(template, command) do
+    %{
+      "template" => template,
+      "command_id" => Map.fetch!(command, "id"),
+      "target" => Map.fetch!(command, "target"),
+      "provider_kind" => Map.fetch!(command, "provider_kind"),
+      "status" => "blocked",
+      "blocker_code" => "missing_preflight_prerequisite",
+      "missing_prerequisites" => [first_prerequisite(command)],
+      "ran_at" => "2026-06-26T03:20:00Z",
+      "side_effect_mode" => "read_only",
+      "write_performed" => false,
+      "production_enabled" => false
+    }
+  end
+
+  defp first_prerequisite(command) do
+    command
+    |> Map.take(["required_env", "required_auth", "required_targets"])
+    |> Map.values()
+    |> Enum.flat_map(fn
+      values when is_list(values) -> values
+      _value -> []
+    end)
+    |> List.first()
   end
 end

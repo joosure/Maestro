@@ -177,7 +177,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "github",
         "mise exec -- mix repo_provider.smoke --provider github --repo <owner/name> --pr <pr-number> --json",
         [],
-        ["gh auth status"]
+        ["gh auth status"],
+        ["repo_slug", "change_proposal_number"]
       )
     ]
   end
@@ -189,7 +190,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "cnb",
         "mise exec -- mix repo_provider.smoke --provider cnb --repo <owner/name> --pr <pr-number> --json",
         ["CNB_TOKEN"],
-        []
+        [],
+        ["repo_slug", "change_proposal_number"]
       )
     ]
   end
@@ -201,7 +203,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         "cnb",
         "mise exec -- mix repo_provider.smoke --provider cnb --repo <owner/name> --pr <pr-number> --json",
         ["CNB_TOKEN"],
-        []
+        [],
+        ["repo_slug", "change_proposal_number"]
       )
     ]
   end
@@ -214,13 +217,14 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "command" => "mise exec -- mix tracker.smoke --template #{template} --json",
       "required_env" => required_env,
       "required_auth" => [],
+      "required_targets" => [],
       "side_effect_mode" => "read_only",
       "requires_write_confirmation" => false,
       "does_not_write" => true
     }
   end
 
-  defp repo_provider_preflight(provider_kind, command, required_env, required_auth) do
+  defp repo_provider_preflight(provider_kind, command, required_env, required_auth, required_targets) do
     %{
       "id" => "#{provider_kind}-repo-provider-read-only-smoke",
       "target" => "repo_provider",
@@ -228,6 +232,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "command" => command,
       "required_env" => required_env,
       "required_auth" => required_auth,
+      "required_targets" => required_targets,
       "side_effect_mode" => "read_only",
       "requires_destructive_flag" => false,
       "does_not_write" => true

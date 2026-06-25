@@ -32,7 +32,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
                  "status" => "not_run",
                  "commands" => [
                    %{"provider_kind" => "linear", "does_not_write" => true},
-                   %{"provider_kind" => "github", "required_auth" => ["gh auth status"]}
+                   %{"provider_kind" => "github", "required_auth" => ["gh auth status"], "required_targets" => ["repo_slug", "change_proposal_number"]}
                  ]
                }
              },
@@ -41,7 +41,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
                "read_only_preflight" => %{
                  "commands" => [
                    %{"provider_kind" => "tapd", "required_env" => ["TAPD_API_USER", "TAPD_API_PASSWORD", "TAPD_WORKSPACE_ID"]},
-                   %{"provider_kind" => "cnb", "required_env" => ["CNB_TOKEN"]}
+                   %{"provider_kind" => "cnb", "required_env" => ["CNB_TOKEN"], "required_targets" => ["repo_slug", "change_proposal_number"]}
                  ]
                }
              },

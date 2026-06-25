@@ -141,10 +141,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   defp assert_required_repo_provider_auth("github", repo_provider) do
     assert repo_provider["required_env"] == []
     assert repo_provider["required_auth"] == ["gh auth status"]
+    assert repo_provider["required_targets"] == ["repo_slug", "change_proposal_number"]
   end
 
   defp assert_required_repo_provider_auth("cnb", repo_provider) do
     assert repo_provider["required_env"] == ["CNB_TOKEN"]
     assert repo_provider["required_auth"] == []
+    assert repo_provider["required_targets"] == ["repo_slug", "change_proposal_number"]
   end
 end

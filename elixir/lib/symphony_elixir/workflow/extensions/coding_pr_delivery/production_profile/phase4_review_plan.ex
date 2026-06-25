@@ -122,8 +122,10 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "scenario_count" => Map.get(provider_plan, "scenario_count", 0),
       "required_evidence_kinds" => required_evidence_kinds(requirements),
       "required_evidence_files" => required_evidence_files(requirements),
+      "read_only_preflight" => Map.get(provider_plan, "read_only_preflight"),
       "shadow" => shadow_summary(requirements),
       "non_claims" => non_claims(provider_plan),
+      "preflight_report_required_before_evidence" => true,
       "review_packet_blocked_until_completed_evidence" => true,
       "evidence_packet_required_before_review" => true
     }
@@ -178,6 +180,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "changed_source_specs" => @source_specs,
       "implementation_refs" => ["fill-implementation-pr-or-local-patch-ref"],
       "deterministic_test_matrix" => ["fill-deterministic-test-matrix"],
+      "provider_preflight_reports" => provider_preflight_reports(provider_review_plans),
       "completed_evidence_packets" => completed_evidence_packets(provider_review_plans),
       "rollback_instructions" => %{
         "external_transition_readiness_gate" => Gates.transition_readiness_required_gate_key(),
@@ -226,7 +229,37 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     end)
   end
 
+  defp provider_preflight_reports(provider_review_plans) do
+    Enum.map(provider_review_plans, fn plan ->
+      %{
+        "template" => Map.get(plan, "template"),
+        "provider_matrix_entry_ids" => Map.get(plan, "provider_matrix_entry_ids", []),
+        "required_command_ids" => required_preflight_command_ids(plan),
+        "report_status" => "fill-preflight-report-status",
+        "raw_output_included" => false
+      }
+    end)
+  end
+
+  defp required_preflight_command_ids(plan) do
+    plan
+    |> Map.get("read_only_preflight", %{})
+    |> Map.get("commands", [])
+    |> Enum.map(&Map.get(&1, "id"))
+    |> unique_strings()
+  end
+
   defp blocking_requirements(provider_review_plans) do
+    preflight_blockers =
+      Enum.map(provider_review_plans, fn plan ->
+        %{
+          "code" => "provider_preflight_report_required",
+          "template" => Map.get(plan, "template"),
+          "provider_matrix_entry_ids" => Map.get(plan, "provider_matrix_entry_ids", []),
+          "message" => "A validated read-only provider preflight report is required before completed evidence collection."
+        }
+      end)
+
     evidence_blockers =
       Enum.map(provider_review_plans, fn plan ->
         %{
@@ -237,7 +270,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
         }
       end)
 
-    evidence_blockers ++
+    preflight_blockers ++
+      evidence_blockers ++
       [
         %{
           "code" => "implementation_refs_required",

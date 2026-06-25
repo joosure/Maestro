@@ -45,6 +45,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert_shadow_review_plan(linear_cnb, "linear_cnb_shadow", "shadow-run-linear-cnb-42")
 
     blockers = plan["blocking_requirements"]
+    assert Enum.count(blockers, &(&1["code"] == "provider_preflight_report_required")) == 3
     assert Enum.count(blockers, &(&1["code"] == "completed_evidence_packet_required")) == 3
     assert Enum.any?(blockers, &(&1["code"] == "scrubbing_test_results_required"))
     assert Enum.any?(blockers, &(&1["code"] == "owner_signoffs_required"))
@@ -58,6 +59,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert "specs/workflow/profiles/coding_pr_delivery/profile_spec.md" in requirements["changed_source_specs"]
     assert "fill-implementation-pr-or-local-patch-ref" in requirements["implementation_refs"]
     assert "fill-deterministic-test-matrix" in requirements["deterministic_test_matrix"]
+
+    assert [%{"required_command_ids" => preflight_command_ids, "raw_output_included" => false}] =
+             requirements["provider_preflight_reports"]
+
+    assert "linear-tracker-read-only-smoke" in preflight_command_ids
+    assert "cnb-repo-provider-read-only-smoke" in preflight_command_ids
 
     assert requirements["rollback_instructions"]["external_transition_readiness_gate"] ==
              Gates.transition_readiness_required_gate_key()
@@ -123,6 +130,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   defp assert_shadow_review_plan(plan, template, shadow_run_id) do
     assert plan["template"] == template
     assert plan["required_evidence_kinds"] == ["shadow_integration"]
+    assert plan["preflight_report_required_before_evidence"] == true
     assert plan["review_packet_blocked_until_completed_evidence"] == true
     assert plan["shadow"]["prefix"] == OneShotContract.shadow_prefix()
     assert plan["shadow"]["run_id"] == shadow_run_id

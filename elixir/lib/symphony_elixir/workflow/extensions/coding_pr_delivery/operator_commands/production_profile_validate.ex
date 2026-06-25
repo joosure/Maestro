@@ -31,6 +31,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
     "provider_matrix_entry",
     "typed_tool_exception",
     "claim",
+    "preflight_report",
     "evidence_packet",
     "review_packet",
     "enablement_request",
@@ -48,6 +49,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
           required(:validate_provider_matrix_entry) => (map() -> validation_result()),
           required(:validate_typed_tool_exception) => (map() -> validation_result()),
           required(:validate_claim) => (map() -> validation_result()),
+          required(:validate_preflight_report) => (map() -> validation_result()),
           required(:validate_evidence_packet) => (map() -> validation_result()),
           required(:validate_review_packet) => (map() -> validation_result()),
           required(:review_decision) => (map() -> {:ok, map()}),
@@ -83,6 +85,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       validate_provider_matrix_entry: &ProductionProfile.validate_provider_matrix_entry/1,
       validate_typed_tool_exception: &ProductionProfile.validate_typed_tool_exception/1,
       validate_claim: &ProductionProfile.validate_claim/1,
+      validate_preflight_report: &ProductionProfile.validate_preflight_report/1,
       validate_evidence_packet: &ProductionProfile.validate_evidence_packet/1,
       validate_review_packet: &ProductionProfile.validate_review_packet/1,
       review_decision: &ProductionProfile.review_decision/1,
@@ -190,6 +193,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
   defp validate_kind("provider_matrix_entry", payload, deps), do: deps.validate_provider_matrix_entry.(payload)
   defp validate_kind("typed_tool_exception", payload, deps), do: deps.validate_typed_tool_exception.(payload)
   defp validate_kind("claim", payload, deps), do: deps.validate_claim.(payload)
+  defp validate_kind("preflight_report", payload, deps), do: deps.validate_preflight_report.(payload)
   defp validate_kind("evidence_packet", payload, deps), do: deps.validate_evidence_packet.(payload)
   defp validate_kind("review_packet", payload, deps), do: deps.validate_review_packet.(payload)
   defp validate_kind("enablement_request", payload, deps), do: deps.validate_enablement_request.(payload)
@@ -249,6 +253,16 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       "scenario_evidence_count" => count(packet, "scenario_evidence"),
       "non_claim_acknowledgement_count" => count(packet, "non_claim_acknowledgements"),
       "provider_matrix_entry_ids" => ids(get_in(packet, ["runbook", "entries"]) || [])
+    }
+  end
+
+  defp summary("preflight_report", packet) do
+    %{
+      "status" => Map.get(packet, "status"),
+      "phase2_plan_kind" => value_at(packet, ["phase2_evidence_plan", "plan_kind"]),
+      "planned_preflight_command_count" => Map.get(packet, "planned_preflight_command_count"),
+      "preflight_result_count" => Map.get(packet, "preflight_result_count"),
+      "raw_output_included" => Map.get(packet, "raw_output_included")
     }
   end
 
@@ -385,6 +399,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       validate_provider_matrix_entry: 1,
       validate_typed_tool_exception: 1,
       validate_claim: 1,
+      validate_preflight_report: 1,
       validate_evidence_packet: 1,
       validate_review_packet: 1,
       review_decision: 1,
@@ -423,6 +438,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.OperatorCommands.P
       provider_matrix_entry
       typed_tool_exception
       claim
+      preflight_report
       evidence_packet
       review_packet
       enablement_request
