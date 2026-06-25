@@ -60,6 +60,29 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert shadow_requirements["allowed_destinations"] == OneShotContract.shadow_allowed_destinations()
   end
 
+  test "builds a Linear + CNB shadow template without ready-to-land authority" do
+    assert {:ok, %{"provider_matrix" => [entry]} = claim} =
+             Phase2ClaimTemplate.build(:linear_cnb_shadow)
+
+    assert {:ok, _normalized_claim} = Claim.validate(claim)
+    assert {:ok, runbook} = EvidenceRunbook.build(claim)
+
+    assert entry["id"] == "linear-cnb-shadow"
+    assert entry["tracker"] == %{"kind" => "linear"}
+    assert entry["repo_provider"] == %{"kind" => "cnb"}
+    assert entry["side_effect_mode"] == OneShotContract.shadow_mode()
+    assert entry["structured_plan_gates"][Gates.transition_readiness_required_gate_key()] == false
+    assert entry["shadow"]["prefix"] == OneShotContract.shadow_prefix()
+    assert entry["shadow"]["run_id"] == "linear-cnb-shadow-run-1"
+    assert entry["shadow"]["canonical_authority"] == false
+
+    assert [%{"entry_id" => "linear-cnb-shadow", "shadow_requirements" => shadow_requirements}] =
+             runbook["entries"]
+
+    assert shadow_requirements["authority"] == OneShotContract.shadow_authority()
+    assert shadow_requirements["allowed_destinations"] == OneShotContract.shadow_allowed_destinations()
+  end
+
   test "rejects unknown templates before building a production claim" do
     assert {:error, %{code: "coding_pr_delivery_phase2_claim_template_invalid", errors: [error]}} =
              Phase2ClaimTemplate.build(:github_only)
@@ -67,12 +90,17 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert error.code == "unknown_template"
     assert "reference" in error.allowed_values
     assert "tapd_cnb_shadow" in error.allowed_values
+    assert "linear_cnb_shadow" in error.allowed_values
   end
 
   test "exposes templates through the production profile facade" do
     assert "reference" in ProductionProfile.phase2_claim_templates()
+    assert "linear_cnb_shadow" in ProductionProfile.phase2_claim_templates()
 
     assert {:ok, %{"provider_matrix" => [%{"id" => "tapd-cnb-shadow"}]}} =
              ProductionProfile.phase2_claim_template(:tapd_cnb_shadow)
+
+    assert {:ok, %{"provider_matrix" => [%{"id" => "linear-cnb-shadow"}]}} =
+             ProductionProfile.phase2_claim_template(:linear_cnb_shadow)
   end
 end

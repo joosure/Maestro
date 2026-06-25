@@ -15,7 +15,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Governance
 
   @error_code "coding_pr_delivery_phase2_claim_template_invalid"
-  @template_ids ["reference", "linear_github_ready", "tapd_cnb_shadow"]
+  @template_ids ["reference", "linear_github_ready", "tapd_cnb_shadow", "linear_cnb_shadow"]
   @runtime_targeted_discovery "runtime_targeted"
   @default_repository_class "single_repo_change_proposal"
   @default_agent_provider "codex"
@@ -23,7 +23,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   @default_retention_days 30
   @default_scrubbing_catalog "2026-06-25"
 
-  @type template :: :reference | :linear_github_ready | :tapd_cnb_shadow
+  @type template :: :reference | :linear_github_ready | :tapd_cnb_shadow | :linear_cnb_shadow
   @type result :: {:ok, map()} | {:error, map()}
 
   @spec templates() :: [String.t()]
@@ -75,6 +75,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   defp entries_for("reference", opts), do: [linear_github_ready_entry(opts), tapd_cnb_shadow_entry(opts)]
   defp entries_for("linear_github_ready", opts), do: [linear_github_ready_entry(opts)]
   defp entries_for("tapd_cnb_shadow", opts), do: [tapd_cnb_shadow_entry(opts)]
+  defp entries_for("linear_cnb_shadow", opts), do: [linear_cnb_shadow_entry(opts)]
 
   defp linear_github_ready_entry(opts) do
     base_entry("linear-github-ready", "linear", "github", opts)
@@ -86,14 +87,22 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
   end
 
   defp tapd_cnb_shadow_entry(opts) do
-    base_entry("tapd-cnb-shadow", "tapd", "cnb", opts)
+    cnb_shadow_entry("tapd-cnb-shadow", "tapd", opts)
+  end
+
+  defp linear_cnb_shadow_entry(opts) do
+    cnb_shadow_entry("linear-cnb-shadow", "linear", opts)
+  end
+
+  defp cnb_shadow_entry(id, tracker, opts) do
+    base_entry(id, tracker, "cnb", opts)
     |> Map.merge(%{
       "side_effect_mode" => OneShotContract.shadow_mode(),
       "structured_plan_gates" => gates(false),
       "deployment_topology" => singleton_topology(),
       "shadow" => %{
         "prefix" => OneShotContract.shadow_prefix(),
-        "run_id" => Keyword.get(opts, :shadow_run_id, "tapd-cnb-shadow-run-1"),
+        "run_id" => Keyword.get(opts, :shadow_run_id, "#{id}-run-1"),
         "authority" => OneShotContract.shadow_authority(),
         "canonical_authority" => false,
         "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
