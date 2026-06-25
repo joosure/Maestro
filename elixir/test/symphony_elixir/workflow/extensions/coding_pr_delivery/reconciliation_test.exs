@@ -225,6 +225,75 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ReconciliationTest
     end
   end
 
+  test "runtime topology readiness proves singleton registered process-local writers" do
+    assert %{
+             ready?: true,
+             status: "ready",
+             topology: "singleton",
+             process_local_state: true,
+             ownership: "single_active_writer_per_node",
+             writers: writers
+           } = Reconciliation.runtime_topology_readiness(topology: :singleton)
+
+    assert Enum.map(writers, & &1.id) == [
+             "candidate_inbox",
+             "known_target_registry",
+             "known_target_watcher"
+           ]
+
+    assert Enum.all?(writers, &(&1.registered? and &1.alive?))
+    assert Enum.all?(writers, &(&1.ownership == "process_local_registered_singleton"))
+  end
+
+  test "runtime topology readiness fails closed without explicit singleton topology" do
+    result = Reconciliation.runtime_topology_readiness(topology: :multi_node, inbox: ["issue-secret"])
+
+    assert %{
+             ready?: false,
+             status: "blocked",
+             topology: nil,
+             reason: :singleton_topology_required,
+             value_type: :atom,
+             writers: []
+           } = result
+
+    refute inspect(result) =~ "issue-secret"
+  end
+
+  test "runtime topology readiness rejects unnamed process-local writers" do
+    unnamed_inbox = start_supervised!({Inbox, name: nil})
+
+    result = Reconciliation.runtime_topology_readiness(topology: :singleton, inbox: unnamed_inbox)
+
+    assert %{
+             ready?: false,
+             status: "blocked",
+             topology: "singleton",
+             reason: :writer_not_registered,
+             writers: [%{id: "candidate_inbox", server: "pid", registered?: false, alive?: true} | _]
+           } = result
+  end
+
+  test "runtime topology readiness rejects missing registered writers with bounded diagnostics" do
+    result =
+      Reconciliation.runtime_topology_readiness(
+        topology: :singleton,
+        inbox: :missing_candidate_inbox,
+        known_target_registry: KnownTarget.Registry,
+        watcher: Watcher
+      )
+
+    assert %{
+             ready?: false,
+             status: "blocked",
+             topology: "singleton",
+             reason: :writer_unavailable,
+             writers: [%{id: "candidate_inbox", server: ":missing_candidate_inbox", alive?: false} | _]
+           } = result
+
+    refute inspect(result) =~ "private_payload"
+  end
+
   test "runtime candidate inbox drains bounded deduplicated issue ids" do
     InboxAdmin.reset()
 
