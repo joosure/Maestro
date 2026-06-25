@@ -103,7 +103,8 @@ defmodule SymphonyElixir.Workflow.Extension.RuntimeTest do
     assert {:ok, entries} = OperatorCommandRegistry.entries(entries: [CodingPrDelivery])
 
     assert Enum.map(entries, & &1.id) == [
-             "symphony.workflow.extension.coding_pr_delivery.change_proposal_reconcile"
+             "symphony.workflow.extension.coding_pr_delivery.change_proposal_reconcile",
+             "symphony.workflow.extension.coding_pr_delivery.production_profile_plan"
            ]
   end
 
