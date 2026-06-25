@@ -10,10 +10,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.{
     Claim,
     EnablementRequest,
+    EnablementRequestTemplate,
     EvidencePacket,
     EvidencePacketTemplate,
     EvidenceRunbook,
     OperatorApplyRecord,
+    OperatorApplyRecordTemplate,
     OperatorApplyPlan,
     Phase2ClaimTemplate,
     ProviderMatrix,
@@ -67,9 +69,15 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
   @spec validate_enablement_request(map()) :: validation_result()
   defdelegate validate_enablement_request(request), to: EnablementRequest, as: :validate
 
+  @spec enablement_request_template(map(), keyword()) :: validation_result()
+  defdelegate enablement_request_template(review_decision, opts \\ []), to: EnablementRequestTemplate, as: :build
+
   @spec operator_apply_plan(map()) :: {:ok, map()}
   defdelegate operator_apply_plan(request), to: OperatorApplyPlan, as: :build
 
   @spec validate_operator_apply_record(map()) :: validation_result()
   defdelegate validate_operator_apply_record(record), to: OperatorApplyRecord, as: :validate
+
+  @spec operator_apply_record_template(map()) :: validation_result()
+  defdelegate operator_apply_record_template(plan), to: OperatorApplyRecordTemplate, as: :build
 end
