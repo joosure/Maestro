@@ -17,6 +17,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfileT
              ProductionProfile.validate_typed_tool_exception(%{})
 
     assert Enum.any?(errors, &(&1.code == "required_field_missing" and &1.path == ["exception_id"]))
+
+    assert {:error, %{code: "coding_pr_delivery_evidence_packet_invalid"}} =
+             ProductionProfile.validate_evidence_packet(%{})
   end
 
   test "builds diagnostic runbooks through the facade after claim admission" do

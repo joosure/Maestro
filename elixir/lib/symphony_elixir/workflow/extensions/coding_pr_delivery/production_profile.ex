@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.{
     Claim,
+    EvidencePacket,
     EvidenceRunbook,
     ProviderMatrix,
     TypedToolException
@@ -33,4 +34,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec build_evidence_runbook(map()) :: validation_result()
   defdelegate build_evidence_runbook(claim), to: EvidenceRunbook, as: :build
+
+  @spec validate_evidence_packet(map()) :: validation_result()
+  defdelegate validate_evidence_packet(packet), to: EvidencePacket, as: :validate
 end
