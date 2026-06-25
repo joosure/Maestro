@@ -246,6 +246,46 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
     assert encoded.shadow["allowed_destinations"] == ["diagnostic_logs", "review_packets", "non_authoritative_evidence"]
   end
 
+  test "one-shot confirmed report preserves Linear + CNB provider identity without shadow metadata" do
+    report = %{
+      ok: true,
+      issue_id: "issue-linear-cnb-write",
+      mode: "state_write",
+      shadow: nil,
+      tracker_kind: "linear",
+      repo_provider_kind: "cnb",
+      before_state: "In Review",
+      after_state: "Merging",
+      decision: %{"decision" => "ready_to_land", "reason" => "ready_to_land", "target_route" => "merging"},
+      transition: %{"event" => "change_proposal_transition_succeeded", "skip_reason" => nil, "target_state" => "Merging"},
+      probes: [
+        %{
+          id: "targeted-reconcile",
+          ok: true,
+          summary: "Linear + CNB confirmed output is not shadow evidence",
+          error: nil,
+          duration_ms: 3
+        }
+      ]
+    }
+
+    text = OneShot.format_text(report)
+    encoded = OneShot.to_map(report)
+
+    assert text =~ "issue=issue-linear-cnb-write"
+    assert text =~ "mode=state_write"
+    assert text =~ "tracker=linear repo_provider=cnb"
+    assert text =~ "transition=change_proposal_transition_succeeded"
+    refute text =~ "[SHADOW_MODE_ONLY - NO PRODUCTION WRITE]"
+    refute text =~ "shadow_run_id="
+    refute text =~ "shadow_authority=diagnostic_only"
+
+    assert encoded.mode == "state_write"
+    assert encoded.tracker_kind == "linear"
+    assert encoded.repo_provider_kind == "cnb"
+    assert encoded.shadow == nil
+  end
+
   test "probe exception diagnostics do not expose exception messages" do
     {probe, {:error, %RuntimeError{}}} =
       Probe.run("bounded-probe", fn -> 1 end, fn ->
