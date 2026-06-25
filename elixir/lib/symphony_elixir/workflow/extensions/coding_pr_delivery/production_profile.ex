@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.{
     Claim,
+    EnablementRequest,
     EvidencePacket,
     EvidenceRunbook,
     ProviderMatrix,
@@ -45,4 +46,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile 
 
   @spec review_decision(map()) :: {:ok, map()}
   defdelegate review_decision(packet), to: ReviewDecision, as: :build
+
+  @spec validate_enablement_request(map()) :: validation_result()
+  defdelegate validate_enablement_request(request), to: EnablementRequest, as: :validate
 end
