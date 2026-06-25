@@ -63,6 +63,33 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
            }
   end
 
+  test "carries Linear + CNB shadow run id and no-write requirements" do
+    assert {:ok, claim} =
+             Phase2ClaimTemplate.build(:linear_cnb_shadow,
+               shadow_run_id: "shadow-run-linear-cnb-42"
+             )
+
+    assert {:ok, template} = EvidencePacketTemplate.build(claim)
+
+    requirement =
+      Enum.find(template["scenario_evidence_requirements"], fn requirement ->
+        requirement["provider_matrix_entry_id"] == "linear-cnb-shadow" and
+          requirement["scenario_id"] == "shadow_isolation"
+      end)
+
+    assert requirement["required_evidence_kind"] == "shadow_integration"
+    assert requirement["shadow"]["prefix"] == OneShotContract.shadow_prefix()
+    assert requirement["shadow"]["run_id"] == "shadow-run-linear-cnb-42"
+    assert requirement["shadow"]["authority"] == OneShotContract.shadow_authority()
+    assert requirement["shadow"]["canonical_authority"] == false
+    assert requirement["shadow"]["allowed_destinations"] == OneShotContract.shadow_allowed_destinations()
+
+    assert requirement["no_write_flags"] == %{
+             "production_write_performed" => false,
+             "canonical_surface_mutated" => false
+           }
+  end
+
   test "requires non-claim acknowledgement fields per provider entry" do
     assert {:ok, claim} = Phase2ClaimTemplate.build(:tapd_cnb_shadow)
     assert {:ok, template} = EvidencePacketTemplate.build(claim)
