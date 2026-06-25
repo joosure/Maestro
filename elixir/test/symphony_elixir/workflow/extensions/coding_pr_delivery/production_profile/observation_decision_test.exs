@@ -25,6 +25,26 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     assert decision["raw_evidence_payload_included"] == false
   end
 
+  test "projects Linear + CNB shadow observation status into a bounded reviewer decision" do
+    assert {:ok, decision} = ObservationDecision.build(valid_status(:linear_cnb_shadow))
+
+    assert decision["schema"] == "coding_pr_delivery.production_observation_decision.v1"
+    assert decision["status"] == "observation_passed"
+    assert decision["observation_status_id"] == "observation-linear-cnb-shadow"
+    assert decision["apply_record_id"] == "apply-record-linear-cnb-shadow"
+    assert decision["review_packet_id"] == "review-packet-linear-cnb-shadow"
+
+    assert decision["no_write_observation"] == %{
+             "production_write_performed" => false,
+             "canonical_surface_mutated" => false
+           }
+
+    assert decision["blockers"] == []
+    assert decision["records_observation_only"] == true
+    assert decision["does_not_enable_production"] == true
+    assert decision["raw_evidence_payload_included"] == false
+  end
+
   test "projects failed and in-progress observations without raw evidence payloads" do
     failed_status =
       valid_status()
@@ -67,12 +87,13 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
              ProductionProfile.observation_decision(valid_status())
   end
 
-  defp valid_status do
-    record = valid_apply_record()
+  defp valid_status(template \\ :tapd_cnb_shadow) do
+    entry_id = entry_id(template)
+    record = valid_apply_record(template)
     window = record["observation_start"]["observation_window"]
 
     %{
-      "observation_status_id" => "observation-tapd-cnb-shadow",
+      "observation_status_id" => "observation-#{entry_id}",
       "operator_apply_record" => record,
       "observed_by" => "release-operator",
       "observed_at" => "2026-06-25T01:00:00Z",
@@ -94,11 +115,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     }
   end
 
-  defp valid_apply_record do
-    plan = ready_apply_plan()
+  defp valid_apply_record(template) do
+    entry_id = entry_id(template)
+    plan = ready_apply_plan(template)
 
     %{
-      "apply_record_id" => "apply-record-tapd-cnb-shadow",
+      "apply_record_id" => "apply-record-#{entry_id}",
       "operator_apply_plan" => plan,
       "apply_metadata" => %{
         "applied_by" => "release-operator",
@@ -136,17 +158,19 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
     end)
   end
 
-  defp ready_apply_plan do
+  defp ready_apply_plan(template) do
+    entry_id = entry_id(template)
+
     %{
       "schema" => "coding_pr_delivery.production_operator_apply_plan.v1",
       "status" => "ready_for_operator_apply",
-      "enablement_request_id" => "enablement-tapd-cnb-shadow",
+      "enablement_request_id" => "enablement-#{entry_id}",
       "profile_instance_id" => "coding-pr-delivery-production",
-      "review_packet_id" => "review-packet-tapd-cnb-shadow",
+      "review_packet_id" => "review-packet-#{entry_id}",
       "scope" => %{
         "environment" => "production",
         "repositories" => ["acme/widgets"],
-        "provider_matrix_entry_ids" => ["tapd-cnb-shadow"],
+        "provider_matrix_entry_ids" => [entry_id],
         "side_effect_mode" => "shadow_no_write"
       },
       "gate_values" => %{
@@ -179,4 +203,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.ProductionProfile.
       "can_apply_automatically" => false
     }
   end
+
+  defp entry_id(:tapd_cnb_shadow), do: "tapd-cnb-shadow"
+  defp entry_id(:linear_cnb_shadow), do: "linear-cnb-shadow"
 end
