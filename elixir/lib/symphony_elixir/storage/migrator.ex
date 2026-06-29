@@ -7,6 +7,7 @@ defmodule SymphonyElixir.Storage.Migrator do
   for the local service profile.
   """
 
+  alias SymphonyElixir.Platform.PrivAssets
   alias SymphonyElixir.Storage.{ErrorCodes, Repo}
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
@@ -31,7 +32,7 @@ defmodule SymphonyElixir.Storage.Migrator do
 
   @spec migrate(module()) :: :ok | {:error, map()}
   def migrate(repo \\ Repo) do
-    path = Ecto.Migrator.migrations_path(repo)
+    path = migrations_path(repo)
     compiler_options = Code.compiler_options()
 
     try do
@@ -54,4 +55,36 @@ defmodule SymphonyElixir.Storage.Migrator do
       reason: reason
     }
   end
+
+  defp migrations_path(repo) do
+    repo
+    |> repo_priv_root()
+    |> Path.join("migrations")
+    |> PrivAssets.app_priv_root!(otp_app: repo_otp_app(repo))
+  end
+
+  defp repo_priv_root(repo) do
+    repo
+    |> repo_config()
+    |> Keyword.get(:priv, "priv/storage_repo")
+    |> strip_priv_prefix()
+  end
+
+  defp repo_otp_app(repo) do
+    repo
+    |> repo_config()
+    |> Keyword.get(:otp_app, :symphony_elixir)
+  end
+
+  defp repo_config(repo) do
+    if function_exported?(repo, :config, 0) do
+      repo.config()
+    else
+      []
+    end
+  end
+
+  defp strip_priv_prefix("priv/" <> rest), do: rest
+  defp strip_priv_prefix("priv"), do: ""
+  defp strip_priv_prefix(priv) when is_binary(priv), do: priv
 end
