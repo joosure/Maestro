@@ -8,6 +8,8 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan do
   """
 
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Contract
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.OperatorInspection
+  alias SymphonyElixir.Workflow.StructuredExecutionPlan.ProductionProfile.Governance
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Schema
   alias SymphonyElixir.Workflow.StructuredExecutionPlan.Store
 
@@ -41,4 +43,10 @@ defmodule SymphonyElixir.Workflow.StructuredExecutionPlan do
   @spec append_evidence_ref(String.t(), String.t(), map(), pos_integer(), keyword()) :: {:ok, map()} | {:error, map()}
   def append_evidence_ref(plan_id, item_id, evidence_ref, expected_revision, opts \\ []),
     do: Store.append_evidence_ref(plan_id, item_id, evidence_ref, expected_revision, opts)
+
+  @spec operator_inspection(map(), keyword()) :: {:ok, map()} | {:error, map()}
+  def operator_inspection(plan, opts \\ []), do: OperatorInspection.build(plan, opts)
+
+  @spec validate_production_governance(map()) :: {:ok, map()} | {:error, map()}
+  def validate_production_governance(packet), do: Governance.validate_packet(packet)
 end

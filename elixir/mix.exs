@@ -157,7 +157,7 @@ defmodule SymphonyElixir.MixProject do
   defp escript do
     [
       app: nil,
-      include_priv_for: [:symphony_elixir],
+      include_priv_for: [:symphony_elixir, :exqlite],
       main_module: SymphonyElixir.CLI,
       emu_args: "+B i",
       name: "symphony",

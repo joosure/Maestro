@@ -41,6 +41,50 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.Evidence
     assert_received {:recorded_evidence, ["issue-1"], %{"observations" => %{}}, [tag: "demo"]}
   end
 
+  test "scrubs evidence before backend record" do
+    opts = [readiness_evidence_store_backend: FakeBackend]
+
+    evidence = %{
+      "observations" => %{
+        "feedback" => %{
+          "summary" => "token=ghp_secret123 Authorization: Bearer bearer-secret",
+          "authorization" => "Bearer header-secret"
+        }
+      }
+    }
+
+    assert :ok = EvidenceStore.record(["issue-1"], evidence, opts)
+
+    assert_received {:recorded_evidence, ["issue-1"], scrubbed, []}
+    assert scrubbed["observations"]["feedback"]["summary"] =~ "token=[REDACTED]"
+    assert scrubbed["observations"]["feedback"]["summary"] =~ "Authorization: [REDACTED]"
+    assert scrubbed["observations"]["feedback"]["authorization"] == "[REDACTED]"
+    refute inspect(scrubbed) =~ "ghp_secret123"
+    refute inspect(scrubbed) =~ "bearer-secret"
+    refute inspect(scrubbed) =~ "header-secret"
+  end
+
+  test "record fails closed when scrubbing backend is unavailable" do
+    test_pid = self()
+    emit_event_fn = fn level, event, fields -> send(test_pid, {:evidence_store_event, level, event, fields}) end
+
+    opts = [
+      readiness_evidence_store_backend: FakeBackend,
+      storage_redaction_backend: __MODULE__.MissingRedactionCallbackBackend,
+      emit_event_fn: emit_event_fn
+    ]
+
+    assert :ok = EvidenceStore.record(["issue-1"], %{"observations" => %{"feedback" => %{"summary" => "safe"}}}, opts)
+
+    refute_received {:recorded_evidence, _, _, _}
+
+    assert_received {:evidence_store_event, :warning, :coding_pr_delivery_readiness_evidence_store_error,
+                     %{
+                       operation: "record",
+                       payload_summary: %{code: "redaction_failed"}
+                     }}
+  end
+
   test "fails closed on invalid opts and backend failures" do
     test_pid = self()
     emit_event_fn = fn level, event, fields -> send(test_pid, {:evidence_store_event, level, event, fields}) end
@@ -71,5 +115,9 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.Evidence
                      } = event}
 
     refute inspect(event) =~ "backend failed"
+  end
+
+  defmodule MissingRedactionCallbackBackend do
+    @moduledoc false
   end
 end

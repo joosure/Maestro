@@ -3,10 +3,12 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
   alias SymphonyElixir.Issue
   alias SymphonyElixir.Smoke.ResultStatus
+  alias SymphonyElixir.Storage.Scrubber
   alias SymphonyElixir.Tracker
   alias SymphonyElixir.Tracker.ProjectRef
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.Config, as: ReconciliationConfig
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.Contract
+  alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.OneShot.Contract, as: OneShotContract
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.OneShot.Fields
 
   @type probe_result :: %{
@@ -26,6 +28,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
           project_url: String.t() | nil,
           candidate_discovery: String.t() | nil,
           mode: String.t(),
+          shadow: map() | nil,
           ok: boolean(),
           duration_ms: non_neg_integer(),
           before_state: String.t() | nil,
@@ -51,7 +54,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
           [map()],
           [map()],
           [probe_result()],
-          integer()
+          integer(),
+          String.t() | nil
         ) :: t()
   def build(
         workflow_label,
@@ -64,7 +68,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
         issue_events,
         recent_events,
         probes,
-        duration_ms
+        duration_ms,
+        shadow_run_id \\ nil
       )
       when is_list(issue_events) and is_list(recent_events) and is_list(probes) do
     passed_count = Enum.count(probes, & &1.ok)
@@ -82,6 +87,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
       project_url: project_ref_value(settings, :url),
       candidate_discovery: candidate_discovery(reconciliation_config),
       mode: mode,
+      shadow: shadow_metadata(mode, shadow_run_id),
       ok: failed_count == 0 and not transition_failed?(transition),
       duration_ms: max(duration_ms, 0),
       before_state: issue_state(before_issue),
@@ -93,26 +99,26 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
       probe_count: length(probes),
       passed_count: passed_count,
       failed_count: failed_count,
-      probes: probes
+      probes: Enum.map(probes, &scrub_map/1)
     }
   end
 
   @spec format_text(t()) :: String.t()
   def format_text(report) when is_map(report) do
-    report
-    |> text_lines()
-    |> Enum.join("\n")
-    |> Kernel.<>("\n")
+    Enum.map_join(text_lines(report), "\n", &scrub_text/1) <> "\n"
   end
 
   @spec to_map(t()) :: map()
-  def to_map(report) when is_map(report), do: report
+  def to_map(report) when is_map(report), do: scrub_map(report)
 
   defp text_lines(report) do
-    [text_header(report)] ++
-      decision_text_line(report.decision) ++
-      transition_text_line(report.transition) ++
-      probe_text_lines(report.probes)
+    lines =
+      [text_header(report)] ++
+        decision_text_line(report.decision) ++
+        transition_text_line(report.transition) ++
+        probe_text_lines(report.probes)
+
+    shadow_prefixed_lines(report, lines)
   end
 
   defp text_header(report) do
@@ -149,6 +155,22 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
     end)
   end
 
+  defp shadow_prefixed_lines(report, lines) when is_map(report) and is_list(lines) do
+    case Map.get(report, :shadow) do
+      %{} = shadow ->
+        prefix = Map.get(shadow, "prefix")
+        run_id = Map.get(shadow, "run_id")
+        authority = Map.get(shadow, "authority")
+
+        Enum.map(lines, fn line ->
+          "#{prefix} shadow_run_id=#{run_id} shadow_authority=#{authority} #{line}"
+        end)
+
+      _shadow ->
+        lines
+    end
+  end
+
   defp latest_transition_event(events) when is_list(events) do
     Enum.find(events, fn event -> Map.get(event, Fields.event()) in Contract.transition_events() end)
   end
@@ -161,7 +183,37 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Reconciliation.One
 
   defp summarize_event(event) when is_map(event) do
     Map.take(event, Fields.summary_fields())
+    |> scrub_map()
   end
+
+  defp scrub_map(map) when is_map(map) do
+    case Scrubber.scrub_map(map) do
+      {:ok, scrubbed} -> scrubbed
+      {:error, reason} -> %{redaction_error: reason}
+    end
+  end
+
+  defp scrub_text(text) when is_binary(text) do
+    case Scrubber.scrub(text) do
+      {:ok, scrubbed} when is_binary(scrubbed) -> scrubbed
+      _result -> "[REDACTED]"
+    end
+  end
+
+  defp shadow_metadata(mode, run_id) when is_binary(run_id) do
+    if OneShotContract.shadow_mode?(mode) do
+      %{
+        "prefix" => OneShotContract.shadow_prefix(),
+        "run_id" => run_id,
+        "mode" => OneShotContract.shadow_mode(),
+        "authority" => OneShotContract.shadow_authority(),
+        "canonical_authority" => false,
+        "allowed_destinations" => OneShotContract.shadow_allowed_destinations()
+      }
+    end
+  end
+
+  defp shadow_metadata(_mode, _run_id), do: nil
 
   defp transition_failed?(%{} = transition), do: Map.get(transition, Fields.event()) == Contract.event_name(:transition_failed)
   defp transition_failed?(_transition), do: false

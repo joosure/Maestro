@@ -37,12 +37,30 @@ defmodule SymphonyElixir.Storage.GovernanceTest do
            }
   end
 
+  test "redaction boundary scrubs secret-like strings in non-secret fields" do
+    payload = %{
+      note: "Authorization: Bearer bearer-secret token=ghp_secret123",
+      nested: %{
+        "message" => "LINEAR_API_KEY=lin-secret safe=value"
+      }
+    }
+
+    redacted = Redaction.redact(payload)
+
+    assert redacted.note =~ "Authorization: [REDACTED]"
+    assert redacted.note =~ "token=[REDACTED]"
+    assert redacted.nested["message"] =~ "LINEAR_API_KEY=[REDACTED]"
+    refute inspect(redacted) =~ "bearer-secret"
+    refute inspect(redacted) =~ "ghp_secret123"
+    refute inspect(redacted) =~ "lin-secret"
+  end
+
   test "redaction boundary preserves structs" do
     payload = %URI{scheme: "https", host: "example.test", query: "token=visible"}
 
     assert %URI{} = redacted = Redaction.redact(payload)
     assert redacted.scheme == "https"
-    assert redacted.query == "token=visible"
+    assert redacted.query == "token=[REDACTED]"
   end
 
   test "governance boundaries can delegate to explicit backends" do

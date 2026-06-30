@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.Evidence
   package can provide another backend without changing policy code.
   """
 
+  alias SymphonyElixir.Storage.Scrubber
   alias SymphonyElixir.Workflow.Extension.Diagnostics
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.HostAdapters.Readiness.EventEmitterDefaults
   alias SymphonyElixir.Workflow.Extensions.CodingPrDelivery.HostAdapters.Readiness.StateTransitionReadinessBackend
@@ -51,7 +52,8 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.Evidence
   def record(keys, evidence, opts) when is_map(evidence) do
     with {:ok, opts} <- normalize_opts(opts),
          {:ok, backend} <- backend(opts),
-         :ok <- call_record(backend, keys, evidence, backend_opts(opts)) do
+         {:ok, scrubbed_evidence} <- Scrubber.scrub_map(evidence, opts),
+         :ok <- call_record(backend, keys, scrubbed_evidence, backend_opts(opts)) do
       :ok
     else
       {:error, reason} ->
@@ -194,7 +196,7 @@ defmodule SymphonyElixir.Workflow.Extensions.CodingPrDelivery.Readiness.Evidence
   defp emit_event_fn(_opts), do: &EventEmitterDefaults.emit/3
 
   defp bounded_reason(reason) when is_map(reason) do
-    Map.take(reason, [:reason, :value_type, :backend_type, :return_type, :kind, :exception, :reason_type])
+    Map.take(reason, [:code, :reason, :value_type, :backend_type, :return_type, :kind, :exception, :reason_type])
   end
 
   defp empty_evidence do

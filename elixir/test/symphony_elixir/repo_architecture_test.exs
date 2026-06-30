@@ -446,7 +446,7 @@ defmodule SymphonyElixir.RepoArchitectureTest do
 
   @coding_pr_delivery_reconciliation_path "lib/symphony_elixir/workflow/extensions/coding_pr_delivery/reconciliation.ex"
   @coding_pr_delivery_reconciliation_line_limit 70
-  @coding_pr_delivery_reconciliation_public_functions ~w(enqueue_issue_ids known_targets reconcile_runtime register_known_target run_known_target_watcher_once)
+  @coding_pr_delivery_reconciliation_public_functions ~w(enqueue_issue_ids known_targets reconcile_runtime register_known_target run_known_target_watcher_once runtime_topology_readiness)
 
   @coding_pr_delivery_reconciliation_config_path "lib/symphony_elixir/workflow/extensions/coding_pr_delivery/reconciliation/config.ex"
   @coding_pr_delivery_reconciliation_config_dir "lib/symphony_elixir/workflow/extensions/coding_pr_delivery/reconciliation/config"
