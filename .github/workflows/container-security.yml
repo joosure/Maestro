@@ -73,22 +73,42 @@ jobs:
         run: bash -n scripts/container-security-scan.sh
 
       - name: Build ${{ matrix.target }} image
+        id: build-image
         run: |
           set -euo pipefail
           mkdir -p "$REPORT_DIR"
-          DOCKER_BUILDKIT=1 docker build \
-            -f docker/app/Dockerfile \
-            --target "${{ matrix.target }}" \
-            --build-arg "OPENCODE_VERSION=${OPENCODE_VERSION}" \
-            --build-arg "CODEX_VERSION=${CODEX_VERSION}" \
-            --build-arg "CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}" \
-            --build-arg "CODEBUDDY_VERSION=${CODEBUDDY_VERSION}" \
-            --build-arg "SYMPHONY_UID=${SYMPHONY_UID}" \
-            --build-arg "SYMPHONY_GID=${SYMPHONY_GID}" \
-            -t "$IMAGE_NAME" \
-            .
+
+          build_succeeded=false
+          for attempt in 1 2 3; do
+            echo "Docker build attempt ${attempt}/3"
+            if DOCKER_BUILDKIT=1 docker build \
+              -f docker/app/Dockerfile \
+              --target "${{ matrix.target }}" \
+              --build-arg "OPENCODE_VERSION=${OPENCODE_VERSION}" \
+              --build-arg "CODEX_VERSION=${CODEX_VERSION}" \
+              --build-arg "CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}" \
+              --build-arg "CODEBUDDY_VERSION=${CODEBUDDY_VERSION}" \
+              --build-arg "SYMPHONY_UID=${SYMPHONY_UID}" \
+              --build-arg "SYMPHONY_GID=${SYMPHONY_GID}" \
+              -t "$IMAGE_NAME" \
+              .; then
+              build_succeeded=true
+              break
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+
+          if [ "$build_succeeded" != "true" ]; then
+            exit 1
+          fi
+
+          echo "built=true" >> "$GITHUB_OUTPUT"
 
       - name: Trivy vulnerability gate
+        if: steps.build-image.outputs.built == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}
@@ -98,7 +118,7 @@ jobs:
           exit-code: "1"
 
       - name: Trivy JSON report
-        if: always()
+        if: steps.build-image.outputs.built == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}
@@ -109,7 +129,7 @@ jobs:
           exit-code: "0"
 
       - name: Generate SPDX SBOM
-        if: always()
+        if: steps.build-image.outputs.built == 'true'
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.IMAGE_NAME }}
@@ -118,7 +138,7 @@ jobs:
           dependency-snapshot: false
 
       - name: Generate CycloneDX SBOM
-        if: always()
+        if: steps.build-image.outputs.built == 'true'
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.IMAGE_NAME }}

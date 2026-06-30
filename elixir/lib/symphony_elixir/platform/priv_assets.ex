@@ -62,24 +62,21 @@ defmodule SymphonyElixir.Platform.PrivAssets do
   end
 
   defp escript_path! do
-    case :escript.script_name() do
-      script_name when is_list(script_name) ->
-        script_path = script_name |> List.to_string() |> Path.expand()
+    script_path =
+      :escript.script_name()
+      |> List.to_string()
+      |> Path.expand()
 
-        cond do
-          script_path in ["", Path.expand("-e")] ->
-            raise ArgumentError, "could not resolve escript path for application priv assets"
-
-          File.regular?(script_path) ->
-            script_path
-
-          true ->
-            raise ArgumentError,
-                  "could not resolve escript path for application priv assets: #{inspect(script_path)}"
-        end
-
-      _other ->
+    cond do
+      script_path in ["", Path.expand("-e")] ->
         raise ArgumentError, "could not resolve escript path for application priv assets"
+
+      File.regular?(script_path) ->
+        script_path
+
+      true ->
+        raise ArgumentError,
+              "could not resolve escript path for application priv assets: #{inspect(script_path)}"
     end
   end
 
